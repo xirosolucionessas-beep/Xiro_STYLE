@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "bad711d0-b6a1-47f0-8859-1b4a81920757"
+      }
+    },
+    "android": {
+      "package": "com.xirosas.xirostyle"
+    }
+  }
+}

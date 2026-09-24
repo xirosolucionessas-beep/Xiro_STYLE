@@ -1,0 +1,76 @@
+/** Textos de la pantalla de Fidelización (Web). Se añaden a strings.ts. */
+export const loyaltyEs = {
+  loyalty_title: 'Fidelización',
+  loyalty_subtitle: 'Premia a tus clientes frecuentes: cada servicio elegible suma un sello hasta llegar a la meta.',
+  loyalty_tab_config: 'Configuración',
+  loyalty_tab_clients: 'Clientes',
+  loyalty_tab_history: 'Historial',
+
+  loyalty_enable_cta: 'Activar programa de fidelización',
+  loyalty_enable_hint: 'Al apagarlo, dejas de sumar sellos, pero no se pierde el progreso ya guardado.',
+  loyalty_goal_label: 'Meta (servicios para ganar el premio)',
+  loyalty_goal_invalid: 'Ingresa un número entero mayor a 0.',
+  loyalty_reset_cta: 'Reiniciar el contador al canjear',
+  loyalty_reset_hint: 'Si lo apagas, el excedente de sellos se guarda para el siguiente premio en vez de perderse.',
+  loyalty_message_label: 'Mensaje para el cliente al ganar el premio',
+  loyalty_message_hint: 'Se usa al avisarle por WhatsApp que ya tiene su premio disponible.',
+  loyalty_items_label: 'Servicios que suman sello',
+  loyalty_items_hint: 'Elige qué servicios de tu catálogo cuentan para la meta.',
+  loyalty_items_empty: 'Aún no tienes servicios en tu catálogo.',
+
+  loyalty_disabled_hint: 'El programa de fidelización está apagado. Actívalo en la pestaña Configuración para empezar a sumar sellos.',
+  loyalty_clients_empty: 'Todavía no hay progreso de fidelización registrado.',
+  loyalty_reward_available: 'Premio disponible para canjear.',
+  loyalty_just_earned: '¡Este cliente acaba de ganar su premio!',
+  loyalty_record_cta: 'Registrar servicio',
+  loyalty_record_title: 'Registrar servicio de {name}',
+  loyalty_record_item_label: 'Servicio realizado',
+  loyalty_record_item_placeholder: 'Elige un servicio',
+  loyalty_record_amount_label: 'Monto cobrado',
+  loyalty_record_amount_hint: 'Déjalo vacío para usar el precio del catálogo.',
+  loyalty_redeem_cta: 'Canjear premio',
+  loyalty_notify_whatsapp_cta: 'Avisar por WhatsApp',
+  loyalty_whatsapp_message: '¡Hola! En {business} ya tienes tu premio de fidelización disponible. Te esperamos para entregártelo. 🎉',
+
+  loyalty_history_empty: 'Aún no se ha canjeado ningún premio.',
+  loyalty_history_row: '{name} canjeó su premio ({goal} servicios).',
+} as const;
+
+export type LoyaltyStringKey = keyof typeof loyaltyEs;
+
+export const loyaltyEn: Record<LoyaltyStringKey, string> = {
+  loyalty_title: 'Loyalty',
+  loyalty_subtitle: 'Reward your regular clients: every eligible service adds a stamp until the goal is reached.',
+  loyalty_tab_config: 'Settings',
+  loyalty_tab_clients: 'Clients',
+  loyalty_tab_history: 'History',
+
+  loyalty_enable_cta: 'Turn on loyalty program',
+  loyalty_enable_hint: 'Turning it off stops adding stamps, but keeps the progress already saved.',
+  loyalty_goal_label: 'Goal (services to earn the reward)',
+  loyalty_goal_invalid: 'Enter a whole number greater than 0.',
+  loyalty_reset_cta: 'Reset the counter on redeem',
+  loyalty_reset_hint: 'If off, any extra stamps carry over toward the next reward instead of being lost.',
+  loyalty_message_label: 'Message for the client when they earn the reward',
+  loyalty_message_hint: 'Used when notifying them by WhatsApp that their reward is ready.',
+  loyalty_items_label: 'Services that add a stamp',
+  loyalty_items_hint: 'Choose which services from your catalog count toward the goal.',
+  loyalty_items_empty: "You don't have any services in your catalog yet.",
+
+  loyalty_disabled_hint: 'The loyalty program is off. Turn it on in the Settings tab to start adding stamps.',
+  loyalty_clients_empty: 'No loyalty progress recorded yet.',
+  loyalty_reward_available: 'Reward available to redeem.',
+  loyalty_just_earned: 'This client just earned their reward!',
+  loyalty_record_cta: 'Record service',
+  loyalty_record_title: 'Record a service for {name}',
+  loyalty_record_item_label: 'Service performed',
+  loyalty_record_item_placeholder: 'Choose a service',
+  loyalty_record_amount_label: 'Amount charged',
+  loyalty_record_amount_hint: 'Leave empty to use the catalog price.',
+  loyalty_redeem_cta: 'Redeem reward',
+  loyalty_notify_whatsapp_cta: 'Notify by WhatsApp',
+  loyalty_whatsapp_message: 'Hi! At {business} your loyalty reward is ready. We look forward to giving it to you. 🎉',
+
+  loyalty_history_empty: 'No rewards have been redeemed yet.',
+  loyalty_history_row: '{name} redeemed their reward ({goal} services).',
+};

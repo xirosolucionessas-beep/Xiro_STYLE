@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.expo/
+web-build/
+*.tsbuildinfo
+.DS_Store
+
+# API runtime data (SQLite + uploaded photos) and secrets
+apps/api/data/
+.env
+.env.*
+!.env.example
+
+# Native build output
+apps/mobile/android/
+apps/mobile/ios/
+*.apk
+*.aab
+*.ipa
+
+# Capturas sueltas de pruebas
+undefined/

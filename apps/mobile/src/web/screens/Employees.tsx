@@ -1,0 +1,267 @@
+import { EMPLOYEE_PERMISSIONS, normalizePermissions, passwordSchema, type AuditLogEntry, type Employee, type EmployeePermission } from '@xiro/shared';
+import { useState } from 'react';
+import { Ico } from '../icons';
+import { Button, Input } from '../ui';
+import { Checkbox, FormMessage } from '../ui/auth';
+import { Modal } from '../ui/Modal';
+import { useWebStyles } from '../ui/shared';
+
+type T = (key: string, params?: Record<string, string | number>) => string;
+type ActionResult = { ok: true } | { ok: false; error: string };
+
+export interface EmployeesViewProps {
+  t: T;
+  employees: Employee[];
+  logs: AuditLogEntry[];
+  onCreate: (input: { name: string; email?: string; phone?: string; password: string; permissions: EmployeePermission[] }) => Promise<ActionResult>;
+  onUpdate: (id: string, input: { name?: string; permissions?: EmployeePermission[]; active?: boolean; password?: string }) => Promise<ActionResult>;
+}
+
+type Tab = 'team' | 'activity';
+
+/** Acción de la bitácora → texto legible. Lo que no esté aquí se muestra tal cual (ruta), nunca se oculta. */
+const ACTION_LABELS: Record<string, string> = {
+  'POST /clients': 'audit_client_create',
+  'PUT /clients/:id': 'audit_client_update',
+  'DELETE /clients/:id': 'audit_client_delete',
+  'POST /items': 'audit_item_create',
+  'PUT /items/:id': 'audit_item_update',
+  'DELETE /items/:id': 'audit_item_delete',
+  'POST /items/:id/stock-adjustments': 'audit_stock_adjust',
+  'POST /categories': 'audit_category_change',
+  'PATCH /categories/:id': 'audit_category_change',
+  'DELETE /categories/:id': 'audit_category_change',
+  'POST /service-records': 'audit_service_record',
+  'POST /loyalty/clients/:clientId/redeem': 'audit_loyalty_redeem',
+  'POST /employees': 'audit_employee_create',
+  'PATCH /employees/:id': 'audit_employee_update',
+};
+
+function TabButton({ id, active, label, onSelect }: { id: Tab; active: boolean; label: string; onSelect: (id: Tab) => void }) {
+  return (
+    <button type="button" role="tab" id={`xw-emp-tab-${id}`} aria-selected={active} aria-controls={`xw-emp-panel-${id}`} tabIndex={active ? 0 : -1} className={`xw-emp-tab${active ? ' is-active' : ''}`} onClick={() => onSelect(id)}>
+      {label}
+    </button>
+  );
+}
+
+/** Casillas de permisos. Lo implícito (gestionar ⇒ ver) se marca solo y no se puede quitar mientras otro permiso lo necesite. */
+function PermissionPicker({ t, value, onChange }: { t: T; value: EmployeePermission[]; onChange: (next: EmployeePermission[]) => void }) {
+  const effective = normalizePermissions(value);
+  return (
+    <fieldset className="xw-emp-perms">
+      <legend className="xw-label">{t('emp_permissions_label')}</legend>
+      <p className="xw-hint">{t('emp_permissions_hint')}</p>
+      {EMPLOYEE_PERMISSIONS.map((permission) => {
+        const required = normalizePermissions(effective.filter((p) => p !== permission)).includes(permission);
+        return (
+          <div key={permission} className="xw-emp-perm">
+            <Checkbox
+              checked={effective.includes(permission)}
+              onChange={(checked) => onChange(checked ? [...value, permission] : value.filter((p) => p !== permission))}>
+              {t(`perm_${permission}`)}
+            </Checkbox>
+            {required ? <span className="xw-hint">{t('emp_permission_required')}</span> : <span className="xw-hint">{t(`perm_${permission}_hint`)}</span>}
+          </div>
+        );
+      })}
+    </fieldset>
+  );
+}
+
+interface FormState {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+  permissions: EmployeePermission[];
+}
+
+/** Alta y edición comparten formulario; al editar la contraseña es opcional y no hay correo/celular (son el acceso de la persona). */
+function EmployeeModal({ t, employee, onClose, onSubmit }: { t: T; employee?: Employee; onClose: () => void; onSubmit: (state: FormState) => Promise<ActionResult> }) {
+  const [state, setState] = useState<FormState>({ name: employee?.name ?? '', email: '', phone: '', password: '', permissions: employee?.permissions ?? [] });
+  const [errors, setErrors] = useState<Partial<Record<'name' | 'contact' | 'password', string>>>({});
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setState((current) => ({ ...current, [key]: value }));
+
+  async function submit() {
+    const next: typeof errors = {};
+    if (!state.name.trim()) next.name = t('required');
+    if (!employee && !state.email.trim() && !state.phone.trim()) next.contact = t('contact_required');
+    if ((!employee || state.password) && !passwordSchema.safeParse(state.password).success) next.password = t('password_weak');
+    setErrors(next);
+    setError(undefined);
+    if (Object.keys(next).length > 0) return;
+    setBusy(true);
+    try {
+      const result = await onSubmit(state);
+      if (!result.ok) setError(result.error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={employee ? t('emp_edit_title', { name: employee.name }) : t('emp_new_title')}
+      closeLabel={t('close')}
+      footer={
+        <>
+          <Button variant="ghost" onPress={onClose} disabled={busy}>
+            {t('cancel')}
+          </Button>
+          <Button onPress={() => void submit()} loading={busy} loadingLabel={t('loading')}>
+            {employee ? t('save_changes') : t('emp_create_cta')}
+          </Button>
+        </>
+      }>
+      <div className="xw-form">
+        <Input label={t('emp_name_label')} value={state.name} onChange={(v) => set('name', v)} name="name" error={errors.name} required />
+        {employee ? null : (
+          <>
+            <Input label={t('emp_email_label')} value={state.email} onChange={(v) => set('email', v)} type="email" name="email" error={errors.contact} />
+            <Input label={t('emp_phone_label')} value={state.phone} onChange={(v) => set('phone', v)} type="tel" name="phone" hint={t('emp_contact_hint')} />
+          </>
+        )}
+        <Input
+          label={employee ? t('emp_new_password_label') : t('emp_password_label')}
+          value={state.password}
+          onChange={(v) => set('password', v)}
+          type="password"
+          name="password"
+          error={errors.password}
+          hint={employee ? t('emp_new_password_hint') : t('emp_password_hint')}
+          required={!employee}
+        />
+        <PermissionPicker t={t} value={state.permissions} onChange={(next) => set('permissions', next)} />
+        {error ? <FormMessage>{error}</FormMessage> : null}
+      </div>
+    </Modal>
+  );
+}
+
+function TeamTab({ t, employees, onCreate, onUpdate }: Pick<EmployeesViewProps, 't' | 'employees' | 'onCreate' | 'onUpdate'>) {
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Employee | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string>();
+
+  async function toggleActive(employee: Employee) {
+    setBusyId(employee.id);
+    setError(undefined);
+    const result = await onUpdate(employee.id, { active: !employee.active });
+    if (!result.ok) setError(result.error);
+    setBusyId(null);
+  }
+
+  return (
+    <div className="xw-emp-team">
+      <Button onPress={() => setCreating(true)} icon={<Ico name="plus" size={18} />}>
+        {t('emp_new_cta')}
+      </Button>
+      {error ? <FormMessage>{error}</FormMessage> : null}
+      {employees.length === 0 ? (
+        <p className="xw-hint">{t('emp_empty')}</p>
+      ) : (
+        <ul className="xw-emp-list">
+          {employees.map((employee) => (
+            <li key={employee.id} className={`xw-emp-card${employee.active ? '' : ' is-inactive'}`}>
+              <div className="xw-emp-top">
+                <span className="xw-emp-name">{employee.name}</span>
+                <span className={`xw-emp-status${employee.active ? ' is-on' : ''}`}>{employee.active ? t('emp_active') : t('emp_inactive')}</span>
+              </div>
+              <p className="xw-emp-contact">{employee.email ?? employee.phone}</p>
+              <ul className="xw-emp-chips" aria-label={t('emp_permissions_label')}>
+                {employee.permissions.length === 0 ? <li className="xw-emp-chip is-empty">{t('emp_no_permissions')}</li> : employee.permissions.map((p) => <li key={p} className="xw-emp-chip">{t(`perm_${p}`)}</li>)}
+              </ul>
+              <div className="xw-emp-actions">
+                <Button size="sm" variant="secondary" onPress={() => setEditing(employee)}>
+                  {t('edit')}
+                </Button>
+                <Button size="sm" variant="ghost" onPress={() => void toggleActive(employee)} loading={busyId === employee.id} loadingLabel={t('loading')}>
+                  {employee.active ? t('emp_deactivate') : t('emp_reactivate')}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {creating ? (
+        <EmployeeModal
+          t={t}
+          onClose={() => setCreating(false)}
+          onSubmit={async (s) => {
+            const result = await onCreate({ name: s.name.trim(), email: s.email.trim() || undefined, phone: s.phone.trim() || undefined, password: s.password, permissions: normalizePermissions(s.permissions) });
+            if (result.ok) setCreating(false);
+            return result;
+          }}
+        />
+      ) : null}
+      {editing ? (
+        <EmployeeModal
+          t={t}
+          employee={editing}
+          onClose={() => setEditing(null)}
+          onSubmit={async (s) => {
+            const result = await onUpdate(editing.id, { name: s.name.trim(), permissions: normalizePermissions(s.permissions), ...(s.password ? { password: s.password } : {}) });
+            if (result.ok) setEditing(null);
+            return result;
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ActivityTab({ t, logs }: Pick<EmployeesViewProps, 't' | 'logs'>) {
+  if (logs.length === 0) return <p className="xw-hint">{t('emp_activity_empty')}</p>;
+  return (
+    <ul className="xw-emp-log">
+      {logs.map((log) => {
+        const labelKey = ACTION_LABELS[log.action];
+        const denied = log.status === 403;
+        return (
+          <li key={log.id} className={`xw-emp-log-row${denied ? ' is-denied' : ''}`}>
+            <span className="xw-emp-log-text">
+              <strong>{log.userName}</strong> · {labelKey ? t(labelKey) : log.action}
+              {denied ? <span className="xw-emp-denied"> · {t('emp_denied')}</span> : null}
+            </span>
+            <span className="xw-emp-log-date">{new Date(log.createdAt).toLocaleString()}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+export function EmployeesView({ t, employees, logs, onCreate, onUpdate }: EmployeesViewProps) {
+  useWebStyles();
+  const [tab, setTab] = useState<Tab>('team');
+  const tabs: Array<{ id: Tab; label: string }> = [
+    { id: 'team', label: t('emp_tab_team') },
+    { id: 'activity', label: t('emp_tab_activity') },
+  ];
+
+  return (
+    <div className="xw-page xw-emp-page">
+      <h1 className="xw-h1">{t('nav_employees')}</h1>
+      <p className="xw-sub" style={{ marginBottom: 'var(--xw-space-6)' }}>
+        {t('emp_subtitle')}
+      </p>
+      <div role="tablist" aria-label={t('nav_employees')} className="xw-emp-tabs">
+        {tabs.map((tb) => (
+          <TabButton key={tb.id} id={tb.id} active={tab === tb.id} label={tb.label} onSelect={setTab} />
+        ))}
+      </div>
+      <div role="tabpanel" id="xw-emp-panel-team" aria-labelledby="xw-emp-tab-team" hidden={tab !== 'team'}>
+        {tab === 'team' ? <TeamTab t={t} employees={employees} onCreate={onCreate} onUpdate={onUpdate} /> : null}
+      </div>
+      <div role="tabpanel" id="xw-emp-panel-activity" aria-labelledby="xw-emp-tab-activity" hidden={tab !== 'activity'}>
+        {tab === 'activity' ? <ActivityTab t={t} logs={logs} /> : null}
+      </div>
+    </div>
+  );
+}

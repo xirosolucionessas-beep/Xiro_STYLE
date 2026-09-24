@@ -1,0 +1,21 @@
+# PostgreSQL local para desarrollo (alternativa a `npm run db:dev -w @xiro/api`). Coincide con el DATABASE_URL de apps/api/.env.example.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: xiro
+      POSTGRES_PASSWORD: xiro
+      POSTGRES_DB: xiro
+    ports:
+      - '127.0.0.1:54320:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U xiro -d xiro']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

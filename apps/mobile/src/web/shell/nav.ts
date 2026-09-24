@@ -1,0 +1,29 @@
+import type { Requirement } from '../../lib/access';
+import type { IconName } from '../ui/shared';
+import type { SectionId } from './routes';
+
+export interface NavItem {
+  id: string;
+  labelKey: string;
+  icon: IconName;
+  /** Sección de `describeRoute` que marca este ítem como activo. */
+  section?: SectionId;
+  href?: string;
+  /** Quién lo ve en el menú (sin esto, cualquiera con sesión). El servidor impone lo mismo en cada petición. */
+  requires?: Requirement;
+  /** Módulo aún no disponible: se muestra como texto con la etiqueta "Próximamente". */
+  soon?: boolean;
+}
+
+/** Orden de la barra lateral. Editar aquí para añadir/quitar secciones. */
+export const NAV_ITEMS: NavItem[] = [
+  { id: 'home', labelKey: 'nav_home', icon: 'home', section: 'home', href: '/' },
+  { id: 'agenda', labelKey: 'nav_agenda', icon: 'calendar', soon: true, requires: 'owner' },
+  { id: 'clients', labelKey: 'nav_clients', icon: 'users', section: 'clients', href: '/clients', requires: ['clients_view'] },
+  { id: 'services', labelKey: 'nav_services', icon: 'book', section: 'services', href: '/catalog', requires: ['catalog_view'] },
+  { id: 'inventory', labelKey: 'nav_inventory', icon: 'box', section: 'inventory', href: '/inventory', requires: ['catalog_view'] },
+  { id: 'employees', labelKey: 'nav_employees', icon: 'briefcase', section: 'employees', href: '/employees', requires: 'owner' },
+  { id: 'reports', labelKey: 'nav_reports', icon: 'chart', soon: true, requires: 'owner' },
+  { id: 'loyalty', labelKey: 'nav_loyalty', icon: 'star', section: 'loyalty', href: '/loyalty', requires: ['loyalty_redeem', 'services_record'] },
+  { id: 'settings', labelKey: 'nav_settings', icon: 'sliders', section: 'settings', href: '/more' },
+];

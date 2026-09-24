@@ -1,0 +1,46 @@
+/** Textos web del panel de inicio, base de caja, botón de WhatsApp y ficha de servicio (ES/EN). */
+export const homeEs = {
+  account_of: 'Cuenta',
+  edit_profile: 'Editar perfil',
+  quick_actions: 'Accesos rápidos',
+  cash_current_base: 'Base actual',
+  cash_edit: 'Editar base de caja',
+  whatsapp_float_label: 'Escríbenos por WhatsApp',
+  gallery_additional: 'Galería adicional',
+  gallery_viewer_label: 'Visor de fotos',
+  gallery_photo: 'Foto',
+  gallery_of: 'de',
+  gallery_prev: 'Foto anterior',
+  gallery_next: 'Foto siguiente',
+  gallery_open: 'Ver foto en pantalla completa',
+  gallery_zoom_in: 'Acercar',
+  gallery_zoom_out: 'Alejar',
+  gallery_empty: 'Sin fotos',
+  view_public_page: 'Ver página pública',
+  back_to_catalog: 'Volver al catálogo',
+  back_to_inventory: 'Volver al inventario',
+} as const;
+
+export type HomeStringKey = keyof typeof homeEs;
+
+export const homeEn: Record<HomeStringKey, string> = {
+  account_of: 'Account',
+  edit_profile: 'Edit profile',
+  quick_actions: 'Quick actions',
+  cash_current_base: 'Current base',
+  cash_edit: 'Edit cash float',
+  whatsapp_float_label: 'Message us on WhatsApp',
+  gallery_additional: 'More photos',
+  gallery_viewer_label: 'Photo viewer',
+  gallery_photo: 'Photo',
+  gallery_of: 'of',
+  gallery_prev: 'Previous photo',
+  gallery_next: 'Next photo',
+  gallery_open: 'View photo full screen',
+  gallery_zoom_in: 'Zoom in',
+  gallery_zoom_out: 'Zoom out',
+  gallery_empty: 'No photos',
+  view_public_page: 'View public page',
+  back_to_catalog: 'Back to catalog',
+  back_to_inventory: 'Back to inventory',
+};
