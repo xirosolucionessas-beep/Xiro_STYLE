@@ -24,9 +24,9 @@ export interface SubscriptionViewProps {
   onClose?: () => void;
 }
 
-const METHODS: Array<{ id: CheckoutPaymentMethod; labelKey: string; hintKey?: string; icon: (props: { size: number }) => ReactNode }> = [
+const METHODS: Array<{ id: CheckoutPaymentMethod; labelKey: string; hintKey?: string; /** El logo trae su propia placa blanca: se le quita el recuadro tintado. */ plate?: boolean; icon: (props: { size: number }) => ReactNode }> = [
   { id: 'card', labelKey: 'pay_method_card', icon: ({ size }) => <Ico name="credit-card" size={size} /> },
-  { id: 'paypal', labelKey: 'pay_method_paypal', icon: ({ size }) => <PaypalLogo size={size} /> },
+  { id: 'paypal', labelKey: 'pay_method_paypal', plate: true, icon: () => <PaypalLogo /> },
   {
     id: 'bank_transfer',
     labelKey: 'pay_method_bank_transfer',
@@ -175,7 +175,7 @@ export function SubscriptionView({ t, currency, subscription, initialPlan, logo,
             <div className="xw-pay-methods" role="radiogroup" aria-labelledby="xw-co-step2">
               {METHODS.map((m) => (
                 <button key={m.id} type="button" role="radio" aria-checked={method === m.id} className={`xw-pay-method${method === m.id ? ' is-selected' : ''}`} onClick={() => setMethod(m.id)}>
-                  <span className="xw-pay-method-ico">{m.icon({ size: 26 })}</span>
+                  <span className={`xw-pay-method-ico${m.plate ? ' is-plate' : ''}`}>{m.icon({ size: 26 })}</span>
                   <span className="xw-pay-method-text">
                     <span className="xw-pay-method-label">{t(m.labelKey)}</span>
                     {m.hintKey ? <span className="xw-pay-method-hint">{t(m.hintKey)}</span> : null}

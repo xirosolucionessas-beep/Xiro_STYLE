@@ -3,12 +3,13 @@
  * a mano cuando hay un archivo oficial). NO son iconos de línea: conservan proporciones y colores oficiales.
  * Google: "G" multicolor · Apple: manzana en el color del texto del botón (negro sobre blanco / blanco sobre
  * negro; jamás dorada) · WhatsApp: verde #25D366 o blanco · Nequi/Bancolombia: PNG oficial entregado por el
- * negocio (nequiLogoData.ts / bancolombiaLogoData.ts), embebido como data URI, sobre una placa blanca redondeada
+ * negocio (nequiLogoData.ts / bancolombiaLogoData.ts / paypalLogoData.ts), embebido como data URI, sobre una placa blanca redondeada
  * para que se lean con nitidez sobre el fondo oscuro. Las demás rutas son las geometrías públicas de cada marca;
  * contrástalas con los recursos oficiales si tu equipo legal lo exige.
  */
 import { BANCOLOMBIA_LOGO_DATA_URI } from './bancolombiaLogoData';
 import { NEQUI_LOGO_DATA_URI } from './nequiLogoData';
+import { PAYPAL_LOGO_DATA_URI } from './paypalLogoData';
 
 interface LogoProps {
   size?: number;
@@ -34,15 +35,17 @@ export function AppleLogo({ size = 20 }: LogoProps) {
   );
 }
 
-/** Insignia compacta en el azul oficial de PayPal (#003087) con una "P" — simplificación legible a tamaño de ícono, no un trazo del logotipo. */
-export function PaypalLogo({ size = 20 }: LogoProps) {
+/**
+ * Logo oficial de PayPal (archivo entregado por el negocio: isotipo + nombre en azul; el fondo negro del archivo se quitó y sus bordes se recuperaron para que quede transparente) sobre una
+ * placa blanca redondeada, para que se lea con nitidez sobre el fondo oscuro. Sin `size`, la placa llena su contenedor
+ * (así queda centrada y a escala en la tarjeta de método de pago); con `size`, mide ese lado en píxeles.
+ */
+export function PaypalLogo({ size }: LogoProps) {
+  const box = size ? { width: size, height: size } : { width: '100%', height: '100%' };
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <rect width="24" height="24" rx="6" fill="#003087" />
-      <text x="12" y="17.5" textAnchor="middle" fontFamily="Arial, Helvetica, sans-serif" fontWeight="800" fontStyle="italic" fontSize="14" fill="#fff">
-        P
-      </text>
-    </svg>
+    <span className="xw-paypal-plate" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', flex: 'none', ...box, padding: '12%', borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
+      <img src={PAYPAL_LOGO_DATA_URI} alt="" aria-hidden="true" style={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain' }} />
+    </span>
   );
 }
 

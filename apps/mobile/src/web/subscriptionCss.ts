@@ -96,6 +96,8 @@ export function buildSubscriptionCss(): string {
   background: var(--xw-surface-tint); border: 1px solid color-mix(in srgb, var(--xw-accent) 25%, transparent); color: inherit; }
 [data-mode='mobile'] .xw-pay-method-ico { width: 2.75rem; height: 2.75rem; }
 .xw-pay-method.is-selected .xw-pay-method-ico { background: color-mix(in srgb, var(--xw-accent) 20%, transparent); border-color: var(--xw-accent); }
+/* Logo con placa blanca propia (PayPal): la placa ES el recuadro; sin fondo ni borde tintados detrás. */
+.xw-pay-method-ico.is-plate, .xw-pay-method.is-selected .xw-pay-method-ico.is-plate { background: transparent; border-color: transparent; }
 .xw-pay-method-text { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 [data-mode='mobile'] .xw-pay-method-text { align-items: flex-start; }
 .xw-pay-method-label { font: ${font.weight.extrabold} var(--xw-text-md)/${font.lineHeight.tight} var(--xw-font); }
