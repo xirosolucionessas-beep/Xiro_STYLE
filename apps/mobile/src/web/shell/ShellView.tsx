@@ -18,7 +18,7 @@ export interface ShellViewProps {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   route: RouteInfo;
-  t: (key: string) => string;
+  t: (key: string, params?: Record<string, string | number>) => string;
   signedIn: boolean;
   /** Quién usa la app: oculta del menú lo que no puede usar. Sin él, se muestra todo. */
   actor?: Actor | null;
@@ -32,6 +32,11 @@ export interface ShellViewProps {
   mainRef: RefObject<HTMLElement | null>;
   /** Estado de datos: barra de carga y aviso de error con reintento. */
   status?: ShellStatus;
+  /** Cabecera del rediseño: buscador global (centro) y herramientas (campana, mensajes, perfil) a la derecha. Solo con sesión. */
+  headerSearch?: ReactNode;
+  headerTools?: ReactNode;
+  /** Tarjeta extra al pie de la barra lateral (p. ej. el plan). Se oculta con la barra colapsada. */
+  sidebarExtra?: ReactNode;
   /** Botones flotantes (soporte de WhatsApp, asistente…). Solo se muestran con sesión iniciada. */
   floating?: ReactNode;
   children: ReactNode;
@@ -52,7 +57,7 @@ function linkHandler(href: string, navigate: (href: string) => void, after?: () 
   };
 }
 
-function NavList({ route, t, navigate, collapsed, onNavigate, actor }: { route: RouteInfo; t: (key: string) => string; navigate: (href: string) => void; collapsed: boolean; onNavigate?: () => void; actor?: Actor | null }) {
+function NavList({ route, t, navigate, collapsed, onNavigate, actor }: { route: RouteInfo; t: (key: string, params?: Record<string, string | number>) => string; navigate: (href: string) => void; collapsed: boolean; onNavigate?: () => void; actor?: Actor | null }) {
   const renderItem = (item: NavItem) => {
     const label = t(item.labelKey);
     const icon = <Icon name={item.icon} size={22} />;
@@ -159,7 +164,7 @@ function Drawer({ open, onClose, route, t, navigate, brand, actor }: { open: boo
  * Estructura de página de la web: enlace "Saltar al contenido", barra lateral persistente (escritorio),
  * iconos con tooltip (tablet), drawer (móvil), migas de pan y <main>. Componente puro: recibe todo por props.
  */
-export function ShellView({ mode, collapsed, onToggleCollapsed, route, t, signedIn, actor, brand, navigate, drawerOpen, onDrawerOpenChange, announcement, mainRef, status, floating, children }: ShellViewProps) {
+export function ShellView({ mode, collapsed, onToggleCollapsed, route, t, signedIn, actor, brand, navigate, drawerOpen, onDrawerOpenChange, announcement, mainRef, status, headerSearch, headerTools, sidebarExtra, floating, children }: ShellViewProps) {
   useWebStyles();
   // `standalone`: pantalla completa aun con sesión iniciada (p. ej. elegir plan) — sin sidebar ni barra de migas,
   // como si fuera una pantalla de autenticación.
@@ -185,6 +190,7 @@ export function ShellView({ mode, collapsed, onToggleCollapsed, route, t, signed
         <nav id="xw-sidebar" className={cx('xw-sidebar')} data-collapsed={iconsOnly} aria-label={t('main_nav')}>
           <Brand brand={brand} collapsed={iconsOnly} />
           <NavList route={route} t={t} navigate={navigate} collapsed={iconsOnly} actor={actor} />
+          {sidebarExtra && !iconsOnly ? <div className="xw-side-extra">{sidebarExtra}</div> : null}
           {mode === 'desktop' ? (
             <button type="button" className="xw-collapse" aria-expanded={!collapsed} aria-controls="xw-sidebar" onClick={onToggleCollapsed}>
               <Icon name={collapsed ? 'chevrons-right' : 'chevrons-left'} />
@@ -203,6 +209,12 @@ export function ShellView({ mode, collapsed, onToggleCollapsed, route, t, signed
               </button>
             ) : null}
             <Breadcrumbs route={route} t={t} navigate={navigate} />
+            {headerSearch || headerTools ? (
+              <>
+                <div className="xw-topbar-search">{headerSearch}</div>
+                <div className="xw-topbar-tools">{headerTools}</div>
+              </>
+            ) : null}
           </header>
         ) : null}
 

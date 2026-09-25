@@ -22,3 +22,17 @@ export function msUntilNextGreeting(now: Date): number {
   tomorrow.setHours(GREETING_BOUNDARIES[0], 0, 0, 0);
   return tomorrow.getTime() - now.getTime();
 }
+
+/** Hora (0–23) en la zona horaria dada; si la zona es inválida usa la del dispositivo. */
+export function hourInTimezone(timezone: string, date: Date): number {
+  try {
+    const hour = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hourCycle: 'h23' }).format(date);
+    const parsed = Number.parseInt(hour, 10);
+    return Number.isFinite(parsed) ? parsed % 24 : date.getHours();
+  } catch {
+    return date.getHours();
+  }
+}
+
+/** Saludo según la hora del NEGOCIO (su zona horaria), no la del navegador de quien mira. */
+export const greetingKeyIn = (timezone: string, date: Date): GreetingKey => greetingKey(hourInTimezone(timezone, date));

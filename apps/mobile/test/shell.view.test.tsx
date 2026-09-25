@@ -20,9 +20,10 @@ interface HarnessProps {
   navigate?: (href: string) => void;
   onToggle?: () => void;
   announcement?: string;
+  slots?: boolean;
 }
 
-function Harness({ mode = 'desktop', path = '/inventory', signedIn = true, collapsed = false, navigate = () => undefined, onToggle = () => undefined, announcement = '' }: HarnessProps) {
+function Harness({ mode = 'desktop', path = '/inventory', signedIn = true, collapsed = false, navigate = () => undefined, onToggle = () => undefined, announcement = '', slots = false }: HarnessProps) {
   const mainRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
   return (
@@ -38,7 +39,10 @@ function Harness({ mode = 'desktop', path = '/inventory', signedIn = true, colla
       drawerOpen={open}
       onDrawerOpenChange={setOpen}
       announcement={announcement}
-      mainRef={mainRef}>
+      mainRef={mainRef}
+      headerSearch={slots ? <input aria-label="Buscar" /> : undefined}
+      headerTools={slots ? <button>Campana</button> : undefined}
+      sidebarExtra={slots ? <p>Tarjeta del plan</p> : undefined}>
       <h1>Inventario</h1>
       <button>Contenido</button>
     </ShellView>
@@ -210,6 +214,30 @@ describe('ShellView — mobile (drawer)', () => {
     render(<Harness mode="mobile" />);
     await userEvent.click(screen.getByRole('button', { name: 'Abrir menú' }));
     await expectNoViolations(document.body);
+  });
+});
+
+describe('ShellView — header tools and sidebar card', () => {
+  it('shows search and tools in the top bar (inside the banner) and the plan card in the sidebar', () => {
+    render(<Harness slots />);
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getByRole('textbox', { name: 'Buscar' })).toBeTruthy();
+    expect(within(banner).getByRole('button', { name: 'Campana' })).toBeTruthy();
+    expect(within(screen.getByRole('navigation', { name: 'Navegación principal' })).getByText('Tarjeta del plan')).toBeTruthy();
+  });
+
+  it('hides the sidebar card when the sidebar is icons-only, and shows nothing when signed out', () => {
+    const collapsed = render(<Harness slots collapsed />);
+    expect(screen.queryByText('Tarjeta del plan')).toBeNull();
+    collapsed.unmount();
+    render(<Harness slots signedIn={false} path="/login" />);
+    expect(screen.queryByRole('button', { name: 'Campana' })).toBeNull();
+  });
+
+  it('on mobile the tools live in the top bar and there is no persistent sidebar card', () => {
+    render(<Harness slots mode="mobile" />);
+    expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Campana' })).toBeTruthy();
+    expect(screen.queryByText('Tarjeta del plan')).toBeNull();
   });
 });
 

@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
 import { XIRO_CONTACT } from '../src/web/config/contact.web';
-import { HomeView, type HomeAction, type HomeViewProps } from '../src/web/screens/Home';
 import { ServiceDetailView, type ServiceDetailViewProps } from '../src/web/screens/ServiceDetail';
 import { tw } from '../src/web/shell/strings';
 import { CashOpeningModal, type CashOpeningModalProps } from '../src/web/ui/CashOpeningModal';
@@ -20,99 +19,6 @@ async function noViolations(container: HTMLElement) {
   const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false }, region: { enabled: false } }, runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa', 'best-practice'] } });
   expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.html).join(' | ')}`)).toEqual([]);
 }
-
-/* ---------- Panel de inicio ---------- */
-
-const actions: HomeAction[] = [
-  { id: 'new_service', icon: 'plus', label: 'Nuevo servicio', href: '/item/form' },
-  { id: 'appointments', icon: 'calendar-days', label: 'Citas', soon: true },
-  { id: 'catalog', icon: 'book-open', label: 'Catálogo', href: '/catalog' },
-];
-
-function home(overrides: Partial<HomeViewProps> = {}) {
-  const props: HomeViewProps = {
-    t,
-    userName: 'Santiago',
-    businessSlug: 'studio-ana',
-    logo: <span data-testid="logo" />,
-    onChangeLogo: vi.fn(),
-    logoBusy: false,
-    onEditProfile: vi.fn(),
-    balanceAmount: 100000,
-    currency: 'COP',
-    onOpenCash: vi.fn(),
-    needsWhatsappSetup: false,
-    onGoBusinessSettings: vi.fn(),
-    actions,
-    navigate: vi.fn(),
-    ...overrides,
-  };
-  return { props, ...render(<HomeView {...props} />) };
-}
-
-describe('HomeView', () => {
-  it('shows the account, the amount already opened today, and passes axe', async () => {
-    const { container } = home();
-    expect(screen.getByText('Santiago')).toBeTruthy();
-    expect(screen.getByText('Cuenta · @studio-ana')).toBeTruthy();
-    expect(screen.getByText(money(100000))).toBeTruthy();
-    expect(screen.queryByText('Aún no has abierto la caja hoy')).toBeNull();
-    await noViolations(container);
-  });
-
-  it('shows "—" and the not-opened hint when there is no opening amount', () => {
-    home({ balanceAmount: null });
-    expect(screen.getByText('—')).toBeTruthy();
-    expect(screen.getByText('Aún no has abierto la caja hoy')).toBeTruthy();
-  });
-
-  it('opens the cash modal from the balance card and the profile from the account row', async () => {
-    const { props } = home();
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /Base de caja de hoy/ }));
-    await user.click(screen.getByRole('button', { name: 'Editar perfil' }));
-    expect(props.onOpenCash).toHaveBeenCalledOnce();
-    expect(props.onEditProfile).toHaveBeenCalledOnce();
-  });
-
-  it('shows the WhatsApp setup reminder only when the business has none, and it navigates to Ajustes', async () => {
-    const missing = home({ needsWhatsappSetup: true });
-    await userEvent.setup().click(screen.getByRole('button', { name: /WhatsApp del negocio/ }));
-    expect(missing.props.onGoBusinessSettings).toHaveBeenCalledOnce();
-    missing.unmount();
-    home({ needsWhatsappSetup: false });
-    expect(screen.queryByText('Datos del negocio')).toBeNull();
-  });
-
-  it('renders real navigable links for available actions and a disabled, non-tabbable badge for "soon" ones', async () => {
-    const { props } = home();
-    const user = userEvent.setup();
-    const catalog = screen.getByRole('link', { name: /Catálogo/ });
-    expect(catalog.getAttribute('href')).toBe('/catalog');
-    await user.click(catalog);
-    expect(props.navigate).toHaveBeenCalledWith('/catalog');
-
-    const soonTile = screen.getByText('Citas').closest('.xw-tile')!;
-    expect(soonTile.getAttribute('role')).toBe('link');
-    expect(soonTile.getAttribute('aria-disabled')).toBe('true');
-    expect(soonTile.getAttribute('href')).toBeNull();
-    expect(soonTile.getAttribute('tabindex')).toBeNull();
-    expect(soonTile.textContent).toContain('Próximamente');
-  });
-
-  it('shows a busy state on the mini camera button while uploading', () => {
-    home({ logoBusy: true });
-    const button = screen.getByRole('button', { name: 'Cambiar logo' });
-    expect(button.querySelector('.xw-spinner')).toBeTruthy();
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('the mini camera button triggers the file picker when idle', async () => {
-    const { props } = home({ logoBusy: false });
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Cambiar logo' }));
-    expect(props.onChangeLogo).toHaveBeenCalledOnce();
-  });
-});
 
 /* ---------- Base inicial del día ---------- */
 

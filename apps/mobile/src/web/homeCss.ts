@@ -18,32 +18,12 @@ export function buildHomeCss(): string {
    = 8.75rem, más un poco de aire. Antes solo se reservaba para un botón (4.5rem): con los dos apilados tapaba contenido. */
 [data-mode='mobile'] .xw-page { padding-bottom: calc(var(--xw-space-8) + 9.5rem); }
 
-/* ---------- Panel de inicio ---------- */
-/* Compacto a propósito: en móvil (≤ ~700px de alto) debe caber sin scroll junto con la barra inferior del navegador. */
-.xw-home { display: flex; flex-direction: column; gap: var(--xw-space-4); padding-top: var(--xw-space-1); }
-.xw-home-top { display: flex; align-items: center; justify-content: space-between; gap: var(--xw-space-3); flex-wrap: wrap; }
-.xw-home-brand { position: relative; flex: none; }
-.xw-home-logo { display: block; width: 48px; height: 48px; border-radius: var(--xw-radius-md); overflow: hidden; }
+/* ---------- Panel de inicio (piezas que reutiliza el tablero: cámara del logo, nombre, aviso de WhatsApp) ---------- */
 .xw-home-cam { position: absolute; right: -4px; bottom: -4px; width: 26px; height: 26px; border-radius: 50%; background: var(--xw-accent); color: var(--xw-on-accent); border: 2px solid var(--xw-background); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .xw-home-cam:hover { filter: brightness(1.05); }
-/* El botón crece con relleno invisible hasta los 44px táctiles aunque el contenido visual sea más compacto. */
-.xw-home-account { display: flex; align-items: center; gap: var(--xw-space-2); box-sizing: border-box; min-height: var(--xw-touch); padding: var(--xw-space-1) var(--xw-space-2); background: transparent; border: 0; border-radius: var(--xw-radius-lg); color: var(--xw-text); cursor: pointer; font-family: var(--xw-font); }
-.xw-home-account:hover { background: var(--xw-surface-alt); }
-.xw-home-account-text { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; }
 .xw-home-name { font: ${font.weight.bold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); overflow-wrap: anywhere; }
 .xw-home-sub { color: var(--xw-text-muted); font: var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); overflow-wrap: anywhere; }
 .xw-home-avatar { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--xw-accent-tint); border: 1.5px solid var(--xw-accent); color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-sm)/1 var(--xw-font); }
-.xw-home-today { margin: 0; color: var(--xw-text-muted); font: ${font.weight.semibold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
-
-/* flex-wrap: a zoom muy alto el monto (con su símbolo, que no debe partirse de su cifra) pasa a su propia línea con todo el ancho. */
-.xw-balance { display: flex; flex-wrap: wrap; align-items: center; gap: var(--xw-space-3); box-sizing: border-box; width: 100%; padding: var(--xw-space-4); text-align: left; border: 0; border-radius: var(--xw-radius-lg); cursor: pointer;
-  background: linear-gradient(135deg, #0d0d0f 0%, #2b2408 60%, #cfa62b 160%); box-shadow: 0 16px 36px -22px color-mix(in srgb, var(--xw-accent) 65%, transparent); font-family: var(--xw-font); }
-.xw-balance-ic { flex: none; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--xw-radius-md); background: rgba(255, 255, 255, .12); color: var(--xw-text); }
-.xw-balance-body { flex: 1 1 12rem; min-width: 0; }
-.xw-balance-label { color: var(--xw-text-muted); font: ${font.weight.semibold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
-.xw-balance-amount { margin-top: 2px; overflow-wrap: anywhere; color: var(--xw-text); font: ${font.weight.extrabold} var(--xw-text-2xl)/1.1 var(--xw-font); }
-.xw-balance-hint { margin-top: 2px; color: var(--xw-accent); font: ${font.weight.bold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
-.xw-balance-chevron { flex: none; color: var(--xw-accent); }
 
 .xw-setup { display: flex; align-items: center; gap: var(--xw-space-3); padding: var(--xw-space-3); }
 .xw-setup-ic { flex: none; color: var(--xw-accent); }
