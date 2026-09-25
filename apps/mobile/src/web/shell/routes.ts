@@ -1,6 +1,6 @@
 /** Metadatos de cada ruta de la app: título, migas de pan, sección activa y ancho de contenido. Puro (sin React). */
 
-export type SectionId = 'home' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
+export type SectionId = 'home' | 'notifications' | 'agenda' | 'reports' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
 
 export interface Crumb {
   /** Clave de traducción. */
@@ -45,6 +45,12 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
   switch (path) {
     case '/':
       return { titleKey: 'nav_home', section: 'home', trail: [{ labelKey: 'nav_home' }], auth: false, width: 'wide', needsHeading: true };
+    case '/notifications':
+      return { titleKey: 'notifications', section: 'notifications', trail: [HOME, { labelKey: 'notifications' }], auth: false, width: 'wide', needsHeading: false };
+    case '/agenda':
+      return { titleKey: 'nav_agenda', section: 'agenda', trail: [HOME, { labelKey: 'nav_agenda' }], auth: false, width: 'wide', needsHeading: false };
+    case '/reports':
+      return { titleKey: 'nav_reports', section: 'reports', trail: [HOME, { labelKey: 'nav_reports' }], auth: false, width: 'wide', needsHeading: false };
     case '/inventory':
       return { titleKey: 'inventory', section: 'inventory', trail: [HOME, { labelKey: 'nav_inventory' }], auth: false, width: 'wide', needsHeading: false, inlineErrors: true };
     case '/catalog':
@@ -52,7 +58,7 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
     case '/clients':
       return { titleKey: 'clients', section: 'clients', trail: [HOME, { labelKey: 'nav_clients' }], auth: false, width: 'wide', needsHeading: false };
     case '/more':
-      return { titleKey: 'more', section: 'settings', trail: [HOME, { labelKey: 'nav_settings' }], auth: false, width: 'form', needsHeading: false };
+      return { titleKey: 'nav_settings', section: 'settings', trail: [HOME, { labelKey: 'nav_settings' }], auth: false, width: 'wide', needsHeading: false };
     case '/categories':
       return { titleKey: 'manage_categories', section: 'settings', trail: [HOME, SETTINGS, { labelKey: 'manage_categories' }], auth: false, width: 'form', needsHeading: false };
     case '/business':
@@ -64,9 +70,9 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
     case '/profile':
       return { titleKey: 'profile', section: 'settings', trail: [HOME, SETTINGS, { labelKey: 'profile' }], auth: false, width: 'form', needsHeading: false };
     case '/employees':
-      return { titleKey: 'nav_employees', section: 'employees', trail: [HOME, { labelKey: 'nav_employees' }], auth: false, width: 'form', needsHeading: false };
+      return { titleKey: 'nav_employees', section: 'employees', trail: [HOME, { labelKey: 'nav_employees' }], auth: false, width: 'wide', needsHeading: false };
     case '/loyalty':
-      return { titleKey: 'nav_loyalty', section: 'loyalty', trail: [HOME, LOYALTY], auth: false, width: 'form', needsHeading: false };
+      return { titleKey: 'nav_loyalty', section: 'loyalty', trail: [HOME, LOYALTY], auth: false, width: 'wide', needsHeading: false };
     case '/cash-opening':
       return { titleKey: 'cash_opening_title', section: 'home', trail: [HOME, { labelKey: 'crumb_cash' }], auth: false, width: 'form', needsHeading: false };
     case '/share':

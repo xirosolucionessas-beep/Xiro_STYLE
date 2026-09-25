@@ -3,8 +3,6 @@ import { font } from './tokens';
 /** CSS de la pantalla de Empleados (Web): pestañas, tarjetas del equipo, permisos y bitácora. Se añade a buildCss(). */
 export function buildEmployeesCss(): string {
   return `
-.xw-emp-page { padding-top: var(--xw-space-8); max-width: 44rem; }
-[data-mode='mobile'] .xw-emp-page { padding-top: var(--xw-space-6); }
 
 .xw-emp-tabs { display: flex; gap: var(--xw-space-2); margin-bottom: var(--xw-space-6); border-bottom: 1px solid var(--xw-border-subtle); }
 .xw-emp-tab { box-sizing: border-box; min-height: var(--xw-touch); padding: 0 var(--xw-space-3); background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;

@@ -1,21 +1,10 @@
-import type { CSSProperties, MouseEvent, ReactNode } from 'react';
-import type { TrendDirection } from '../../lib/dashboard';
+import type { CSSProperties, ReactNode } from 'react';
 import { Ico, type IconName } from '../icons';
 import type { HeaderT } from '../shell/HeaderTools';
+import { KpiRow, LoadingRows, Panel, type KpiView } from '../ui/Page';
+import { linkProps } from '../ui/link';
 import { cx, useWebStyles } from '../ui/shared';
 import { ActionTile, type HomeAction } from './Home';
-
-export interface KpiView {
-  id: string;
-  icon: IconName;
-  label: string;
-  value: string;
-  loading?: boolean;
-  /** Variación frente a ayer; siempre con texto (nunca solo color ni solo flecha). */
-  trend?: { direction: TrendDirection; text: string };
-  hint?: string;
-  onPress?: () => void;
-}
 
 export interface SummaryRow {
   id: string;
@@ -67,69 +56,6 @@ export interface DashboardViewProps {
   supportHref: string;
 }
 
-function Trend({ trend, t }: { trend: NonNullable<KpiView['trend']>; t: HeaderT }) {
-  if (trend.direction === 'none') return null;
-  const icon: IconName = trend.direction === 'up' ? 'trending-up' : trend.direction === 'down' ? 'trending-down' : 'activity';
-  return (
-    <span className={cx('xw-trend', `is-${trend.direction}`)}>
-      <Ico name={icon} size={14} />
-      <span>{trend.text}</span>
-      <span className="xw-sr">{t('dash_vs_yesterday')}</span>
-    </span>
-  );
-}
-
-function KpiCard({ kpi, t }: { kpi: KpiView; t: HeaderT }) {
-  const body = (
-    <>
-      <span className="xw-kpi-ic" aria-hidden="true">
-        <Ico name={kpi.icon} size={22} />
-      </span>
-      <span className="xw-kpi-label">{kpi.label}</span>
-      {kpi.loading ? <span className="xw-skeleton xw-kpi-skel" aria-hidden="true" /> : <span className="xw-kpi-value">{kpi.value}</span>}
-      {kpi.loading ? <span className="xw-sr">{t('dash_loading')}</span> : null}
-      {!kpi.loading && kpi.trend ? <Trend trend={kpi.trend} t={t} /> : null}
-      {!kpi.loading && kpi.hint ? <span className="xw-kpi-hint">{kpi.hint}</span> : null}
-    </>
-  );
-  return kpi.onPress ? (
-    <button type="button" className="xw-kpi xw-kpi--action" onClick={kpi.onPress}>
-      {body}
-    </button>
-  ) : (
-    <div className="xw-kpi">{body}</div>
-  );
-}
-
-function Panel({ title, icon, action, children, className }: { title: string; icon?: IconName; action?: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <section className={cx('xw-panel', className)}>
-      <header className="xw-panel-head">
-        <h2 className="xw-panel-title">
-          {icon ? (
-            <span className="xw-panel-ic" aria-hidden="true">
-              <Ico name={icon} size={18} />
-            </span>
-          ) : null}
-          {title}
-        </h2>
-        {action}
-      </header>
-      {children}
-    </section>
-  );
-}
-
-function LoadingRows() {
-  return (
-    <div className="xw-rows-loading" aria-hidden="true">
-      <span className="xw-skeleton" />
-      <span className="xw-skeleton" />
-      <span className="xw-skeleton" />
-    </div>
-  );
-}
-
 /**
  * Tablero de Inicio de la web (rediseño): banner de bienvenida, indicadores con variación, accesos rápidos, próximas citas,
  * resumen del día, bajo inventario, actividad reciente, asistente y pie institucional. Puro: todo llega por props y solo
@@ -141,14 +67,7 @@ export function DashboardView(props: DashboardViewProps) {
   const hero: CSSProperties | undefined = props.heroUrl ? { backgroundImage: `linear-gradient(100deg, rgba(8,8,10,.92) 8%, rgba(8,8,10,.55) 60%, rgba(8,8,10,.35)), url("${props.heroUrl}")` } : undefined;
   const initial = props.userName.trim().charAt(0).toUpperCase() || '?';
 
-  const link = (href: string) => ({
-    href,
-    onClick: (event: MouseEvent<HTMLAnchorElement>) => {
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      navigate(href);
-    },
-  });
+  const link = (href: string) => linkProps(href, navigate);
 
   return (
     <div className="xw-dash">
@@ -190,13 +109,7 @@ export function DashboardView(props: DashboardViewProps) {
         </button>
       ) : null}
 
-      {kpis.length > 0 ? (
-        <section aria-label={t('dash_kpis')} className="xw-kpis">
-          {kpis.map((kpi) => (
-            <KpiCard key={kpi.id} kpi={kpi} t={t} />
-          ))}
-        </section>
-      ) : null}
+      <KpiRow kpis={kpis} label={t('dash_kpis')} t={t} />
 
       <div className="xw-dash-grid">
         <div className="xw-dash-col">
@@ -213,7 +126,7 @@ export function DashboardView(props: DashboardViewProps) {
 
           {activity ? (
             <Panel title={t('dash_activity_title')} icon="activity">
-              {activity.loading ? <LoadingRows /> : null}
+              {activity.loading ? <LoadingRows label={t('dash_loading')} /> : null}
               {!activity.loading && activity.rows.length === 0 ? <p className="xw-panel-empty">{t('dash_activity_empty')}</p> : null}
               {activity.rows.length > 0 ? (
                 <ul className="xw-timeline">
@@ -245,7 +158,7 @@ export function DashboardView(props: DashboardViewProps) {
 
           {summary ? (
             <Panel title={t('dash_summary_title')} icon="receipt">
-              {summary.loading ? <LoadingRows /> : null}
+              {summary.loading ? <LoadingRows label={t('dash_loading')} /> : null}
               {!summary.loading && summary.empty ? <p className="xw-panel-empty">{t('dash_summary_empty')}</p> : null}
               {!summary.loading && summary.rows.length > 0 ? (
                 <dl className="xw-summary">
@@ -269,7 +182,7 @@ export function DashboardView(props: DashboardViewProps) {
                   {t('dash_stock_see_all')}
                 </a>
               }>
-              {stock.loading ? <LoadingRows /> : null}
+              {stock.loading ? <LoadingRows label={t('dash_loading')} /> : null}
               {!stock.loading && stock.rows.length === 0 ? (
                 <p className="xw-panel-empty">
                   <Ico name="circle-check" size={16} /> {t('dash_stock_all_good')}

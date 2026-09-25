@@ -1,5 +1,5 @@
 import type { Item, LoyaltyClientProgress, LoyaltyProgram, LoyaltyRedemption } from '@xiro/shared';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -59,6 +59,22 @@ let openSpy: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   openSpy = vi.fn();
   vi.stubGlobal('open', openSpy);
+});
+
+describe('LoyaltyView — indicadores', () => {
+  it('resumen real del programa: estado, meta, premios por canjear y canjes', () => {
+    loyalty({ clientsProgress: [clientProgress, { ...clientProgress, clientId: 'cl2', rewardAvailable: true }] });
+    const kpis = within(screen.getByLabelText('Indicadores del día'));
+    expect(kpis.getByText('Programa').nextElementSibling!.textContent).toBe('Activo');
+    expect(kpis.getByText('Meta de sellos').nextElementSibling!.textContent).toBe('5');
+    expect(kpis.getByText('Premios por canjear').nextElementSibling!.textContent).toBe('1');
+    expect(kpis.getByText('Canjes realizados').nextElementSibling!.textContent).toBe('1');
+  });
+
+  it('sin permiso para canjear no muestra el indicador de canjes', () => {
+    loyalty({ canRedeem: false });
+    expect(screen.queryByText('Canjes realizados')).toBeNull();
+  });
 });
 
 describe('LoyaltyView', () => {

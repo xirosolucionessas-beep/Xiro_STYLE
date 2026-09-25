@@ -2,9 +2,11 @@
  * Variante WEB de src/ui/Screen.tsx (Metro la usa solo en web). Mismo API que la nativa; el <main> lo aporta el shell.
  * El contenido hace scroll dentro de la pantalla (la app ocupa el alto de la ventana) y se centra hasta el ancho máximo.
  */
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import type { ComponentProps } from 'react';
 import { useSettings } from '@/lib/settings';
+import { Ico, type IconName } from '@/web/icons';
+import { describeRoute, type SectionId } from '@/web/shell/routes';
 import { Icon, useWebStyles } from '@/web/ui/shared';
 import type * as Native from './Screen';
 
@@ -24,10 +26,14 @@ export function Screen({ children, footer, header }: ScreenProps) {
   );
 }
 
+/** Icono de la sección a la que pertenece la pantalla (las sub-pantallas heredan el de su sección). */
+const SECTION_ICON: Record<SectionId, IconName> = { home: 'house', notifications: 'bell', agenda: 'calendar-days', reports: 'bar-chart', clients: 'users', services: 'book-open', inventory: 'package', loyalty: 'gift', employees: 'briefcase', settings: 'sliders' };
+
 export function Header({ title, subtitle, onBack, right, root }: HeaderProps) {
   useWebStyles();
   const { t } = useSettings();
   const router = useRouter();
+  const section = describeRoute(usePathname()).section;
   // Vuelve con el historial real del navegador; sin historial (entrada directa) va al inicio sin apilar otra entrada.
   const goBack = () => (onBack ? onBack() : router.canGoBack() ? router.back() : router.replace('/'));
 
@@ -38,11 +44,16 @@ export function Header({ title, subtitle, onBack, right, root }: HeaderProps) {
           <Icon name="arrow-left" size={22} />
         </button>
       ) : null}
+      {section ? (
+        <span className="xw-head-ic" aria-hidden="true">
+          <Ico name={SECTION_ICON[section]} size={26} />
+        </span>
+      ) : null}
       <div className="xw-head-text">
         {title ? <h1 className="xw-h1">{title}</h1> : null}
         {subtitle ? <p className="xw-sub">{subtitle}</p> : null}
       </div>
-      {right}
+      {right ? <div className="xw-head-actions">{right}</div> : null}
     </div>
   );
 }

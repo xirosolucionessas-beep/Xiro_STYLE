@@ -5,6 +5,7 @@ import { dashboardEn, dashboardEs } from '../strings/dashboard';
 import { homeEn, homeEs } from '../strings/home';
 import { legalEn, legalEs } from '../strings/legal';
 import { profileEn, profileEs } from '../strings/profile';
+import { sectionsEn, sectionsEs } from '../strings/sections';
 import { welcomeEn, welcomeEs } from '../strings/welcome';
 
 /** Textos exclusivos de la web (el diccionario compartido con nativo no se toca). */
@@ -40,6 +41,7 @@ const es = {
   ...legalEs,
   ...profileEs,
   ...dashboardEs,
+  ...sectionsEs,
 } as const;
 
 export type WebStringKey = keyof typeof es;
@@ -76,6 +78,7 @@ const en: Record<WebStringKey, string> = {
   ...legalEn,
   ...profileEn,
   ...dashboardEn,
+  ...sectionsEn,
 };
 
 const dictionaries: Record<Language, Record<WebStringKey, string>> = { es, en };

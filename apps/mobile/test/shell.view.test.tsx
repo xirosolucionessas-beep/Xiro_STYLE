@@ -69,13 +69,11 @@ describe('ShellView — desktop', () => {
     expect(within(crumbs).getByRole('link', { name: 'Inventario' }).getAttribute('href')).toBe('/inventory');
   });
 
-  it('renders unavailable modules as non-link, non-focusable, announced as coming soon', () => {
+  it('lists every module as a real link, including Citas and Reportes', () => {
     render(<Harness />);
-    const item = screen.getByText('Citas').closest('.xw-nav-item')!;
-    expect(item.getAttribute('aria-disabled')).toBe('true');
-    expect(item.getAttribute('href')).toBeNull();
-    expect(item.getAttribute('tabindex')).toBeNull();
-    expect(item.textContent).toContain('Próximamente');
+    const sidebar = screen.getByRole('navigation', { name: 'Navegación principal' });
+    expect(within(sidebar).getByRole('link', { name: 'Citas' }).getAttribute('href')).toBe('/agenda');
+    expect(within(sidebar).getByRole('link', { name: 'Reportes' }).getAttribute('href')).toBe('/reports');
   });
 
   it('navigates client-side on plain clicks but lets modified clicks open new tabs', async () => {

@@ -8,6 +8,11 @@ describe('describeRoute', () => {
     const cases: Array<[string, string | null]> = [
       ['/', 'home'],
       ['/cash-opening', 'home'],
+      ['/agenda', 'agenda'],
+      ['/reports', 'reports'],
+      ['/notifications', 'notifications'],
+      ['/employees', 'employees'],
+      ['/loyalty', 'loyalty'],
       ['/clients', 'clients'],
       ['/client/abc', 'clients'],
       ['/client/form', 'clients'],
@@ -67,10 +72,19 @@ describe('describeRoute', () => {
 });
 
 describe('navigation config', () => {
-  it('has real links only for available modules and marks the rest as coming soon', () => {
-    const soon = NAV_ITEMS.filter((item) => item.soon).map((item) => item.id);
-    expect(soon).toEqual(['agenda', 'reports']);
-    for (const item of NAV_ITEMS) expect(Boolean(item.href), item.id).toBe(!item.soon);
+  it('every module in the menu is a real page (Citas says "Próximamente" inside its own page, not in the menu)', () => {
+    for (const item of NAV_ITEMS) {
+      expect(item.soon, item.id).toBeFalsy();
+      expect(item.href, item.id).toBeTruthy();
+      expect(describeRoute(item.href!).section, item.id).toBe(item.section);
+    }
+    expect(NAV_ITEMS.map((item) => item.href)).toContain('/agenda');
+    expect(NAV_ITEMS.map((item) => item.href)).toContain('/reports');
+  });
+
+  it('Citas and Reportes are owner-only in the menu (the server enforces the same)', () => {
+    expect(NAV_ITEMS.find((item) => item.id === 'agenda')!.requires).toBe('owner');
+    expect(NAV_ITEMS.find((item) => item.id === 'reports')!.requires).toBe('owner');
   });
 
   it('every nav label exists in both languages', () => {

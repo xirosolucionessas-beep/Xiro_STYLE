@@ -47,7 +47,8 @@ export function ChipRow({ children, label }: { children: ReactNode; label?: stri
 
 export function Card({ children, style, onPress }: { children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void }) {
   const { colors } = useSettings();
-  const base = [styles.card, { backgroundColor: colors.surface, borderColor: colors.border }, style];
+  // Borde decorativo (mismo que los paneles del resto de secciones): el contenido de la tarjeta no depende de él.
+  const base = [styles.card, { backgroundColor: colors.surface, borderColor: 'var(--xw-border-subtle)' }, style];
   if (!onPress) return <View style={base}>{children}</View>;
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [base, pressed && { opacity: 0.85 }]}>
