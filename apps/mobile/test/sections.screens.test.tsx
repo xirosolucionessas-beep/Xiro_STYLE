@@ -4,6 +4,8 @@ import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
 import { AgendaView } from '../src/web/screens/Agenda';
 import { ClientDetailView, type ClientDetailViewProps } from '../src/web/screens/ClientDetail';
+import { NotificationsView } from '../src/web/screens/Notifications';
+import { SubscriptionView } from '../src/web/screens/Subscription';
 import { ItemDetailView, type ItemDetailViewProps } from '../src/web/screens/ItemDetail';
 import { CatalogView, type CatalogViewProps } from '../src/web/screens/Catalog';
 import { ClientsView, type ClientsViewProps } from '../src/web/screens/Clients';
@@ -430,5 +432,86 @@ describe('ItemDetailView', () => {
     itemDetail({ notes: '', deleting: true });
     expect(screen.queryByText('Notas internas')).toBeNull();
     expect(screen.getByRole('button', { name: /Eliminar/ }).getAttribute('aria-busy')).toBe('true');
+  });
+});
+
+/* ---------- Notificaciones ---------- */
+
+describe('NotificationsView', () => {
+  const unread = [{ id: 'low', title: 'Productos con bajo inventario', detail: '2 por reponer', time: 'hace 5 min', priority: 'warning' as const }];
+  const done = [{ id: 'cash', title: 'Caja sin abrir hoy', time: 'hace 1 h', priority: 'info' as const }];
+  const view = (overrides: Partial<Parameters<typeof NotificationsView>[0]> = {}) => {
+    const props = { t, loading: false, unread, done, permissionOff: false, onOpen: vi.fn(), onDismiss: vi.fn(), onReadAll: vi.fn(), onSettings: vi.fn(), ...overrides };
+    return { props, ...render(<NotificationsView {...props} />) };
+  };
+
+  it('separa pendientes y leídas, abre, descarta y marca todas como leídas', async () => {
+    const { props, container } = view();
+    await userEvent.click(screen.getByRole('button', { name: /^Productos con bajo inventario/ }));
+    expect(props.onOpen).toHaveBeenCalledWith('low');
+    await userEvent.click(screen.getByRole('button', { name: 'Descartar: Caja sin abrir hoy' }));
+    expect(props.onDismiss).toHaveBeenCalledWith('cash');
+    await userEvent.click(screen.getByRole('button', { name: 'Marcar todas como leídas' }));
+    expect(props.onReadAll).toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Leídas' })).toBeTruthy();
+    await noViolations(container);
+  });
+
+  it('sin alertas muestra el estado vacío y sin pendientes no ofrece marcar todas', () => {
+    view({ unread: [], done: [] });
+    expect(screen.getByText('No tienes notificaciones pendientes')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Marcar todas como leídas' })).toBeNull();
+  });
+
+  it('avisa si el navegador las bloqueó, y solo el dueño ve el acceso a ajustes', () => {
+    view({ permissionOff: true, onSettings: undefined });
+    expect(screen.getByRole('status').textContent).toContain('desactivadas');
+    expect(screen.queryByRole('button', { name: 'Ajustes de notificaciones' })).toBeNull();
+  });
+});
+
+/* ---------- Plan y pago ---------- */
+
+describe('SubscriptionView', () => {
+  const subscribe = (overrides: Partial<Parameters<typeof SubscriptionView>[0]> = {}) => {
+    const props = {
+      t,
+      currency: 'COP' as const,
+      subscription: { plan: null, status: 'none' as const, platform: null, paymentMethod: null, trialEndsAt: null, currentPeriodEnd: null, nextBillingAt: null, cancelAtPeriodEnd: false, gracePeriodEndsAt: null, hasAccess: false },
+      onCheckout: vi.fn(async () => ({ instructions: 'Transfiere a la cuenta 123' })),
+      onSkipTrial: vi.fn(async () => ({ ok: true as const })),
+      ...overrides,
+    };
+    return { props, ...render(<SubscriptionView {...props} />) };
+  };
+
+  it('muestra beneficios, dos pasos y un resumen del plan elegido (anual por defecto)', async () => {
+    const { container } = subscribe();
+    expect(screen.getByRole('heading', { level: 1, name: 'Elige tu plan' })).toBeTruthy();
+    expect(screen.getByText('Programa de fidelización con premios')).toBeTruthy();
+    expect(screen.getByRole('radiogroup', { name: 'Elige tu plan' })).toBeTruthy();
+    expect(screen.getByRole('radiogroup', { name: 'Método de pago' })).toBeTruthy();
+    const summary = screen.getByRole('region', { name: 'Resumen' });
+    expect(summary.textContent).toContain('Anual');
+    await userEvent.click(screen.getByRole('radio', { name: /Mensual/ }));
+    expect(summary.textContent).toContain('Mensual');
+    await noViolations(container);
+  });
+
+  it('con transferencia muestra las instrucciones y con "saltar" activa la prueba sin pasar por un pago', async () => {
+    const { props } = subscribe();
+    await userEvent.click(screen.getByRole('radio', { name: /Transferencia/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Ver datos para transferir' }));
+    expect((await screen.findByRole('status')).textContent).toContain('Transfiere a la cuenta 123');
+    await userEvent.click(screen.getByRole('button', { name: /Saltar por ahora/ }));
+    expect(props.onSkipTrial).toHaveBeenCalledWith('yearly');
+  });
+
+  it('quien ya tiene un plan no ve la prueba gratis pero sí puede cerrar', async () => {
+    const onClose = vi.fn();
+    subscribe({ subscription: { plan: 'monthly', status: 'active', platform: 'web', paymentMethod: 'card', trialEndsAt: null, currentPeriodEnd: null, nextBillingAt: null, cancelAtPeriodEnd: false, gracePeriodEndsAt: null, hasAccess: true }, onClose });
+    expect(screen.queryByText(/días gratis/)).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
+    expect(onClose).toHaveBeenCalled();
   });
 });

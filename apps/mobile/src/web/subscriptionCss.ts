@@ -34,15 +34,34 @@ export function buildSubscriptionCss(): string {
 
 /* ---------- Pantalla de checkout (Web) ---------- */
 /* Pantalla completa (standalone, sin sidebar): puede usar un contenedor más ancho que un form normal — max-w-5xl. */
-.xw-page.xw-sub-page { max-width: 64rem; position: relative; padding-top: var(--xw-space-10); }
+.xw-page.xw-sub-page { max-width: 72rem; position: relative; padding-top: var(--xw-space-8); }
 [data-mode='mobile'] .xw-sub-page { padding-top: var(--xw-space-6); }
 .xw-sub-close { position: absolute; top: var(--xw-space-2); right: var(--xw-space-2); display: flex; align-items: center; justify-content: center;
   width: var(--xw-touch); height: var(--xw-touch); background: transparent; border: 0; border-radius: 50%; color: var(--xw-text-muted); cursor: pointer; }
 .xw-sub-close:hover { background: var(--xw-surface-tint); color: var(--xw-text); }
-.xw-sub-head { max-width: 38rem; margin: 0 auto var(--xw-space-10); text-align: center; }
-.xw-sub-head .xw-sub { margin-top: var(--xw-space-2); }
+.xw-co { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--xw-space-6); align-items: start; }
+@media (min-width: 900px) { .xw-co { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--xw-space-8); } .xw-co-aside { position: sticky; top: var(--xw-space-6); } }
+.xw-co-aside { display: flex; flex-direction: column; align-items: flex-start; gap: var(--xw-space-4); box-sizing: border-box; padding: var(--xw-space-8); border-radius: var(--xw-radius-xl); color: var(--xw-text); border: 1px solid var(--xw-border-subtle);
+  background: radial-gradient(90% 120% at 100% 0%, rgba(217, 182, 54, .28), transparent 55%), linear-gradient(135deg, #17140a 0%, #0d0d0f 70%); }
+.xw-co-logo { display: block; width: 56px; height: 56px; border-radius: var(--xw-radius-lg); overflow: hidden; border: 2px solid rgba(217, 182, 54, .6); }
+.xw-co-title { margin: 0; font: ${font.weight.extrabold} var(--xw-text-3xl)/${font.lineHeight.tight} var(--xw-font); }
+.xw-co-sub { margin: 0; color: var(--xw-text-muted); font: var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); }
+.xw-co-benefits { list-style: none; margin: var(--xw-space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--xw-space-3); }
+.xw-co-benefits li { display: flex; align-items: center; gap: var(--xw-space-3); font: ${font.weight.semibold} var(--xw-text-md)/${font.lineHeight.tight} var(--xw-font); }
+.xw-co-benefit-ic { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: var(--xw-radius-md); background: var(--xw-accent-tint); color: var(--xw-accent); }
+.xw-co-trust { display: flex; align-items: flex-start; gap: var(--xw-space-2); margin: var(--xw-space-2) 0 0; color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
+.xw-co-trust svg { flex: none; margin-top: 2px; color: var(--xw-accent); }
+.xw-co-main { display: flex; flex-direction: column; gap: var(--xw-space-6); min-width: 0; }
+.xw-co-step-title { display: flex; align-items: center; gap: var(--xw-space-3); margin: 0 0 var(--xw-space-3); font: ${font.weight.extrabold} var(--xw-text-lg)/${font.lineHeight.tight} var(--xw-font); }
+.xw-co-step-n { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--xw-accent); color: var(--xw-on-accent); font: ${font.weight.extrabold} var(--xw-text-sm)/1 var(--xw-font); }
+.xw-co-summary { box-sizing: border-box; padding: var(--xw-space-5); background: var(--xw-surface); border: 1px solid var(--xw-border-subtle); border-radius: var(--xw-radius-xl); }
+.xw-co-summary .xw-summary { margin-bottom: var(--xw-space-4); }
+[data-mode='mobile'] .xw-co-aside { padding: var(--xw-space-5); }
+[data-mode='mobile'] .xw-co-title { font-size: var(--xw-text-2xl); }
+/* En móvil el plan y el pago van primero: los beneficios se resumen (título y subtítulo) para no empujarlos fuera de pantalla. */
+[data-mode='mobile'] .xw-co-benefits, [data-mode='mobile'] .xw-co-trust { display: none; }
 
-.xw-plans-grid { display: grid; grid-template-columns: 1fr; gap: var(--xw-space-4); margin-bottom: var(--xw-space-8); }
+.xw-plans-grid { display: grid; grid-template-columns: 1fr; gap: var(--xw-space-4); }
 @media (min-width: 480px) { .xw-plans-grid { grid-template-columns: 1fr 1fr; } }
 .xw-plan-card { position: relative; box-sizing: border-box; width: 100%; padding: var(--xw-space-5); border: 2px solid var(--xw-border-subtle); border-radius: var(--xw-radius-xl);
   background: var(--xw-surface); color: var(--xw-text); cursor: pointer; text-align: left; font-family: var(--xw-font);
@@ -56,7 +75,7 @@ export function buildSubscriptionCss(): string {
 .xw-plan-period { color: var(--xw-text-muted); font: var(--xw-text-sm)/1 var(--xw-font); }
 .xw-plan-trial { margin-top: var(--xw-space-2); color: var(--xw-accent); font: ${font.weight.bold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
 
-.xw-pay-methods { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--xw-space-4); margin-bottom: var(--xw-space-6); }
+.xw-pay-methods { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--xw-space-3); }
 [data-mode='mobile'] .xw-pay-methods { grid-template-columns: 1fr; gap: var(--xw-space-3); }
 .xw-pay-method { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--xw-space-3); box-sizing: border-box; min-height: 8rem;
   padding: var(--xw-space-5) var(--xw-space-4); border-radius: var(--xw-radius-xl); border: 2px solid color-mix(in srgb, var(--xw-accent) 20%, var(--xw-border-subtle)); background: var(--xw-surface); color: var(--xw-text-muted);

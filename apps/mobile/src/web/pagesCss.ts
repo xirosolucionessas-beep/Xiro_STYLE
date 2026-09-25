@@ -161,6 +161,34 @@ a.xw-btn { text-decoration: none; }
 [data-page-width='form'] .xw-screen .xw-page { box-sizing: border-box; width: calc(100% - 2 * var(--xw-space-6)); max-width: calc(var(--xw-page-max) - 2 * var(--xw-space-6)); margin-block: var(--xw-space-2) var(--xw-space-8); padding: var(--xw-space-6); background: var(--xw-surface); border: 1px solid var(--xw-border-subtle); border-radius: var(--xw-radius-xl); }
 [data-mode='mobile'] [data-page-width='form'] .xw-screen .xw-page { width: calc(100% - 2 * var(--xw-space-4)); padding: var(--xw-space-4); }
 
+/* ================= Notificaciones ================= */
+.xw-nlist { list-style: none; margin: 0; padding: 0; }
+.xw-nrow { display: flex; align-items: center; gap: var(--xw-space-2); border-bottom: 1px solid var(--xw-border-subtle); }
+.xw-nrow:last-child { border-bottom: 0; }
+.xw-nrow.is-read { opacity: .72; }
+.xw-nrow-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--xw-space-3); box-sizing: border-box; min-height: var(--xw-touch); padding: var(--xw-space-3) var(--xw-space-2); margin: 0; background: transparent; color: var(--xw-text); border: 0; border-radius: var(--xw-radius-md); text-align: left; cursor: pointer; font-family: var(--xw-font); }
+.xw-nrow-main:hover { background: var(--xw-surface-alt); }
+.xw-nrow-ic { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--xw-radius-md); background: var(--xw-accent-tint); color: var(--xw-accent); }
+.xw-nrow-ic.is-urgent { color: var(--xw-danger); }
+.xw-nrow-ic.is-warning { color: var(--xw-warning); }
+
+/* ================= Diálogos (todos): más aire, sombra y fondo desenfocado ================= */
+.xw-backdrop { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.xw-modal { box-shadow: 0 40px 90px -30px rgba(0, 0, 0, .75); border-color: var(--xw-border-subtle); animation: xw-rise var(--xw-base) ease-out; }
+.xw-modal-title { font-size: var(--xw-text-xl); letter-spacing: -.01em; }
+
+/* Base inicial del día */
+.xw-cash-ic { width: 64px; height: 64px; border: 1px solid var(--xw-accent); box-shadow: 0 0 0 6px var(--xw-accent-tint); }
+.xw-cash-current { display: table; margin-inline: auto; padding: var(--xw-space-1) var(--xw-space-4); border-radius: var(--xw-radius-pill); background: var(--xw-surface-alt); border: 1px solid var(--xw-border-subtle); }
+.xw-cash-amount .xw-control { min-height: 3.5rem; }
+.xw-cash-amount .xw-control input { font-size: var(--xw-text-2xl); font-weight: ${font.weight.extrabold}; }
+.xw-cash-amount .xw-prefix { font-size: var(--xw-text-md); }
+
+/* Barra de acción de pantallas con pie (p. ej. Enviar por WhatsApp): fija abajo, alineada con el contenido */
+.xw-foot { position: sticky; bottom: 0; z-index: 3; padding-block: var(--xw-space-3); background: color-mix(in srgb, var(--xw-background) 88%, transparent); border-top: 1px solid var(--xw-border-subtle); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.xw-foot > * { width: 100%; }
+[data-page-width='form'] .xw-foot { max-width: var(--xw-page-max); }
+
 /* Botones de la cabecera de página: mismo lenguaje que el Inicio */
 .xw-head .xw-btn { min-height: var(--xw-touch); }
 `.trim();

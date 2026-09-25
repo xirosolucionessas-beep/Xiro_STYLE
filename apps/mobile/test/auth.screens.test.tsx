@@ -244,7 +244,7 @@ describe('RegisterView', () => {
     expect(data.step1).toMatchObject({ name: 'Ana Pérez', businessName: 'Studio Ana', email: 'ana@correo.com', businessType: 'barbershop', accepted: true });
     expect(data.step2).toMatchObject({ address: 'Calle 1 # 2-3', city: 'Bogotá', country: 'CO' });
     expect(data.step2.hours.days.every((d) => d.from === '08:00')).toBe(true);
-  });
+  }, 30_000); // recorre tres pasos con muchos clics: bajo carga de la suite completa superaba los 5 s por defecto
 
   it('the phone field has its own country/dial selector, independent from the business address country (step 2)', async () => {
     const { props } = register();

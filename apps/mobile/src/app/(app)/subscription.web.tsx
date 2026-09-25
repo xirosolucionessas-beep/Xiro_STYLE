@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, ApiError } from '@/lib/api';
 import { useInvalidateSubscription, useSubscription } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
+import { Brand } from '@/ui/Brand';
 import { SubscriptionView, type CheckoutPaymentMethod, type CheckoutResult } from '@/web/screens/Subscription';
 import { useWebText } from '@/web/services/useWebText';
 
@@ -45,6 +46,6 @@ export default function SubscriptionWeb() {
   const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
 
   return (
-    <SubscriptionView t={t} currency={business.currency} subscription={subscription} initialPlan={initialPlan} onCheckout={checkout} onSkipTrial={skipTrial} onClose={close} />
+    <SubscriptionView t={t} currency={business.currency} logo={<Brand size={56} logoUrl={business.logoUrl} />} subscription={subscription} initialPlan={initialPlan} onCheckout={checkout} onSkipTrial={skipTrial} onClose={close} />
   );
 }
