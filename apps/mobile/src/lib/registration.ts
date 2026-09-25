@@ -122,6 +122,8 @@ export interface RegistrationDeps {
   updateBusiness: (body: BusinessUpdateInput) => Promise<Business>;
   uploadLogo: (photo: PhotoInput) => Promise<Business>;
   signIn: (session: AuthSession) => Promise<void>;
+  /** Se llama UNA vez, cuando la cuenta ya quedó creada (aunque un paso posterior falle). Nunca rompe el registro. */
+  onRegistered?: (session: AuthSession) => Promise<void> | void;
 }
 
 export interface RegistrationProgress {
@@ -152,6 +154,11 @@ export async function runRegistration(input: RegistrationInput, deps: Registrati
       progress = { session: await deps.register(input.payload), businessSaved: false, logoSaved: false };
     } catch (error) {
       return { status: 'failed', error };
+    }
+    try {
+      await deps.onRegistered?.(progress.session);
+    } catch {
+      /* un fallo aquí (p. ej. el almacenamiento) no debe deshacer ni frenar una cuenta ya creada */
     }
   }
   deps.authorize(progress.session.accessToken);

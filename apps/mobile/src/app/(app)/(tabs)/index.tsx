@@ -13,6 +13,7 @@ import { keys, useCashToday, useClients, useEmployees, useItems, useServiceRecor
 import { useAuthed, useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { useGreetingKey } from '@/lib/useGreeting';
+import { useCookieConsent } from '@/lib/useCookieConsent';
 import { useHomeAlerts } from '@/lib/useHomeAlerts';
 import { useDialogs } from '@/ui/Dialogs';
 import { AlertsCard } from '@/ui/home/AlertsCard';
@@ -58,6 +59,7 @@ export default function Home() {
   const employees = useEmployees(isOwner);
   const records = useServiceRecords(undefined, canSales);
   const { pending, loading: alertsLoading, read } = useHomeAlerts();
+  const cookies = useCookieConsent();
 
   // La foto del negocio lleva degradado oscuro: los iconos de la barra de estado deben verse claros sobre ella.
   const photo = Boolean(business.logoUrl);
@@ -70,11 +72,12 @@ export default function Home() {
 
   // Comportamiento previo: la primera vez que el dueño abre la app sin caja del día, se le ofrece abrirla.
   useEffect(() => {
-    if (isOwner && cash.isSuccess && !cash.data.opening && !cashPromptShown) {
+    // Primero el aviso de cookies del primer ingreso; la petición de abrir la caja espera a que se acepte.
+    if (isOwner && cash.isSuccess && !cash.data.opening && !cashPromptShown && !cookies.visible) {
       cashPromptShown = true;
       router.push('/cash-opening');
     }
-  }, [isOwner, cash.isSuccess, cash.data, router]);
+  }, [isOwner, cash.isSuccess, cash.data, cookies.visible, router]);
 
   const go = (href: string) => (TAB_ROUTES.has(href.split('?')[0]!) ? router.navigate(href) : router.push(href));
   const soon = () => toast(`${t('coming_soon')} · ${t('menu_soon_notice')}`);

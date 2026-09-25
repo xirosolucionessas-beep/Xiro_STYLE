@@ -168,7 +168,8 @@ export function ShellView({ mode, collapsed, onToggleCollapsed, route, t, signed
   useWebStyles();
   // `standalone`: pantalla completa aun con sesión iniciada (p. ej. elegir plan) — sin sidebar ni barra de migas,
   // como si fuera una pantalla de autenticación.
-  const chrome = signedIn && !route.standalone;
+  // Las páginas de acceso y las legales (Términos, Privacidad) van a ventana completa aunque haya sesión iniciada.
+  const chrome = signedIn && !route.standalone && !route.auth;
   const showSidebar = chrome && mode !== 'mobile';
   const iconsOnly = mode === 'tablet' || (mode === 'desktop' && collapsed);
   const pageWidth = route.bleed ? 'bleed' : route.auth ? 'auth' : route.width === 'form' ? 'form' : 'default';

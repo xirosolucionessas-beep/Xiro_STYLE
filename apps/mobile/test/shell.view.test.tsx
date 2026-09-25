@@ -239,6 +239,15 @@ describe('ShellView — header tools and sidebar card', () => {
   });
 });
 
+describe('ShellView — páginas legales con sesión iniciada', () => {
+  it('Términos y Privacidad van a ventana completa (sin barra lateral ni migas) aunque haya sesión', () => {
+    render(<Harness path="/terms" signedIn />);
+    expect(screen.queryByRole('navigation', { name: 'Navegación principal' })).toBeNull();
+    expect(screen.queryByRole('banner')).toBeNull();
+    expect(screen.getByRole('main')).toBeTruthy();
+  });
+});
+
 describe('ShellView — signed out', () => {
   it('renders no navigation chrome, only skip link and <main> at the narrow auth width', async () => {
     const { container } = render(<Harness signedIn={false} path="/register" />);

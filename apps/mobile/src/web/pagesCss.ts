@@ -189,6 +189,21 @@ a.xw-btn { text-decoration: none; }
 .xw-foot > * { width: 100%; }
 [data-page-width='form'] .xw-foot { max-width: var(--xw-page-max); }
 
+/* ================= Aviso de cookies (primer ingreso) ================= */
+.xw-cookie { position: fixed; z-index: 4500; left: 50%; bottom: var(--xw-space-6); transform: translateX(-50%); box-sizing: border-box; width: min(34rem, calc(100vw - 2 * var(--xw-space-4)));
+  padding: var(--xw-space-5); color: var(--xw-text); border-radius: var(--xw-radius-xl); border: 1px solid rgba(217, 182, 54, .45);
+  background: rgba(14, 13, 10, .82); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 0 0 1px rgba(217, 182, 54, .08), 0 30px 70px -24px rgba(0, 0, 0, .85), 0 0 46px -18px rgba(217, 182, 54, .45);
+  animation: xw-cookie-in .5s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes xw-cookie-in { from { opacity: 0; transform: translate(-50%, 22px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.xw-cookie-head { display: flex; align-items: center; gap: var(--xw-space-3); margin-bottom: var(--xw-space-2); }
+.xw-cookie-ic { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--xw-radius-md); background: var(--xw-accent-tint); color: var(--xw-accent); border: 1px solid rgba(217, 182, 54, .4); }
+.xw-cookie-title { margin: 0; font: 800 var(--xw-text-lg)/1.25 var(--xw-font); letter-spacing: -.01em; }
+.xw-cookie-body { margin: 0 0 var(--xw-space-4); color: var(--xw-text-muted); font: var(--xw-text-sm)/1.6 var(--xw-font); }
+.xw-cookie-body a { color: var(--xw-accent); text-underline-offset: 3px; }
+.xw-cookie-btn { width: 100%; }
+[data-mode='mobile'] .xw-cookie { bottom: var(--xw-space-3); padding: var(--xw-space-4); }
+
 /* Botones de la cabecera de página: mismo lenguaje que el Inicio */
 .xw-head .xw-btn { min-height: var(--xw-touch); }
 `.trim();

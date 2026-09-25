@@ -10,6 +10,7 @@ import { buildBusinessUpdate, buildRegisterPayload, runRegistration, validateSte
 import { DRAFT_KEY, emptyDraft, hasUnsavedInput, parseDraft, serializeDraft, type RegistrationDraft } from '@/lib/registrationDraft';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
+import { markNewAccount } from '@/lib/cookieConsent';
 import { prefsStorage, setRememberSession } from '@/lib/storage';
 import { AuthShell } from '@/ui/AuthShell';
 import { useDialogs } from '@/ui/Dialogs';
@@ -158,6 +159,7 @@ export default function Register() {
         { payload: buildRegisterPayload(step1, dial), business: buildBusinessUpdate({ ...step2, hours: step2.hours ?? defaultBusinessHours() }), photo: withPhoto ? logo : null },
         {
           register: api.register,
+          onRegistered: (session) => markNewAccount(prefsStorage, session.user.id),
           authorize: setAccessToken,
           updateBusiness: api.updateBusiness,
           uploadLogo: async (photo) => api.uploadLogo(await uploadableImage(photo, 'logo')),

@@ -9,6 +9,7 @@ import { actorOf, meets, type Requirement } from '@/lib/access';
 import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { relativeTime } from '@/lib/alerts';
+import { useCookieConsent } from '@/lib/useCookieConsent';
 import { buildActivity, daySummary, lowStockList, newClients, serviceDays, variation, type Trend } from '@/lib/dashboard';
 import { supportMessage, supportWhatsappUrl } from '@/lib/contact';
 import { lowStock } from '@/lib/homeMetrics';
@@ -100,7 +101,9 @@ export default function HomeWeb() {
   const [logoBusy, setLogoBusy] = useState(false);
 
   const opening = cash.data?.opening;
-  const autoPrompt = isOwner && cash.isSuccess && !opening && !dismissed;
+  // Primero el aviso de cookies del primer ingreso; la petición de abrir la caja espera a que se acepte.
+  const cookies = useCookieConsent();
+  const autoPrompt = isOwner && cash.isSuccess && !opening && !dismissed && !cookies.visible;
   const cashModalOpen = manualCashOpen || autoPrompt;
 
   const closeCashModal = () => {
