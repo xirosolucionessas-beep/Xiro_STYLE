@@ -70,6 +70,10 @@ export function validateStep1(values: Step1Values, dial: string): Record<string,
       if (field && !errors[field]) errors[field] = asTranslationKey(issue.message);
     }
   }
+  // El celular es OBLIGATORIO y solo numérico (el esquema compartido lo deja opcional: ahí basta un correo o un celular).
+  // Como el celular ya es obligatorio, el correo vuelve a ser opcional: "contact_required" deja de tener sentido.
+  if (errors.email === 'contact_required') delete errors.email;
+  if (!values.phone.trim() || /\D/.test(values.phone)) errors.phone = 'phone_required';
   if (values.social) {
     delete errors.password; // con cuenta social no hay contraseña
   } else if (values.confirm !== values.password) {

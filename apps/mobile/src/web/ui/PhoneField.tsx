@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { COUNTRIES, countryByCode, type CountryCode } from '../data/countries';
+import { COUNTRIES, countryByCode, phoneDigits, type CountryCode } from '../data/countries';
 import { Flag } from '../flags';
 import { Ico } from '../icons';
 import { useShellMode } from '../shell/hooks';
@@ -15,6 +15,8 @@ export interface PhoneFieldProps {
   value: string;
   onChange: (value: string) => void;
   error?: string;
+  /** Campo obligatorio: se anuncia como tal a los lectores de pantalla. */
+  required?: boolean;
   id?: string;
   name?: string;
   /** Textos de la hoja inferior (móvil). */
@@ -29,7 +31,7 @@ export interface PhoneFieldProps {
  * (solo bandera + prefijo en el botón cerrado, para convivir con el número en la misma fila); en móvil, una hoja
  * inferior con buscador, como CountryPicker.
  */
-export function PhoneField({ label, country, onCountryChange, value, onChange, error, id, name, sheetSearchPlaceholder, sheetCloseLabel, sheetNoResultsLabel }: PhoneFieldProps) {
+export function PhoneField({ label, country, onCountryChange, value, onChange, error, required, id, name, sheetSearchPlaceholder, sheetCloseLabel, sheetNoResultsLabel }: PhoneFieldProps) {
   useWebStyles();
   const mobile = useShellMode() === 'mobile';
   const ids = useFieldIds(id);
@@ -141,13 +143,15 @@ export function PhoneField({ label, country, onCountryChange, value, onChange, e
         <input
           id={ids.id}
           type="tel"
-          inputMode="tel"
+          inputMode="numeric"
+          pattern="[0-9]*"
           autoComplete="tel-national"
           name={name}
           value={value}
+          aria-required={required || undefined}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy(ids, undefined, error)}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(phoneDigits(event.target.value))}
         />
       </FieldShell>
       {open && !mobile ? (

@@ -99,7 +99,9 @@ export function SubscriptionView({ t, currency, subscription, initialPlan, logo,
       ) : null}
 
       <div className="xw-co">
-        <aside className="xw-co-aside xw-scope-dark">
+        {/* Región con scroll propio cuando no cabe en el alto: debe poder enfocarse con el teclado (axe: scrollable-region-focusable). */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
+        <aside className="xw-co-aside xw-scope-dark" tabIndex={0} aria-label={t('sec_co_kicker')}>
           {logo ? (
             <span className="xw-co-logo" aria-hidden="true">
               {logo}

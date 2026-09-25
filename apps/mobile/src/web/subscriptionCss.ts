@@ -34,13 +34,20 @@ export function buildSubscriptionCss(): string {
 
 /* ---------- Pantalla de checkout (Web) ---------- */
 /* Pantalla completa (standalone, sin sidebar): puede usar un contenedor más ancho que un form normal — max-w-5xl. */
-.xw-page.xw-sub-page { max-width: 72rem; position: relative; padding-top: var(--xw-space-8); }
+.xw-page.xw-sub-page { max-width: 72rem; position: relative; padding-top: var(--xw-space-8); padding-bottom: var(--xw-space-12); }
+/* Pantalla completa sin la estructura de Screen: el propio <main> hace scroll (rueda, trackpad y teclado, porque recibe el foco
+   al entrar). Sin esto, en pantallas de poca altura (portátil 1366×768) se cortaba el resumen, el botón de pagar y las notas. */
+.xw-main[data-standalone='true'] { overflow-y: auto; overflow-x: hidden; }
 [data-mode='mobile'] .xw-sub-page { padding-top: var(--xw-space-6); }
 .xw-sub-close { position: absolute; top: var(--xw-space-2); right: var(--xw-space-2); display: flex; align-items: center; justify-content: center;
   width: var(--xw-touch); height: var(--xw-touch); background: transparent; border: 0; border-radius: 50%; color: var(--xw-text-muted); cursor: pointer; }
 .xw-sub-close:hover { background: var(--xw-surface-tint); color: var(--xw-text); }
 .xw-co { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--xw-space-6); align-items: start; }
-@media (min-width: 900px) { .xw-co { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--xw-space-8); } .xw-co-aside { position: sticky; top: var(--xw-space-6); } }
+@media (min-width: 900px) {
+  .xw-co { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--xw-space-8); }
+  /* El panel de beneficios se queda a la vista mientras se desplaza el pago; si NO cabe en el alto, tiene su propio scroll. */
+  .xw-co-aside { position: sticky; top: var(--xw-space-4); max-height: calc(100vh - var(--xw-space-16)); max-height: calc(100dvh - var(--xw-space-16)); overflow-y: auto; overscroll-behavior: contain; }
+}
 .xw-co-aside { display: flex; flex-direction: column; align-items: flex-start; gap: var(--xw-space-4); box-sizing: border-box; padding: var(--xw-space-8); border-radius: var(--xw-radius-xl); color: var(--xw-text); border: 1px solid var(--xw-border-subtle);
   background: radial-gradient(90% 120% at 100% 0%, rgba(217, 182, 54, .28), transparent 55%), linear-gradient(135deg, #17140a 0%, #0d0d0f 70%); }
 .xw-co-logo { display: block; width: 56px; height: 56px; border-radius: var(--xw-radius-lg); overflow: hidden; border: 2px solid rgba(217, 182, 54, .6); }

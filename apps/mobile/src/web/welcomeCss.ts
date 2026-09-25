@@ -105,6 +105,25 @@ export function buildWelcomeCss(): string {
   .xw-wcard { padding: var(--xw-space-6) var(--xw-space-6); }
 }
 
+/* Tarjeta compacta: mismo estilo, menos alto. Espacios, botones (40px, por encima del mínimo de 24px de WCAG 2.5.8) y enlaces
+   de ayuda más ajustados, y la etiqueta "Próximamente" junto al nombre del proveedor en vez de debajo, para que el conjunto
+   (desde el título hasta los datos de contacto) quepa en un portátil de 1366×768 sin desplazarse. */
+.xw-wcard { gap: var(--xw-space-2); padding: var(--xw-space-5) var(--xw-space-6); }
+.xw-wcard .xw-wtitle { font-size: var(--xw-text-xl); }
+.xw-wcard .xw-wtag { margin: calc(var(--xw-space-1) * -1) 0 var(--xw-space-1); font-size: var(--xw-text-sm); }
+.xw-wcard .xw-wactions, .xw-wcard .xw-social-stack { gap: var(--xw-space-2); }
+.xw-wcard .xw-btn { min-height: 2.5rem; padding-block: var(--xw-space-1); font-size: var(--xw-text-md); }
+.xw-wcard .xw-social { min-height: 2.5rem; padding-block: 0; }
+.xw-wcard .xw-social-text { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 2px var(--xw-space-2); }
+.xw-wcard .xw-divider { margin: 0; font-size: var(--xw-text-xs); }
+.xw-wcard .xw-wterms { min-height: 2rem; }
+.xw-wcard .xw-wsupport { gap: 0; padding-top: var(--xw-space-2); }
+.xw-wcard .xw-wlink { min-height: 2rem; }
+@media (min-width: 1024px) {
+  .xw-wpane { padding-block: var(--xw-space-4); }
+  .xw-wcard { padding: var(--xw-space-5) var(--xw-space-6); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .xw-bp::before, .xw-wcard { animation: none !important; }
 }

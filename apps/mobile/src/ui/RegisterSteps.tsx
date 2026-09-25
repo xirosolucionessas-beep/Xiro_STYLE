@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BUSINESS_TYPES } from '@xiro/shared';
 import type { ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
-import { COUNTRIES, countryByCode, flagEmoji } from '@/lib/countries';
+import { COUNTRIES, countryByCode, flagEmoji, phoneDigits } from '@/lib/countries';
 import type { PickedImage } from '@/lib/images';
 import type { RegistrationDraft } from '@/lib/registrationDraft';
 import { useSettings } from '@/lib/settings';
@@ -71,7 +71,7 @@ export function StepAccount({ draft, secrets, errors, onChange, onSecrets, onOpe
       <CountryChips value={draft.country} onChange={onChange} />
 
       <Field label={t('email')} value={draft.email} onChangeText={(email) => onChange({ email })} error={errors.email} autoCapitalize="none" keyboardType="email-address" autoComplete="email" textContentType="emailAddress" />
-      <Field label={t('phone')} value={draft.phone} onChangeText={(phone) => onChange({ phone })} error={errors.phone} keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" prefix={`+${dial}`} />
+      <Field label={t('phone')} value={draft.phone} onChangeText={(phone) => onChange({ phone: phoneDigits(phone) })} error={errors.phone} keyboardType="number-pad" autoComplete="tel" textContentType="telephoneNumber" prefix={`+${dial}`} />
       <Field label={t('password')} value={secrets.password} onChangeText={(password) => onSecrets({ password })} error={errors.password} hint={t('password_hint')} password textContentType="newPassword" autoComplete="new-password" />
       <Field label={t('confirm_password')} value={secrets.confirm} onChangeText={(confirm) => onSecrets({ confirm })} error={errors.confirm} password textContentType="newPassword" />
 

@@ -219,7 +219,7 @@ export function ShellView({ mode, collapsed, onToggleCollapsed, route, t, signed
           </header>
         ) : null}
 
-        <main id="xw-main" ref={mainRef} tabIndex={-1} className="xw-main" data-page-width={pageWidth} style={{ '--xw-page-max': maxWidth } as CSSProperties}>
+        <main id="xw-main" ref={mainRef} tabIndex={-1} className="xw-main" data-page-width={pageWidth} data-standalone={route.standalone ? 'true' : undefined} style={{ '--xw-page-max': maxWidth } as CSSProperties}>
           {status?.busy ? <div className="xw-progress" aria-hidden="true" /> : null}
           {status?.error && !route.inlineErrors ? (
             <div role="alert" className="xw-banner">

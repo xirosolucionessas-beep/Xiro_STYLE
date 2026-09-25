@@ -1,6 +1,6 @@
 import { defaultBusinessHours, type AuthSession, type Business, type User } from '@xiro/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { COUNTRIES, composePhone, countryByCode } from '../src/web/data/countries';
+import { COUNTRIES, composePhone, countryByCode, phoneDigits } from '../src/web/data/countries';
 import { applyRowChange, hasHoursErrors, initialHours, minuteOptions, rowsOf, setSameEveryDay, validateDay } from '../src/web/hours';
 import { maskEmail, maskPhone } from '../src/web/mask';
 import { cleanOtp, formatCountdown, pasteInto } from '../src/web/otp';
@@ -13,7 +13,7 @@ const step1 = (over: Partial<Step1Values> = {}): Step1Values => ({
   businessName: 'Studio Ana',
   businessType: 'barbershop',
   email: 'ana@correo.com',
-  phone: '',
+  phone: '3001234567',
   password: 'Secreta123',
   confirm: 'Secreta123',
   accepted: true,
@@ -133,15 +133,31 @@ describe('registration validation (same schemas as the mobile app)', () => {
     expect(validateStep1(step1({ password: 'corta', confirm: 'corta' }), '57').password).toBe('password_weak');
     expect(validateStep1(step1({ confirm: 'Otra1234' }), '57').confirm).toBe('passwords_mismatch');
     expect(validateStep1(step1({ accepted: false }), '57').acceptTerms).toBe('terms_required');
-    expect(validateStep1(step1({ email: '', phone: '' }), '57').email).toBe('contact_required');
     expect(validateStep1(step1({ email: 'no-es-correo' }), '57').email).toBeTruthy();
   });
 
   it('validates the phone with the selected country prefix', () => {
-    expect(validateStep1(step1({ email: '', phone: '300 123 4567' }), '57')).toEqual({});
-    expect(validateStep1(step1({ email: '', phone: '555 123 4567' }), '1')).toEqual({});
+    expect(validateStep1(step1({ email: '', phone: '3001234567' }), '57')).toEqual({});
+    expect(validateStep1(step1({ email: '', phone: '5551234567' }), '1')).toEqual({});
     expect(validateStep1(step1({ email: '', phone: '12' }), '57').phone).toBe('phone_invalid');
-    expect(buildRegisterPayload(step1({ email: '', phone: '300 123 4567' }), '57').phone).toBe('573001234567');
+    expect(buildRegisterPayload(step1({ email: '', phone: '3001234567' }), '57').phone).toBe('573001234567');
+  });
+
+  it('el celular es obligatorio y solo numérico (con o sin correo)', () => {
+    expect(validateStep1(step1({ email: '', phone: '' }), '57')).toEqual({ phone: 'phone_required' });
+    expect(validateStep1(step1({ phone: '   ' }), '57').phone).toBe('phone_required');
+    expect(validateStep1(step1({ phone: '300 123 4567' }), '57').phone).toBe('phone_required');
+    expect(validateStep1(step1({ phone: '300abc4567' }), '57').phone).toBe('phone_required');
+    expect(validateStep1(step1({ phone: '+573001234567' }), '57').phone).toBe('phone_required');
+    // con correo válido pero sin celular tampoco se puede continuar
+    expect(validateStep1(step1({ email: 'ana@correo.com', phone: '' }), '57').phone).toBe('phone_required');
+  });
+
+  it('phoneDigits filtra en tiempo real: quita letras, símbolos y espacios, y limita a 15 dígitos', () => {
+    expect(phoneDigits('300 123-4567')).toBe('3001234567');
+    expect(phoneDigits('+57 (300) abc 123 4567')).toBe('573001234567');
+    expect(phoneDigits('abc')).toBe('');
+    expect(phoneDigits('1234567890123456789')).toHaveLength(15);
   });
 
   it('does not ask for a password when the account comes from Google/Apple', () => {
