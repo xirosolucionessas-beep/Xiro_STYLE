@@ -134,7 +134,7 @@ describe('official contact data (single source)', () => {
       for (const entry of readdirSync(dir)) {
         const file = path.join(dir, entry);
         if (statSync(file).isDirectory()) walk(file);
-        else if (/\.(tsx?|json)$/.test(entry) && !file.endsWith(path.join('config', 'contact.web.ts'))) {
+        else if (/\.(tsx?|json)$/.test(entry) && !file.endsWith(path.join('lib', 'contact.ts'))) {
           const text = readFileSync(file, 'utf8');
           if (/3013059562|301 3059562|xirosoluciones/i.test(text)) offenders.push(path.relative(SRC, file));
         }

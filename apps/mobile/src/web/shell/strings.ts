@@ -1,10 +1,8 @@
 import { translate, type Language } from '@xiro/shared';
 import { assistantEn, assistantEs } from '../strings/assistant';
 import { authEn, authEs } from '../strings/auth';
-import { employeesEn, employeesEs } from '../strings/employees';
 import { homeEn, homeEs } from '../strings/home';
 import { legalEn, legalEs } from '../strings/legal';
-import { loyaltyEn, loyaltyEs } from '../strings/loyalty';
 import { profileEn, profileEs } from '../strings/profile';
 import { welcomeEn, welcomeEs } from '../strings/welcome';
 
@@ -40,8 +38,6 @@ const es = {
   ...assistantEs,
   ...legalEs,
   ...profileEs,
-  ...loyaltyEs,
-  ...employeesEs,
 } as const;
 
 export type WebStringKey = keyof typeof es;
@@ -77,8 +73,6 @@ const en: Record<WebStringKey, string> = {
   ...assistantEn,
   ...legalEn,
   ...profileEn,
-  ...loyaltyEn,
-  ...employeesEn,
 };
 
 const dictionaries: Record<Language, Record<WebStringKey, string>> = { es, en };

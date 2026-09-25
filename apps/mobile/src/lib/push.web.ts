@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { PushAdapter, PushOutcome } from './pushTypes';
+import type { PushAdapter, PushOutcome, PushPermission } from './pushTypes';
 import { prefsStorage } from './storage';
 import { urlBase64ToBytes } from './vapid';
 
@@ -17,6 +17,11 @@ function isInstalledPwa(): boolean {
 
 /** Web Push estándar (Service Worker + PushManager + VAPID). En iOS solo funciona desde la PWA instalada (Safari 16.4+). */
 export const push: PushAdapter = {
+  async permission(): Promise<PushPermission> {
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return 'unavailable';
+    return Notification.permission === 'default' ? 'undetermined' : Notification.permission;
+  },
+
   async enable(): Promise<PushOutcome> {
     if (isIos() && !isInstalledPwa()) return 'ios_needs_install';
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return 'unsupported';

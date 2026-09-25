@@ -1,10 +1,10 @@
-import { Redirect } from 'expo-router';
+import { EmployeesPanel } from '@/ui/EmployeesPanel';
 
 /**
- * Fallback nativo de /employees (exigido por Expo Router: todo "*.web.tsx" necesita un hermano sin extensión de
- * plataforma). La gestión de empleados aún es solo Web; en nativo la fila "Equipo" de Ajustes sigue como "Próximamente".
- * Nunca se navega aquí desde la UI nativa.
+ * Gestión de empleados en Android/iOS. En la Web esta ruta la sirve employees.web.tsx (su propio diseño): este archivo
+ * es la versión nativa y, a la vez, el hermano sin extensión de plataforma que exige Expo Router.
+ * Solo el dueño: el guardián de rutas de (app)/_layout.tsx y el servidor lo imponen.
  */
-export default function EmployeesFallback() {
-  return <Redirect href="/more" />;
+export default function Employees() {
+  return <EmployeesPanel />;
 }

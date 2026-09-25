@@ -39,3 +39,6 @@ export function composePhone(local: string, dial: string): string {
   if (digits.startsWith(dial) && digits.length > dial.length + 6) return digits;
   return dial + digits.replace(/^0+/, '');
 }
+
+/** Bandera como emoji (letras indicadoras regionales), para nativo: sin descargar imágenes. `CO` → 🇨🇴. */
+export const flagEmoji = (code: CountryCode): string => String.fromCodePoint(...[...code].map((letter) => 0x1f1a5 + letter.charCodeAt(0)));

@@ -2,7 +2,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { api } from './api';
-import type { PushAdapter, PushOutcome } from './pushTypes';
+import type { PushAdapter, PushOutcome, PushPermission } from './pushTypes';
 import { prefsStorage } from './storage';
 
 const TOKEN_KEY = 'xiro.pushToken';
@@ -31,6 +31,12 @@ if (!inExpoGo) void notifications().catch(() => undefined);
 
 /** Android/iOS: token de Expo Push, que el servidor entrega a FCM/APNs. Requiere un dispositivo físico y NO funciona en Expo Go. */
 export const push: PushAdapter = {
+  async permission(): Promise<PushPermission> {
+    if (inExpoGo || !Device.isDevice) return 'unavailable';
+    const { status } = await (await notifications()).getPermissionsAsync();
+    return status === 'granted' ? 'granted' : status === 'denied' ? 'denied' : 'undetermined';
+  },
+
   async enable(): Promise<PushOutcome> {
     if (inExpoGo || !Device.isDevice) return 'unsupported';
     const Notifications = await notifications();

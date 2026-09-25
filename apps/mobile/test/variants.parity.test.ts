@@ -15,6 +15,7 @@ const PAIRS: Array<[native: string, web: string]> = [
   ['src/ui/Screen.tsx', 'src/ui/Screen.web.tsx'],
   ['src/ui/theme.ts', 'src/ui/theme.web.ts'],
   ['src/lib/push.ts', 'src/lib/push.web.ts'],
+  ['src/lib/storage.ts', 'src/lib/storage.web.ts'],
   ['src/shell/WebShell.tsx', 'src/shell/WebShell.web.tsx'],
 ];
 

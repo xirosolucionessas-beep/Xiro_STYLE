@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Linking, View } from 'react-native';
+import { supportMailtoUrl } from '@/lib/contact';
 import { api } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
 import { useSession } from '@/lib/session';
@@ -33,6 +34,14 @@ export default function Profile() {
     }
   }
 
+  // Solicitud de eliminación (requisito de las tiendas): abre un correo a soporte ya redactado; la baja la procesa Xiro.
+  const requestDeletion = async () => {
+    if (!(await confirm({ title: t('delete_account_confirm_title'), message: t('delete_account_confirm_body'), confirmLabel: t('delete_account_request'), destructive: true }))) return;
+    const account = user?.email ?? (user?.phone ? '+' + user.phone : '');
+    const url = supportMailtoUrl(t('delete_account_mail_subject'), t('delete_account_mail_body', { account, business: business?.name ?? '' }));
+    await Linking.openURL(url).catch(() => toast(t('unknown_error')));
+  };
+
   const logout = async () => {
     if (await confirm({ title: t('logout'), message: t('logout_sub'), confirmLabel: t('logout'), destructive: true })) await signOut();
   };
@@ -60,6 +69,7 @@ export default function Profile() {
       </View>
       <Button label={t('save_changes')} onPress={save} loading={busy} />
       <Button label={t('logout')} variant="danger" icon="log-out-outline" onPress={logout} style={{ marginTop: 10 }} />
+      <Button label={t('delete_account_request')} variant="ghost" icon="trash-outline" onPress={requestDeletion} style={{ marginTop: 6 }} />
     </Screen>
   );
 }

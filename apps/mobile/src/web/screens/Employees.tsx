@@ -1,5 +1,6 @@
 import { EMPLOYEE_PERMISSIONS, normalizePermissions, passwordSchema, type AuditLogEntry, type Employee, type EmployeePermission } from '@xiro/shared';
 import { useState } from 'react';
+import { ACTION_LABELS } from '../../lib/employeesLogic';
 import { Ico } from '../icons';
 import { Button, Input } from '../ui';
 import { Checkbox, FormMessage } from '../ui/auth';
@@ -18,24 +19,6 @@ export interface EmployeesViewProps {
 }
 
 type Tab = 'team' | 'activity';
-
-/** Acción de la bitácora → texto legible. Lo que no esté aquí se muestra tal cual (ruta), nunca se oculta. */
-const ACTION_LABELS: Record<string, string> = {
-  'POST /clients': 'audit_client_create',
-  'PUT /clients/:id': 'audit_client_update',
-  'DELETE /clients/:id': 'audit_client_delete',
-  'POST /items': 'audit_item_create',
-  'PUT /items/:id': 'audit_item_update',
-  'DELETE /items/:id': 'audit_item_delete',
-  'POST /items/:id/stock-adjustments': 'audit_stock_adjust',
-  'POST /categories': 'audit_category_change',
-  'PATCH /categories/:id': 'audit_category_change',
-  'DELETE /categories/:id': 'audit_category_change',
-  'POST /service-records': 'audit_service_record',
-  'POST /loyalty/clients/:clientId/redeem': 'audit_loyalty_redeem',
-  'POST /employees': 'audit_employee_create',
-  'PATCH /employees/:id': 'audit_employee_update',
-};
 
 function TabButton({ id, active, label, onSelect }: { id: Tab; active: boolean; label: string; onSelect: (id: Tab) => void }) {
   return (
