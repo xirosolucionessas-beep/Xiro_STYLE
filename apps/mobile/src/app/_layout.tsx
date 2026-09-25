@@ -8,10 +8,8 @@ import { ApiError } from '@/lib/api';
 import { SessionProvider, useSession } from '@/lib/session';
 import { SettingsProvider, useSettings } from '@/lib/settings';
 import { WebShell } from '@/shell/WebShell';
-import { Button } from '@/ui/Button';
+import { ConnectionError } from '@/ui/ConnectionError';
 import { DialogsProvider } from '@/ui/Dialogs';
-import { Screen } from '@/ui/Screen';
-import { AppText } from '@/ui/Text';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -45,27 +43,20 @@ export default function RootLayout() {
 
 function Gate() {
   const { status, retryBoot } = useSession();
-  const { colors, theme, t } = useSettings();
+  const { colors, theme } = useSettings();
+  // Tras "Reintentar conexión" la sesión pasa a 'loading': si venía de un fallo se mantiene la tarjeta (con su indicador de
+  // carga) en vez de dejar la pantalla en blanco hasta que se sepa el resultado.
+  const [failedBefore, setFailedBefore] = useState(false);
+  if (status === 'error' && !failedBefore) setFailedBefore(true);
+  if ((status === 'signedIn' || status === 'signedOut') && failedBefore) setFailedBefore(false);
 
   useEffect(() => {
     if (status !== 'loading') void SplashScreen.hideAsync();
   }, [status]);
 
-  if (status === 'loading') return null;
+  if (status === 'loading' && !failedBefore) return null;
 
-  if (status === 'error') {
-    return (
-      <Screen scroll={false}>
-        <AppText variant="title" center style={{ marginTop: 120 }}>
-          {t('app_name')}
-        </AppText>
-        <AppText tone="muted" center style={{ marginVertical: 16 }}>
-          {t('offline_error')}
-        </AppText>
-        <Button label={t('retry')} onPress={retryBoot} />
-      </Screen>
-    );
-  }
+  if (status === 'error' || status === 'loading') return <ConnectionError retrying={status === 'loading'} onRetry={retryBoot} />;
 
   return (
     <>

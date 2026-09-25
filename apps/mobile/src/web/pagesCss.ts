@@ -172,6 +172,18 @@ a.xw-btn { text-decoration: none; }
 .xw-nrow-ic.is-urgent { color: var(--xw-danger); }
 .xw-nrow-ic.is-warning { color: var(--xw-warning); }
 
+/* ================= Sin conexión con el servidor (pantalla de arranque) ================= */
+.xw-conn { position: fixed; inset: 0; z-index: 8000; display: flex; align-items: center; justify-content: center; padding: var(--xw-space-4); overflow: auto; color: var(--xw-text); font-family: var(--xw-font);
+  background: radial-gradient(60% 55% at 50% 45%, rgba(217, 182, 54, .2), transparent 70%), radial-gradient(50% 50% at 90% 95%, rgba(217, 182, 54, .1), transparent 70%), #0d0d0f; }
+.xw-errcard { position: relative; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; width: min(26rem, 100%); padding: var(--xw-space-8) var(--xw-space-6) var(--xw-space-6); text-align: center; color: var(--xw-text);
+  border-radius: var(--xw-radius-xl); border: 1px solid rgba(217, 182, 54, .45); background: rgba(14, 13, 10, .72); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 0 0 1px rgba(217, 182, 54, .08), 0 30px 70px -24px rgba(0, 0, 0, .85), 0 0 46px -18px rgba(217, 182, 54, .45); animation: xw-errcard-in .45s cubic-bezier(.2, .8, .2, 1) both; }
+.xw-errcard-ic { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; margin-bottom: var(--xw-space-4); border-radius: 50%; background: var(--xw-accent-tint); color: var(--xw-accent); border: 1px solid rgba(217, 182, 54, .45); box-shadow: 0 0 0 6px var(--xw-accent-tint); }
+.xw-errcard-title { margin: 0; font: ${font.weight.extrabold} var(--xw-text-xl)/${font.lineHeight.tight} var(--xw-font); letter-spacing: -.01em; }
+.xw-errcard-msg { margin: var(--xw-space-2) 0 var(--xw-space-6); max-width: 22rem; color: var(--xw-text-muted); font: var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); overflow-wrap: anywhere; }
+.xw-errcard .xw-btn { width: auto; min-width: 12rem; }
+@keyframes xw-errcard-in { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+
 /* ================= Diálogos (todos): más aire, sombra y fondo desenfocado ================= */
 .xw-backdrop { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .xw-modal { box-shadow: 0 40px 90px -30px rgba(0, 0, 0, .75); border-color: var(--xw-border-subtle); animation: xw-rise var(--xw-base) ease-out; }
