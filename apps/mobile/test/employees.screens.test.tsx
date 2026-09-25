@@ -33,9 +33,20 @@ function view(overrides: Partial<EmployeesViewProps> = {}) {
 }
 
 describe('EmployeesView — equipo', () => {
+  it('los indicadores cuentan al equipo real (total, con acceso y desactivados)', () => {
+    view();
+    const kpis = within(screen.getByLabelText('Indicadores del día'));
+    expect(kpis.getByText('Empleados').nextElementSibling!.textContent).toBe('2');
+    expect(kpis.getByText('Con acceso').nextElementSibling!.textContent).toBe('1');
+    expect(kpis.getByText('Desactivados').nextElementSibling!.textContent).toBe('1');
+  });
+
+
   it('lista al equipo con estado y permisos, y pasa axe', async () => {
     const { container } = view();
-    expect(screen.getByRole('heading', { level: 1, name: 'Empleados' })).toBeTruthy();
+    // El título de la página lo aporta el encabezado del contenedor; la vista trae indicadores y el panel con pestañas.
+    expect(screen.getByRole('tablist', { name: 'Empleados' })).toBeTruthy();
+    expect(screen.getByLabelText('Indicadores del día')).toBeTruthy();
     expect(screen.getByText('Carlos Ruiz')).toBeTruthy();
     expect(screen.getByText('carlos@correo.com')).toBeTruthy();
     expect(screen.getByText('573001112233')).toBeTruthy();

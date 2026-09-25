@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
 import { keys, useCashToday } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
+import { Header, Screen } from '@/ui/Screen';
 import { useWebText } from '@/web/services/useWebText';
 import { CashOpeningModal } from '@/web/ui/CashOpeningModal';
 
@@ -33,5 +34,9 @@ export default function CashOpeningWeb() {
     }
   }
 
-  return <CashOpeningModal open currentAmount={opening?.amount ?? 0} currency={business.currency} t={t} onSubmit={submit} onSkip={close} onClose={close} />;
+  return (
+    <Screen header={<Header title={t('cash_opening_title')} onBack={close} />}>
+      <CashOpeningModal open currentAmount={opening?.amount ?? 0} currency={business.currency} t={t} onSubmit={submit} onSkip={close} onClose={close} />
+    </Screen>
+  );
 }

@@ -9,6 +9,8 @@ import { apiErrors } from '@/lib/forms';
 import { setPostAuthRedirect } from '@/lib/postAuthRedirect';
 import { useSession } from '@/lib/session';
 import { Brand } from '@/ui/Brand';
+import { markNewAccount } from '@/lib/cookieConsent';
+import { prefsStorage } from '@/lib/storage';
 import { buildBusinessUpdate, buildRegisterPayload, enterWithProgress, runRegistration, type RegistrationDeps, type RegistrationProgress } from '@/web/registration';
 import { RegisterView, type FinishResult, type RegisterDraft } from '@/web/screens/Register';
 import { photoToFormData } from '@/web/services/imageUpload.web';
@@ -40,6 +42,7 @@ export default function RegisterWeb() {
 
   const deps: RegistrationDeps = {
     register: api.register,
+    onRegistered: (session) => markNewAccount(prefsStorage, session.user.id),
     authorize: setAccessToken,
     updateBusiness: api.updateBusiness,
     uploadLogo: async (photo) => api.uploadLogo(await photoToFormData(photo, 'logo')),

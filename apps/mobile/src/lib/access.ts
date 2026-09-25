@@ -26,6 +26,8 @@ const ROUTES: Array<[pattern: RegExp, requires: Requirement]> = [
   [/^\/client\/[^/]+$/, ['clients_view']],
   [/^\/loyalty$/, ['loyalty_redeem', 'services_record']],
   [/^\/employees$/, 'owner'],
+  [/^\/agenda$/, 'owner'],
+  [/^\/reports$/, 'owner'],
   [/^\/business$/, 'owner'],
   [/^\/subscription$/, 'owner'],
   [/^\/cash-opening$/, 'owner'],

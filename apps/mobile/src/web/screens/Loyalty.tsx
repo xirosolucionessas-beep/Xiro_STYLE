@@ -4,6 +4,7 @@ import { Ico } from '../icons';
 import { Button, Input, Select } from '../ui';
 import { Checkbox, FormMessage } from '../ui/auth';
 import { Modal } from '../ui/Modal';
+import { KpiRow, type KpiView } from '../ui/Page';
 import { useWebStyles } from '../ui/shared';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
@@ -265,6 +266,13 @@ export function LoyaltyView({ t, currency, businessName, program, items, clients
   useWebStyles();
   const [tab, setTab] = useState<Tab>(program.enabled || !canConfigure ? 'clients' : 'config');
 
+  const kpis: KpiView[] = [
+    { id: 'status', icon: 'gift', label: t('sec_loy_kpi_status'), value: program.enabled ? t('sec_loy_on') : t('sec_loy_off') },
+    { id: 'goal', icon: 'star', label: t('sec_loy_kpi_goal'), value: String(program.goal) },
+    { id: 'rewards', icon: 'sparkles', label: t('sec_loy_kpi_rewards'), value: String(clientsProgress.filter((c) => c.rewardAvailable).length) },
+    ...(canRedeem ? [{ id: 'redeemed', icon: 'circle-check' as const, label: t('sec_loy_kpi_redeemed'), value: String(redemptions.length) }] : []),
+  ];
+
   const tabs: Array<{ id: Tab; label: string }> = [
     ...(canConfigure ? [{ id: 'config' as const, label: t('loyalty_tab_config') }] : []),
     { id: 'clients', label: t('loyalty_tab_clients') },
@@ -272,12 +280,10 @@ export function LoyaltyView({ t, currency, businessName, program, items, clients
   ];
 
   return (
-    <div className="xw-page xw-loy-page">
-      <h1 className="xw-h1">{t('loyalty_title')}</h1>
-      <p className="xw-sub" style={{ marginBottom: 'var(--xw-space-6)' }}>
-        {t('loyalty_subtitle')}
-      </p>
+    <div className="xw-section">
+      <KpiRow kpis={kpis} label={t('dash_kpis')} t={t} />
 
+      <div className="xw-panel">
       <div role="tablist" aria-label={t('loyalty_title')} className="xw-loy-tabs">
         {tabs.map((tb) => (
           <TabButton key={tb.id} id={tb.id} active={tab === tb.id} label={tb.label} onSelect={setTab} />
@@ -292,6 +298,7 @@ export function LoyaltyView({ t, currency, businessName, program, items, clients
       </div>
       <div role="tabpanel" id="xw-loy-panel-history" aria-labelledby="xw-loy-tab-history" hidden={tab !== 'history'}>
         {tab === 'history' ? <HistoryTab t={t} redemptions={redemptions} /> : null}
+      </div>
       </div>
     </div>
   );

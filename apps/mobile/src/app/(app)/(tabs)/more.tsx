@@ -1,9 +1,9 @@
 import { whatsappLink, type Language } from '@xiro/shared';
 import { useRouter } from 'expo-router';
-import { Linking, Platform, View } from 'react-native';
+import { Linking, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
 import { api } from '@/lib/api';
-import { useSubscription } from '@/lib/queries';
+import { useEmployees, useLoyaltyProgram, useSubscription } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { useDialogs } from '@/ui/Dialogs';
@@ -19,10 +19,16 @@ export default function More() {
   const router = useRouter();
   const { t, language, setLanguage, theme, setTheme } = useSettings();
   const { user, business, signOut } = useSession();
-  const { toast, confirm } = useDialogs();
+  const { confirm } = useDialogs();
   const { data: subscription } = useSubscription();
   const actor = actorOf(user);
   const isOwner = user?.role !== 'employee';
+  const employees = useEmployees(isOwner);
+  const activeEmployees = employees.data?.filter((e) => e.active).length;
+  const employeeCount = activeEmployees === undefined ? undefined : activeEmployees === 1 ? t('emp_count_one') : t('emp_count_other', { n: activeEmployees });
+  const canLoyalty = meets(actor, ['loyalty_redeem', 'services_record']);
+  const loyalty = useLoyaltyProgram(canLoyalty);
+  const loyaltyLabel = loyalty.data ? (loyalty.data.enabled ? t('loyalty_status_on') : t('loyalty_status_off')) : undefined;
   const planLabel = subscription?.plan === 'yearly' ? t('plan_yearly') : subscription?.plan === 'monthly' ? t('plan_monthly') : undefined;
 
   /* Preferencias: se aplican al instante y se guardan en la cuenta (sin bloquear la UI si falla la red). */
@@ -47,13 +53,8 @@ export default function More() {
         {isOwner ? <Row icon="storefront-outline" label={t('business_settings')} onPress={() => router.push('/business')} /> : null}
         {meets(actor, ['catalog_manage']) ? <Row icon="pricetags-outline" label={t('manage_categories')} onPress={() => router.push('/categories')} /> : null}
         {isOwner ? <Row icon="star-outline" label={t('subscription_title')} value={planLabel} onPress={() => router.push('/subscription')} /> : null}
-        {isOwner ? (
-          Platform.OS === 'web' ? (
-            <Row icon="people-circle-outline" label={t('team')} onPress={() => router.push('/employees')} />
-          ) : (
-            <Row icon="people-circle-outline" label={t('team')} value={t('coming_soon')} onPress={() => toast(`${t('coming_soon')} · ${t('coming_soon_body')}`)} />
-          )
-        ) : null}
+        {canLoyalty ? <Row icon="gift-outline" label={t('loyalty_title')} value={loyaltyLabel} onPress={() => router.push('/loyalty')} /> : null}
+        {isOwner ? <Row icon="people-circle-outline" label={t('team')} value={employeeCount} onPress={() => router.push('/employees')} /> : null}
       </Card>
 
       <SectionTitle>{t('preferences')}</SectionTitle>

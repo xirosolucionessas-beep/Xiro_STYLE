@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import { actorOf, meets, routeRequirement } from '@/lib/access';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
+import { CookieConsent } from '@/ui/CookieConsent';
 import { SubscriptionGate } from '@/ui/SubscriptionGate';
 
 export default function AppLayout() {
@@ -17,7 +18,13 @@ export default function AppLayout() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
       {/* En Web la monta WebShell.web.tsx (versión con el sistema de diseño xw-*): este _layout no tiene
           hermano .web.tsx propio (cambiaría la estructura de navegación), así que se evita aquí a mano. */}
-      {Platform.OS !== 'web' ? <SubscriptionGate /> : null}
+      {Platform.OS !== 'web' ? (
+        <>
+          <SubscriptionGate />
+          {/* Aviso de cookies del primer ingreso de una cuenta nueva (en Web lo monta WebShell). */}
+          <CookieConsent />
+        </>
+      ) : null}
     </>
   );
 }

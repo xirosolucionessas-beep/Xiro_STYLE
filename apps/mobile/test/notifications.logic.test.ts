@@ -7,7 +7,7 @@ import { urlBase64ToBytes } from '../src/lib/vapid';
 const current: NotificationSettings = { enabled: false, loyaltyEnabled: true, billingEnabled: false };
 
 function deps(outcome: PushOutcome = 'granted') {
-  const push: PushAdapter = { enable: vi.fn(async () => outcome), disable: vi.fn(async () => undefined) };
+  const push: PushAdapter = { permission: vi.fn(async () => 'granted' as const), enable: vi.fn(async () => outcome), disable: vi.fn(async () => undefined) };
   const save = vi.fn(async (next: NotificationSettings) => next);
   return { push, save, current };
 }
@@ -27,7 +27,7 @@ describe('turnOn', () => {
     const result = await turnOn({
       ...d,
       confirmRationale: async () => (order.push('rationale'), true),
-      push: { enable: async () => (order.push('permission'), 'granted' as const), disable: d.push.disable },
+      push: { permission: d.push.permission, enable: async () => (order.push('permission'), 'granted' as const), disable: d.push.disable },
     });
     expect(order).toEqual(['rationale', 'permission']);
     expect(result).toEqual({ ok: true, settings: { enabled: true, loyaltyEnabled: true, billingEnabled: false } });

@@ -3,8 +3,7 @@ import { font } from './tokens';
 /** CSS de la pantalla de Perfil (Web): datos de cuenta y el cambio de celular con verificación por código. Se añade a buildCss(). */
 export function buildProfileCss(): string {
   return `
-.xw-profile-page { padding-top: var(--xw-space-8); max-width: 34rem; }
-[data-mode='mobile'] .xw-profile-page { padding-top: var(--xw-space-6); }
+.xw-profile-content { display: flex; flex-direction: column; }
 .xw-profile-field { margin: var(--xw-space-6) 0; }
 .xw-profile-field .xw-btn { margin-top: var(--xw-space-2); }
 .xw-profile-view { margin: 0 0 var(--xw-space-6); padding-top: var(--xw-space-4); border-top: 1px solid var(--xw-border-subtle); }

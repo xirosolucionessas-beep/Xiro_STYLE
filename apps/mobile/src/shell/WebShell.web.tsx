@@ -1,5 +1,5 @@
 import { useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { actorOf } from '@/lib/access';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
@@ -7,10 +7,14 @@ import { useShellMode, usePersistentBool } from '@/web/shell/hooks';
 import { describeRoute } from '@/web/shell/routes';
 import { useFormEnhancements } from '@/web/shell/useFormEnhancements';
 import { useInertHidden } from '@/web/shell/useInertHidden';
+import { useCookieConsent } from '@/lib/useCookieConsent';
+import { AssistantContext } from '@/web/shell/assistantContext';
+import { HeaderSearchContainer, HeaderToolsContainer, SidebarPlan } from '@/web/shell/HeaderContainers';
 import { ShellView } from '@/web/shell/ShellView';
 import { useWebText } from '@/web/services/useWebText';
 import { Brand } from '@/ui/Brand';
 import { AssistantPanel } from '@/web/ui/AssistantPanel';
+import { CookieConsentView } from '@/web/ui/CookieConsent';
 import { FloatingAssistant } from '@/web/ui/FloatingAssistant';
 import { FloatingWhatsApp } from '@/web/ui/FloatingWhatsApp';
 import { SubscriptionGate } from '@/web/ui/SubscriptionGate';
@@ -53,23 +57,35 @@ export function WebShell({ children }: { children: ReactNode }) {
     }
     // SPA: anuncia la página nueva y mueve el foco al contenido (tras cerrar el drawer, si estaba abierto).
     setAnnouncement(title);
-    const id = setTimeout(() => mainRef.current?.focus({ preventScroll: true }), 0);
+    const id = setTimeout(() => {
+      // Si un diálogo (p. ej. el aviso de cookies) ya recibió el foco, no se le quita.
+      if (document.activeElement?.closest('[role="dialog"]')) return;
+      mainRef.current?.focus({ preventScroll: true });
+    }, 0);
     return () => clearTimeout(id);
   }, [route.titleKey, pathname, t]);
 
   // El drawer solo existe en móvil: al ensanchar la ventana se descarta (ajuste de estado durante el render).
   if (mode !== 'mobile' && drawerOpen) setDrawerOpen(false);
 
+  const openAssistant = useCallback(() => setAssistantOpen(true), []);
+  const assistant = useMemo(() => ({ open: openAssistant }), [openAssistant]);
+  const signedIn = status === 'signedIn';
+  const cookies = useCookieConsent();
+
   return (
-    <>
+    <AssistantContext.Provider value={assistant}>
       <ShellView
         mode={mode}
         collapsed={collapsed}
         onToggleCollapsed={toggleCollapsed}
         route={route}
         t={t}
-        signedIn={status === 'signedIn'}
+        signedIn={signedIn}
         actor={actorOf(user)}
+        headerSearch={signedIn ? <HeaderSearchContainer mode={mode} /> : undefined}
+        headerTools={signedIn ? <HeaderToolsContainer mode={mode} /> : undefined}
+        sidebarExtra={signedIn ? <SidebarPlan navigate={(href) => router.navigate(href as never)} /> : undefined}
         brand={{ name: business?.name ?? t('app_name'), logo: <Brand size={40} logoUrl={business?.logoUrl} /> }}
         navigate={(href) => router.navigate(href)}
         drawerOpen={drawerOpen}
@@ -89,6 +105,7 @@ export function WebShell({ children }: { children: ReactNode }) {
         {children}
       </ShellView>
       <SubscriptionGate t={t} language={language} />
-    </>
+      <CookieConsentView open={cookies.visible && !route.auth && !route.standalone} t={t} onAccept={cookies.accept} navigate={(href) => router.navigate(href as never)} />
+    </AssistantContext.Provider>
   );
 }

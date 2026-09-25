@@ -1,6 +1,6 @@
 import { STOCK_STATUSES, summarizeStock, type StockStatus } from '@xiro/shared';
-import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { errorKey } from '@/lib/api';
 import { useCategories, useItems } from '@/lib/queries';
@@ -19,7 +19,13 @@ export default function Inventory() {
   const items = useItems();
   const categories = useCategories();
   const [category, setCategory] = useState<string | null>(null);
-  const [status, setStatus] = useState<StockStatus | null>(null);
+  // Desde una alerta del Inicio se abre ya filtrado (/inventory?status=reorder).
+  const params = useLocalSearchParams<{ status?: string }>();
+  const fromLink = (STOCK_STATUSES as readonly string[]).includes(params.status ?? '') ? (params.status as StockStatus) : null;
+  const [status, setStatus] = useState<StockStatus | null>(fromLink);
+  useEffect(() => {
+    if (fromLink) setStatus(fromLink);
+  }, [fromLink]);
 
   const all = items.data ?? [];
   const summary = useMemo(() => summarizeStock(all), [all]);

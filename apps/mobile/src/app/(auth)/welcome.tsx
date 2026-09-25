@@ -1,16 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, View } from 'react-native';
+import { supportMailtoUrl, supportMessage, supportWhatsappUrl, XIRO_CONTACT } from '@/lib/contact';
 import { useSettings } from '@/lib/settings';
 import { Brand } from '@/ui/Brand';
 import { Button } from '@/ui/Button';
-import { Chip } from '@/ui/Kit';
+import { useDialogs } from '@/ui/Dialogs';
+import { Card, Chip, Row } from '@/ui/Kit';
+import { OrDivider } from '@/ui/OrDivider';
 import { Screen } from '@/ui/Screen';
+import { SocialButtons } from '@/ui/SocialButtons';
 import { AppText } from '@/ui/Text';
 
 export default function Welcome() {
   const router = useRouter();
   const { t, language, setLanguage, theme, setTheme, colors } = useSettings();
+  const { toast } = useDialogs();
+  const open = (url: string) => void Linking.openURL(url).catch(() => toast(t('unknown_error')));
 
   return (
     <Screen>
@@ -40,6 +46,23 @@ export default function Welcome() {
 
       <Button label={t('login')} onPress={() => router.push('/login')} />
       <Button label={t('create_account')} variant="secondary" onPress={() => router.push('/register')} style={styles.second} />
+
+      <OrDivider label={t('or_sign_in_with')} />
+      <SocialButtons intent="signin" />
+
+      <Pressable accessibilityRole="link" onPress={() => router.push('/terms')} style={styles.terms}>
+        <AppText tone="gold" variant="bodyStrong" center>
+          {t('terms_link')}
+        </AppText>
+      </Pressable>
+
+      <AppText variant="heading" style={styles.help}>
+        {t('support_heading')}
+      </AppText>
+      <Card>
+        <Row icon="logo-whatsapp" label={t('support_whatsapp_label')} value={XIRO_CONTACT.whatsappDisplay} onPress={() => open(supportWhatsappUrl(supportMessage(language)))} />
+        <Row icon="mail-outline" label={t('support_email_label')} value={XIRO_CONTACT.email} onPress={() => open(supportMailtoUrl())} />
+      </Card>
     </Screen>
   );
 }
@@ -51,4 +74,6 @@ const styles = StyleSheet.create({
   hero: { alignItems: 'center', paddingVertical: 48, gap: 10 },
   title: { marginTop: 22 },
   second: { marginTop: 12 },
+  terms: { minHeight: 48, justifyContent: 'center', marginTop: 4 },
+  help: { marginTop: 12, marginBottom: 10 },
 });

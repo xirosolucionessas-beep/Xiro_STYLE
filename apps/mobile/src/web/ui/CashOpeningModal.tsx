@@ -64,14 +64,9 @@ export function CashOpeningModal({ open, onClose, currentAmount, currency, t, on
         {t('cash_current_base')}: <strong>{formatMoney(currentAmount, currency)}</strong>
       </p>
 
-      <Input
-        label={t('opening_amount')}
-        value={amount}
-        onChange={(value) => setAmount(formatAmountInput(value))}
-        type="text"
-        inputMode="numeric"
-        prefix={currency}
-      />
+      <div className="xw-cash-amount">
+        <Input label={t('opening_amount')} value={amount} onChange={(value) => setAmount(formatAmountInput(value))} type="text" inputMode="numeric" prefix={currency} />
+      </div>
       <Input label={t('optional_note')} value={note} onChange={setNote} maxLength={200} />
       {error ? (
         <p className="xw-fmsg" role="alert">

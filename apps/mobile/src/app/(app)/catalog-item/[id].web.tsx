@@ -40,7 +40,7 @@ export default function CatalogItemDetailWeb() {
     .filter((url): url is string => Boolean(url));
 
   return (
-    <Screen header={<Header title={t('catalog')} />}>
+    <Screen header={<Header title={item.name} subtitle={item.categoryName} />}>
       <ServiceDetailView
         t={t}
         item={{ id: item.id, name: item.name, categoryName: item.categoryName, description: item.description, shortDescription: item.shortDescription, detail: item.detail, price: item.price, published: item.published, photos }}

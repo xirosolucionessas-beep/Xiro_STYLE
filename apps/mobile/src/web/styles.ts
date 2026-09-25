@@ -1,6 +1,8 @@
 import { buildShellCss } from './shellCss';
 import { buildAssistantCss } from './assistantCss';
 import { buildAuthCss } from './authCss';
+import { buildDashboardCss } from './dashboardCss';
+import { buildPagesCss } from './pagesCss';
 import { buildHomeCss } from './homeCss';
 import { buildEmployeesCss } from './employeesCss';
 import { buildLoyaltyCss } from './loyaltyCss';
@@ -157,6 +159,10 @@ ${buildProfileCss()}
 
 ${buildLoyaltyCss()}
 ${buildEmployeesCss()}
+
+${buildDashboardCss()}
+
+${buildPagesCss()}
 
 /* Movimiento reducido (WCAG 2.3.3). */
 @media (prefers-reduced-motion: reduce) {

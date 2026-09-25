@@ -169,10 +169,12 @@ function register(overrides: Partial<RegisterViewProps> = {}) {
   return { props, ...render(<RegisterView {...props} />) };
 }
 
-async function fillStep1(user: ReturnType<typeof userEvent.setup>, over: { email?: string; password?: string; confirm?: string } = {}) {
+async function fillStep1(user: ReturnType<typeof userEvent.setup>, over: { email?: string; password?: string; confirm?: string; phone?: string } = {}) {
   await user.type(screen.getByLabelText('Nombre completo'), 'Ana Pérez');
   await user.type(screen.getByLabelText('Nombre del negocio'), 'Studio Ana');
   await user.type(screen.getByLabelText('Correo electrónico', { exact: true }), over.email ?? 'ana@correo.com');
+  const phone = over.phone ?? '3001234567';
+  if (phone) await user.type(screen.getByLabelText('Celular', { exact: true }), phone);
   await user.type(screen.getByLabelText('Contraseña', { exact: true }), over.password ?? 'Secreta123');
   await user.type(screen.getByLabelText('Confirmar contraseña'), over.confirm ?? over.password ?? 'Secreta123');
 }
@@ -244,6 +246,34 @@ describe('RegisterView', () => {
     expect(data.step1).toMatchObject({ name: 'Ana Pérez', businessName: 'Studio Ana', email: 'ana@correo.com', businessType: 'barbershop', accepted: true });
     expect(data.step2).toMatchObject({ address: 'Calle 1 # 2-3', city: 'Bogotá', country: 'CO' });
     expect(data.step2.hours.days.every((d) => d.from === '08:00')).toBe(true);
+  }, 30_000); // recorre tres pasos con muchos clics: bajo carga de la suite completa superaba los 5 s por defecto
+
+  it('el celular solo acepta números: filtra letras, símbolos y espacios mientras se escribe o se pega', async () => {
+    register();
+    const user = userEvent.setup();
+    const phone = screen.getByLabelText('Celular', { exact: true }) as HTMLInputElement;
+    await user.type(phone, '30a0 1-2.3x');
+    expect(phone.value).toBe('300123');
+    await user.clear(phone);
+    await user.click(phone);
+    await user.paste('+57 (300) 123-4567 ext');
+    expect(phone.value).toBe('573001234567');
+    expect(phone.getAttribute('inputmode')).toBe('numeric');
+    expect(phone.getAttribute('aria-required')).toBe('true');
+  });
+
+  it('sin celular no se puede continuar y muestra el mensaje claro; se limpia al escribir', async () => {
+    register();
+    const user = userEvent.setup();
+    await fillStep1(user, { phone: '' });
+    await acceptTerms(user);
+    await user.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect(screen.getByText('Paso 1 de 3', { exact: false })).toBeTruthy(); // no avanzó
+    expect(screen.getByText('El número de celular es obligatorio y debe contener solo números.')).toBeTruthy();
+    expect(screen.getByLabelText('Celular', { exact: true }).getAttribute('aria-invalid')).toBe('true');
+    await user.type(screen.getByLabelText('Celular', { exact: true }), '3001234567');
+    await user.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Tu negocio' })).toBeTruthy();
   });
 
   it('the phone field has its own country/dial selector, independent from the business address country (step 2)', async () => {
@@ -355,6 +385,7 @@ describe('RegisterView', () => {
     expect((screen.getByLabelText('Correo electrónico', { exact: true }) as HTMLInputElement).value).toBe('ana@gmail.com');
     expect(screen.queryByLabelText('Contraseña', { exact: true })).toBeNull();
     await user.type(screen.getByLabelText('Nombre del negocio'), 'Studio Ana');
+    await user.type(screen.getByLabelText('Celular', { exact: true }), '3001234567'); // el celular es obligatorio también con cuenta social
     await acceptTerms(user);
     await user.click(screen.getByRole('button', { name: 'Continuar' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Tu negocio' })).toBeTruthy();

@@ -30,6 +30,17 @@ export async function takePhoto(): Promise<PickedImage | null> {
   return { uri: result.assets[0].uri, width: result.assets[0].width };
 }
 
+export type CameraResult = { status: 'ok'; image: PickedImage } | { status: 'denied' } | { status: 'cancelled' };
+
+/** Como `takePhoto`, pero distingue "permiso denegado" de "el usuario canceló" para poder explicarlo bien. */
+export async function takePhotoResult(): Promise<CameraResult> {
+  const permission = await ImagePicker.requestCameraPermissionsAsync();
+  if (!permission.granted) return { status: 'denied' };
+  const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 });
+  const asset = result.canceled ? undefined : result.assets[0];
+  return asset ? { status: 'ok', image: { uri: asset.uri, width: asset.width } } : { status: 'cancelled' };
+}
+
 /** Reduce a 1600 px de ancho máximo y comprime a JPEG antes de subir (ahorra datos del cliente y espacio del servidor). */
 export async function prepareImage(image: PickedImage): Promise<string> {
   const context = ImageManipulator.manipulate(image.uri);

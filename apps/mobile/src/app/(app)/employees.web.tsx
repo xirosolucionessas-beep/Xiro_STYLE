@@ -6,6 +6,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
+import { Header, Screen } from '@/ui/Screen';
 import { EmployeesView } from '@/web/screens/Employees';
 import { useWebText } from '@/web/services/useWebText';
 
@@ -31,5 +32,9 @@ export default function EmployeesWeb() {
     }
   }
 
-  return <EmployeesView t={t} employees={employees.data} logs={logs.data ?? []} onCreate={(input) => run(() => api.createEmployee(input))} onUpdate={(id, input) => run(() => api.updateEmployee(id, input))} />;
+  return (
+    <Screen header={<Header root title={t('nav_employees')} subtitle={t('emp_subtitle')} />}>
+      <EmployeesView t={t} employees={employees.data} logs={logs.data ?? []} onCreate={(input) => run(() => api.createEmployee(input))} onUpdate={(id, input) => run(() => api.updateEmployee(id, input))} />
+    </Screen>
+  );
 }

@@ -203,6 +203,7 @@ export function RegisterView({ t, language, logo, seed, initialDraft, onDraftCha
             value={s1.phone}
             onChange={setField('phone')}
             error={fieldError('phone')}
+            required
             name="phone"
             sheetSearchPlaceholder={t('country_search_placeholder')}
             sheetCloseLabel={t('close')}

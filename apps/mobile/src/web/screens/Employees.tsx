@@ -1,9 +1,11 @@
 import { EMPLOYEE_PERMISSIONS, normalizePermissions, passwordSchema, type AuditLogEntry, type Employee, type EmployeePermission } from '@xiro/shared';
 import { useState } from 'react';
+import { ACTION_LABELS } from '../../lib/employeesLogic';
 import { Ico } from '../icons';
 import { Button, Input } from '../ui';
 import { Checkbox, FormMessage } from '../ui/auth';
 import { Modal } from '../ui/Modal';
+import { KpiRow, type KpiView } from '../ui/Page';
 import { useWebStyles } from '../ui/shared';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
@@ -18,24 +20,6 @@ export interface EmployeesViewProps {
 }
 
 type Tab = 'team' | 'activity';
-
-/** Acción de la bitácora → texto legible. Lo que no esté aquí se muestra tal cual (ruta), nunca se oculta. */
-const ACTION_LABELS: Record<string, string> = {
-  'POST /clients': 'audit_client_create',
-  'PUT /clients/:id': 'audit_client_update',
-  'DELETE /clients/:id': 'audit_client_delete',
-  'POST /items': 'audit_item_create',
-  'PUT /items/:id': 'audit_item_update',
-  'DELETE /items/:id': 'audit_item_delete',
-  'POST /items/:id/stock-adjustments': 'audit_stock_adjust',
-  'POST /categories': 'audit_category_change',
-  'PATCH /categories/:id': 'audit_category_change',
-  'DELETE /categories/:id': 'audit_category_change',
-  'POST /service-records': 'audit_service_record',
-  'POST /loyalty/clients/:clientId/redeem': 'audit_loyalty_redeem',
-  'POST /employees': 'audit_employee_create',
-  'PATCH /employees/:id': 'audit_employee_update',
-};
 
 function TabButton({ id, active, label, onSelect }: { id: Tab; active: boolean; label: string; onSelect: (id: Tab) => void }) {
   return (
@@ -240,17 +224,22 @@ function ActivityTab({ t, logs }: Pick<EmployeesViewProps, 't' | 'logs'>) {
 export function EmployeesView({ t, employees, logs, onCreate, onUpdate }: EmployeesViewProps) {
   useWebStyles();
   const [tab, setTab] = useState<Tab>('team');
+  const activeCount = employees.filter((employee) => employee.active).length;
+  const kpis: KpiView[] = [
+    { id: 'total', icon: 'briefcase', label: t('sec_emp_kpi_total'), value: String(employees.length) },
+    { id: 'active', icon: 'shield-check', label: t('sec_emp_kpi_active'), value: String(activeCount), tone: 'success' },
+    { id: 'inactive', icon: 'x', label: t('sec_emp_kpi_inactive'), value: String(employees.length - activeCount) },
+  ];
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: 'team', label: t('emp_tab_team') },
     { id: 'activity', label: t('emp_tab_activity') },
   ];
 
   return (
-    <div className="xw-page xw-emp-page">
-      <h1 className="xw-h1">{t('nav_employees')}</h1>
-      <p className="xw-sub" style={{ marginBottom: 'var(--xw-space-6)' }}>
-        {t('emp_subtitle')}
-      </p>
+    <div className="xw-section">
+      <KpiRow kpis={kpis} label={t('dash_kpis')} t={t} />
+
+      <div className="xw-panel">
       <div role="tablist" aria-label={t('nav_employees')} className="xw-emp-tabs">
         {tabs.map((tb) => (
           <TabButton key={tb.id} id={tb.id} active={tab === tb.id} label={tb.label} onSelect={setTab} />
@@ -261,6 +250,7 @@ export function EmployeesView({ t, employees, logs, onCreate, onUpdate }: Employ
       </div>
       <div role="tabpanel" id="xw-emp-panel-activity" aria-labelledby="xw-emp-tab-activity" hidden={tab !== 'activity'}>
         {tab === 'activity' ? <ActivityTab t={t} logs={logs} /> : null}
+      </div>
       </div>
     </div>
   );

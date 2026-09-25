@@ -33,9 +33,18 @@ export const countryByCode = (code: CountryCode): Country => COUNTRIES.find((c) 
  * Teléfono en dígitos internacionales (formato que valida `phoneSchema`): antepone el prefijo del país
  * salvo que el número ya lo traiga (más largo que un número local corto).
  */
+/** Un número internacional tiene como máximo 15 dígitos (E.164). */
+export const MAX_PHONE_DIGITS = 15;
+
+/** Deja solo los dígitos, en tiempo real mientras se escribe o pega: quita letras, símbolos, espacios y guiones. */
+export const phoneDigits = (value: string): string => value.replace(/\D/g, '').slice(0, MAX_PHONE_DIGITS);
+
 export function composePhone(local: string, dial: string): string {
   const digits = local.replace(/\D/g, '');
   if (!digits) return '';
   if (digits.startsWith(dial) && digits.length > dial.length + 6) return digits;
   return dial + digits.replace(/^0+/, '');
 }
+
+/** Bandera como emoji (letras indicadoras regionales), para nativo: sin descargar imágenes. `CO` → 🇨🇴. */
+export const flagEmoji = (code: CountryCode): string => String.fromCodePoint(...[...code].map((letter) => 0x1f1a5 + letter.charCodeAt(0)));

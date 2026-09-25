@@ -1,177 +1,240 @@
-import { Ionicons } from '@expo/vector-icons';
-import { BUSINESS_TYPES, defaultBusinessHours, type BusinessType } from '@xiro/shared';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { defaultBusinessHours } from '@xiro/shared';
+import { Stack, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BackHandler } from 'react-native';
 import { api, setAccessToken } from '@/lib/api';
+import { countryByCode } from '@/lib/countries';
 import { apiErrors } from '@/lib/forms';
-import { pickFromLibrary, uploadableImage, type PickedImage } from '@/lib/images';
+import { pickFromLibrary, takePhotoResult, uploadableImage, type PickedImage } from '@/lib/images';
+import { buildBusinessUpdate, buildRegisterPayload, runRegistration, validateStep1, validateStep2 } from '@/lib/registration';
+import { DRAFT_KEY, emptyDraft, hasUnsavedInput, parseDraft, serializeDraft, type RegistrationDraft } from '@/lib/registrationDraft';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
+import { markNewAccount } from '@/lib/cookieConsent';
+import { prefsStorage, setRememberSession } from '@/lib/storage';
 import { AuthShell } from '@/ui/AuthShell';
-import { Button } from '@/ui/Button';
 import { useDialogs } from '@/ui/Dialogs';
-import { Field } from '@/ui/Field';
-import { Chip, ChipRow } from '@/ui/Kit';
-import { SocialButtons } from '@/ui/SocialButtons';
+import { StepAccount, StepBusiness, StepPhoto, type Secrets } from '@/ui/RegisterSteps';
+import { StepBar } from '@/ui/StepBar';
 import { AppText } from '@/ui/Text';
-import { radius } from '@/ui/theme';
-import { COUNTRIES, countryByCode, DEFAULT_COUNTRY, type CountryCode } from '@/lib/countries';
-import { buildBusinessUpdate, buildRegisterPayload, runRegistration, validateStep1, validateStep2 } from '@/lib/registration';
+
+/** Campo del formulario ← campo de error que se limpia al editarlo. */
+const ERROR_FIELDS: Partial<Record<keyof RegistrationDraft, string[]>> = { accepted: ['acceptTerms'], country: ['phone'] };
 
 /**
- * Registro nativo con la MISMA lógica y endpoints que la Web (src/web/registration.ts):
- * POST /api/auth/register → PATCH /api/business (dirección, ciudad, país y moneda) → PUT /api/business/logo (opcional).
- * Si un paso posterior falla la cuenta ya existe: se entra igual y se avisa que puede completarse en Ajustes.
- * El método de pago no se pide aquí: en Android/iOS la suscripción se gestiona en la tienda (RevenueCat), en Ajustes → Plan.
+ * Registro nativo en 3 pasos, con la MISMA lógica y endpoints que la Web (src/lib/registration.ts):
+ * POST /api/auth/register → PATCH /api/business (dirección, ciudad, país, moneda y horario) → PUT /api/business/logo (opcional).
+ * Nada se envía hasta "Finalizar y entrar", así no quedan cuentas a medias por abandonar un paso. Si un paso posterior al
+ * registro falla, la cuenta ya existe: se entra con lo guardado y se avisa qué completar en Ajustes.
+ * El progreso se guarda en el dispositivo (sin la contraseña) para retomarlo si la app se cierra.
+ * El método de pago no se pide aquí: la suscripción sigue el estado que devuelve el backend.
  */
 export default function Register() {
   const router = useRouter();
-  const { t, language, colors } = useSettings();
+  const { t, language } = useSettings();
   const { signIn } = useSession();
-  const { toast } = useDialogs();
-  const [form, setForm] = useState({ name: '', businessName: '', email: '', phone: '', password: '', confirm: '', address: '', city: '' });
-  const [businessType, setBusinessType] = useState<BusinessType>('barbershop');
-  const [country, setCountry] = useState<CountryCode>(DEFAULT_COUNTRY);
+  const { toast, confirm } = useDialogs();
+  const [draft, setDraft] = useState<RegistrationDraft>(emptyDraft);
+  const [secrets, setSecrets] = useState<Secrets>({ password: '', confirm: '' });
   const [logo, setLogo] = useState<PickedImage | null>(null);
-  const [accepted, setAccepted] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string>();
+  const [photoNotice, setPhotoNotice] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [restored, setRestored] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const finished = useRef(false);
+  const step = draft.step;
 
-  const set = (key: keyof typeof form) => (value: string) => {
-    setForm((current) => ({ ...current, [key]: value }));
-    if (errors[key]) setErrors(({ [key]: _cleared, ...rest }) => rest);
+  /* ---------- Borrador: se recupera al abrir y se guarda (con pausa) en cada cambio ---------- */
+  useEffect(() => {
+    let active = true;
+    void prefsStorage
+      .get(DRAFT_KEY)
+      .then((raw) => {
+        const saved = parseDraft(raw);
+        if (!active || !saved || !hasUnsavedInput(saved)) return;
+        setDraft(saved);
+        setRestored(true);
+      })
+      .finally(() => active && setHydrated(true));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || finished.current) return;
+    const timer = setTimeout(() => {
+      if (finished.current) return;
+      void (hasUnsavedInput(draft) ? prefsStorage.set(DRAFT_KEY, serializeDraft(draft)) : prefsStorage.remove(DRAFT_KEY));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [draft, hydrated]);
+
+  const clearDraft = () => {
+    finished.current = true;
+    void prefsStorage.remove(DRAFT_KEY);
   };
-  const dial = countryByCode(country).dial;
 
-  async function chooseLogo() {
+  /* ---------- Edición ---------- */
+  const translate = (keys: Record<string, string>) => Object.fromEntries(Object.entries(keys).map(([field, key]) => [field, t(key)]));
+  const dropErrors = (fields: string[]) =>
+    setErrors((current) => {
+      const next = { ...current };
+      for (const field of fields) delete next[field];
+      return next;
+    });
+
+  const change = (patch: Partial<RegistrationDraft>) => {
+    setDraft((current) => ({ ...current, ...patch }));
+    setGeneral(undefined);
+    dropErrors(Object.keys(patch).flatMap((key) => [key, ...(ERROR_FIELDS[key as keyof RegistrationDraft] ?? [])]));
+  };
+  const changeSecrets = (patch: Partial<Secrets>) => {
+    setSecrets((current) => ({ ...current, ...patch }));
+    dropErrors(['password', 'confirm']);
+  };
+  const goTo = (next: 1 | 2 | 3) => setDraft((current) => ({ ...current, step: next }));
+
+  const step1Values = () => ({ name: draft.name, businessName: draft.businessName, businessType: draft.businessType, email: draft.email, phone: draft.phone, password: secrets.password, confirm: secrets.confirm, accepted: draft.accepted, language });
+  const step2Values = () => ({ address: draft.address, city: draft.city, country: draft.country, hours: draft.hours });
+  const dial = countryByCode(draft.country).dial;
+
+  const next1 = () => {
+    const found = validateStep1(step1Values(), dial);
+    if (Object.keys(found).length > 0) return setErrors(translate(found));
+    setErrors({});
+    goTo(2);
+  };
+  const next2 = () => {
+    const found = validateStep2(step2Values());
+    if (Object.keys(found).length > 0) return setErrors(translate(found));
+    setErrors({});
+    goTo(3);
+  };
+
+  /* ---------- Foto ---------- */
+  async function chooseFromGallery() {
+    setPhotoNotice(undefined);
     try {
       const [picked] = await pickFromLibrary(1);
       if (picked) setLogo(picked);
     } catch {
-      setGeneral(t('unknown_error'));
+      setPhotoNotice(t('reg_gallery_denied'));
+    }
+  }
+  async function takeWithCamera() {
+    setPhotoNotice(undefined);
+    try {
+      const result = await takePhotoResult();
+      if (result.status === 'ok') setLogo(result.image);
+      else if (result.status === 'denied') setPhotoNotice(t('reg_camera_denied'));
+    } catch {
+      setPhotoNotice(t('reg_camera_denied'));
     }
   }
 
-  async function submit() {
+  /* ---------- Envío ---------- */
+  async function finish(withPhoto: boolean) {
     setGeneral(undefined);
-    const step1 = { name: form.name, businessName: form.businessName, businessType, email: form.email, phone: form.phone, password: form.password, confirm: form.confirm, accepted, language };
-    const step2 = { address: form.address, city: form.city, country, hours: defaultBusinessHours() };
-    const keys = { ...validateStep2(step2), ...validateStep1(step1, dial) };
-    if (Object.keys(keys).length > 0) return setErrors(Object.fromEntries(Object.entries(keys).map(([field, key]) => [field, t(key)])));
+    const step1 = step1Values();
+    const step2 = step2Values();
+    const first = validateStep1(step1, dial);
+    if (Object.keys(first).length > 0) {
+      goTo(1);
+      return setErrors(translate(first));
+    }
+    const second = validateStep2(step2);
+    if (Object.keys(second).length > 0) {
+      goTo(2);
+      return setErrors(translate(second));
+    }
 
     setErrors({});
     setBusy(true);
+    setRememberSession(true); // un cierre de sesión sin "Recordarme" anterior no debe afectar a esta cuenta nueva
     try {
       const outcome = await runRegistration(
-        { payload: buildRegisterPayload(step1, dial), business: buildBusinessUpdate(step2), photo: logo },
+        { payload: buildRegisterPayload(step1, dial), business: buildBusinessUpdate({ ...step2, hours: step2.hours ?? defaultBusinessHours() }), photo: withPhoto ? logo : null },
         {
           register: api.register,
+          onRegistered: (session) => markNewAccount(prefsStorage, session.user.id),
           authorize: setAccessToken,
           updateBusiness: api.updateBusiness,
           uploadLogo: async (photo) => api.uploadLogo(await uploadableImage(photo, 'logo')),
           signIn,
         },
       );
-      if (outcome.status === 'failed') {
+      if (outcome.status === 'done') {
+        clearDraft();
+      } else if (outcome.status === 'partial') {
+        // La cuenta ya existe: se entra con lo guardado (no se registra dos veces) y se avisa qué falta.
+        clearDraft();
+        toast(t('reg_partial_notice'));
+        await signIn(outcome.progress.session);
+      } else {
+        // Correo o celular ya usados, red caída, etc.: el error se muestra y se vuelve al paso donde se corrige.
         const result = apiErrors(outcome.error, t);
         setErrors(result.fields);
         setGeneral(result.general);
-      } else if (outcome.status === 'partial') {
-        // La cuenta ya existe: se entra con lo guardado (no se registra dos veces) y se avisa qué falta.
-        toast(t('reg_partial_notice'));
-        await signIn(outcome.progress.session);
+        if (result.fields.email || result.fields.phone || result.fields.name || result.fields.password || result.general === t('account_exists')) goTo(1);
       }
     } finally {
       setBusy(false);
     }
   }
 
+  /* ---------- Salir ---------- */
+  const leave = () => (router.canGoBack() ? router.back() : router.replace('/welcome'));
+  const back = useCallback(async () => {
+    if (busy) return;
+    if (step > 1) return goTo((step - 1) as 1 | 2);
+    if (!hasUnsavedInput(draft)) {
+      clearDraft();
+      return leave();
+    }
+    // El borrador queda guardado: salir no lo pierde, pero se confirma para no sorprender.
+    if (await confirm({ title: t('reg_leave_title'), message: t('reg_leave_body'), confirmLabel: t('reg_leave_confirm') })) leave();
+  }, [busy, step, draft, confirm, t]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      void back();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [back]);
+
+  const titles = {
+    1: [t('create_account_title'), t('create_account_sub')],
+    2: [t('reg_title_2'), t('reg_sub_2')],
+    3: [t('reg_title_3'), t('reg_sub_3')],
+  } as const;
+
   return (
-    <AuthShell title={t('create_account_title')} subtitle={t('create_account_sub')} onBack={() => (router.canGoBack() ? router.back() : router.replace('/welcome'))}>
-      <SocialButtons intent="signup" />
+    <>
+      {/* El gesto de "deslizar para volver" de iOS saltaría la confirmación de salida: aquí se deshabilita. */}
+      <Stack.Screen options={{ gestureEnabled: false }} />
+      <AuthShell title={titles[step][0]} subtitle={titles[step][1]} onBack={() => void back()}>
+        <StepBar step={step} />
+        {restored && !secrets.password ? (
+          <AppText tone="gold" variant="small" style={{ marginBottom: 12 }} accessibilityLiveRegion="polite">
+            {t('reg_draft_restored')}
+          </AppText>
+        ) : null}
+        {general ? (
+          <AppText tone="danger" style={{ marginBottom: 12 }} accessibilityLiveRegion="polite">
+            {general}
+          </AppText>
+        ) : null}
 
-      <Field label={t('full_name')} value={form.name} onChangeText={set('name')} error={errors.name} autoComplete="name" textContentType="name" />
-      <Field label={t('business_name')} value={form.businessName} onChangeText={set('businessName')} error={errors.businessName} />
-
-      <AppText variant="label" tone="gold" style={{ marginBottom: 6 }}>
-        {t('business_type')}
-      </AppText>
-      <View style={{ marginBottom: 14 }}>
-        <ChipRow label={t('business_type')}>
-          {BUSINESS_TYPES.map((type) => (
-            <Chip key={type} label={t(`type_${type}`)} selected={businessType === type} onPress={() => setBusinessType(type)} />
-          ))}
-        </ChipRow>
-      </View>
-
-      <AppText variant="label" tone="gold" style={{ marginBottom: 6 }}>
-        {t('reg_country_label')}
-      </AppText>
-      <View style={{ marginBottom: 14 }}>
-        <ChipRow label={t('reg_country_label')}>
-          {COUNTRIES.map((c) => (
-            <Chip key={c.code} label={`${c.name} +${c.dial}`} selected={country === c.code} onPress={() => setCountry(c.code)} />
-          ))}
-        </ChipRow>
-      </View>
-
-      <Field label={t('email')} value={form.email} onChangeText={set('email')} error={errors.email} autoCapitalize="none" keyboardType="email-address" autoComplete="email" textContentType="emailAddress" />
-      <Field label={t('phone')} value={form.phone} onChangeText={set('phone')} error={errors.phone} keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" prefix={`+${dial}`} />
-      <Field label={t('address')} value={form.address} onChangeText={set('address')} error={errors.address} maxLength={160} autoComplete="street-address" textContentType="fullStreetAddress" />
-      <Field label={t('city')} value={form.city} onChangeText={set('city')} error={errors.city} maxLength={80} textContentType="addressCity" />
-
-      <AppText variant="label" tone="gold" style={{ marginBottom: 6 }}>
-        {t('reg_logo_label')}
-      </AppText>
-      <View style={styles.logoRow}>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('add_photo')} onPress={() => void chooseLogo()} style={[styles.logoBox, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-          {logo ? <Image source={{ uri: logo.uri }} style={styles.logoImage} accessibilityIgnoresInvertColors /> : <Ionicons name="camera-outline" size={28} color={colors.gold} />}
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <Button label={t('gallery')} variant="secondary" compact onPress={() => void chooseLogo()} />
-          {logo ? <Button label={t('reg_logo_remove')} variant="ghost" compact onPress={() => setLogo(null)} /> : null}
-        </View>
-      </View>
-
-      <Field label={t('password')} value={form.password} onChangeText={set('password')} error={errors.password} hint={t('password_hint')} password textContentType="newPassword" autoComplete="new-password" />
-      <Field label={t('confirm_password')} value={form.confirm} onChangeText={set('confirm')} error={errors.confirm} password textContentType="newPassword" />
-
-      <View style={styles.terms}>
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: accepted }}
-          accessibilityLabel={t('accept_terms')}
-          onPress={() => setAccepted((v) => !v)}
-          style={[styles.box, { borderColor: errors.acceptTerms ? colors.danger : colors.gold, backgroundColor: accepted ? colors.gold : 'transparent' }]}>
-          {accepted ? <Ionicons name="checkmark" size={16} color={colors.onGold} /> : null}
-        </Pressable>
-        <Pressable onPress={() => router.push('/terms')} style={{ flex: 1 }}>
-          <AppText>{t('accept_terms')}</AppText>
-        </Pressable>
-      </View>
-      {errors.acceptTerms ? (
-        <AppText variant="small" tone="danger" style={{ marginBottom: 10 }}>
-          {errors.acceptTerms}
-        </AppText>
-      ) : null}
-      {general ? (
-        <AppText tone="danger" style={{ marginBottom: 12 }} accessibilityLiveRegion="polite">
-          {general}
-        </AppText>
-      ) : null}
-
-      <Button label={t('create_account')} onPress={submit} loading={busy} />
-      <Button label={`${t('have_account')} ${t('login')}`} variant="ghost" onPress={() => router.replace('/login')} />
-    </AuthShell>
+        {step === 1 ? <StepAccount draft={draft} secrets={secrets} errors={errors} onChange={change} onSecrets={changeSecrets} onOpenTerms={() => router.push('/terms')} onNext={next1} /> : null}
+        {step === 2 ? <StepBusiness draft={draft} errors={errors} onChange={change} onNext={next2} onBack={() => goTo(1)} /> : null}
+        {step === 3 ? (
+          <StepPhoto logo={logo} notice={photoNotice} busy={busy} onGallery={() => void chooseFromGallery()} onCamera={() => void takeWithCamera()} onRemove={() => setLogo(null)} onFinish={() => void finish(true)} onSkip={() => void finish(false)} onBack={() => goTo(2)} />
+        ) : null}
+      </AuthShell>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  terms: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
-  box: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  logoRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
-  logoBox: { width: 84, height: 84, borderRadius: radius.lg, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  logoImage: { width: '100%', height: '100%' },
-});

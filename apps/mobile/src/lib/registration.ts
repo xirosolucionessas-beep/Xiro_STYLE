@@ -70,6 +70,10 @@ export function validateStep1(values: Step1Values, dial: string): Record<string,
       if (field && !errors[field]) errors[field] = asTranslationKey(issue.message);
     }
   }
+  // El celular es OBLIGATORIO y solo numérico (el esquema compartido lo deja opcional: ahí basta un correo o un celular).
+  // Como el celular ya es obligatorio, el correo vuelve a ser opcional: "contact_required" deja de tener sentido.
+  if (errors.email === 'contact_required') delete errors.email;
+  if (!values.phone.trim() || /\D/.test(values.phone)) errors.phone = 'phone_required';
   if (values.social) {
     delete errors.password; // con cuenta social no hay contraseña
   } else if (values.confirm !== values.password) {
@@ -122,6 +126,8 @@ export interface RegistrationDeps {
   updateBusiness: (body: BusinessUpdateInput) => Promise<Business>;
   uploadLogo: (photo: PhotoInput) => Promise<Business>;
   signIn: (session: AuthSession) => Promise<void>;
+  /** Se llama UNA vez, cuando la cuenta ya quedó creada (aunque un paso posterior falle). Nunca rompe el registro. */
+  onRegistered?: (session: AuthSession) => Promise<void> | void;
 }
 
 export interface RegistrationProgress {
@@ -152,6 +158,11 @@ export async function runRegistration(input: RegistrationInput, deps: Registrati
       progress = { session: await deps.register(input.payload), businessSaved: false, logoSaved: false };
     } catch (error) {
       return { status: 'failed', error };
+    }
+    try {
+      await deps.onRegistered?.(progress.session);
+    } catch {
+      /* un fallo aquí (p. ej. el almacenamiento) no debe deshacer ni frenar una cuenta ya creada */
     }
   }
   deps.authorize(progress.session.accessToken);

@@ -12,11 +12,13 @@ export const keys = {
   loyaltyRedemptions: ['loyaltyRedemptions'] as const,
   serviceRecords: ['serviceRecords'] as const,
   notificationSettings: ['notificationSettings'] as const,
+  employees: ['employees'] as const,
+  auditLogs: ['auditLogs'] as const,
 };
 
-export const useItems = () => useQuery({ queryKey: keys.items, queryFn: api.items });
+export const useItems = (enabled = true) => useQuery({ queryKey: keys.items, queryFn: api.items, enabled });
 export const useCategories = () => useQuery({ queryKey: keys.categories, queryFn: api.categories });
-export const useClients = (q = '') => useQuery({ queryKey: [...keys.clients, q], queryFn: () => api.clients(q || undefined) });
+export const useClients = (q = '', enabled = true) => useQuery({ queryKey: [...keys.clients, q], queryFn: () => api.clients(q || undefined), enabled });
 /** La caja es solo del dueño: para un empleado la consulta no se hace (el servidor respondería 403). */
 export const useCashToday = (enabled = true) => useQuery({ queryKey: keys.cash, queryFn: api.cashToday, enabled });
 /**
@@ -51,11 +53,13 @@ export function useInvalidateClients() {
   return () => queryClient.invalidateQueries({ queryKey: keys.clients });
 }
 
-export const useLoyaltyProgram = () => useQuery({ queryKey: keys.loyaltyProgram, queryFn: api.loyaltyProgram });
+export const useLoyaltyProgram = (enabled = true) => useQuery({ queryKey: keys.loyaltyProgram, queryFn: api.loyaltyProgram, enabled });
 export const useLoyaltyClients = () => useQuery({ queryKey: keys.loyaltyClients, queryFn: api.loyaltyClients });
 export const useLoyaltyRedemptions = (clientId?: string, enabled = true) => useQuery({ queryKey: [...keys.loyaltyRedemptions, clientId ?? ''], queryFn: () => api.loyaltyRedemptions(clientId), enabled });
-export const useServiceRecords = (clientId?: string) => useQuery({ queryKey: [...keys.serviceRecords, clientId ?? ''], queryFn: () => api.serviceRecords(clientId) });
+export const useServiceRecords = (clientId?: string, enabled = true) => useQuery({ queryKey: [...keys.serviceRecords, clientId ?? ''], queryFn: () => api.serviceRecords(clientId), enabled });
 
+export const useEmployees = (enabled = true) => useQuery({ queryKey: keys.employees, queryFn: api.employees, enabled });
+export const useAuditLogs = (enabled = true) => useQuery({ queryKey: keys.auditLogs, queryFn: () => api.auditLogs(), enabled });
 export const useNotificationSettings = () => useQuery({ queryKey: keys.notificationSettings, queryFn: api.notificationSettings });
 
 /** Config, progreso y canjes se invalidan juntos: registrar un servicio o canjear un premio puede cambiar los tres a la vez. */

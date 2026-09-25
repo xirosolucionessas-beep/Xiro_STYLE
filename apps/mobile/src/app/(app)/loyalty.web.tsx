@@ -8,6 +8,7 @@ import { apiErrors } from '@/lib/forms';
 import { useInvalidateLoyalty, useItems, useLoyaltyClients, useLoyaltyProgram, useLoyaltyRedemptions } from '@/lib/queries';
 import { actorOf, meets } from '@/lib/access';
 import { useAuthed } from '@/lib/session';
+import { Header, Screen } from '@/ui/Screen';
 import { LoyaltyView } from '@/web/screens/Loyalty';
 import { useWebText } from '@/web/services/useWebText';
 
@@ -57,6 +58,7 @@ export default function LoyaltyWeb() {
   }
 
   return (
+    <Screen header={<Header root title={t('loyalty_title')} subtitle={t('loyalty_subtitle')} />}>
     <LoyaltyView
       t={t}
       currency={business.currency}
@@ -71,5 +73,6 @@ export default function LoyaltyWeb() {
       canConfigure={user.role === 'owner'}
       canRedeem={canRedeem}
     />
+    </Screen>
   );
 }

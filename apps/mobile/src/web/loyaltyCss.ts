@@ -3,8 +3,7 @@ import { font } from './tokens';
 /** CSS de la pantalla de Fidelización (Web): pestañas, tarjetas de progreso por cliente e historial. Se añade a buildCss(). */
 export function buildLoyaltyCss(): string {
   return `
-.xw-loy-page { padding-top: var(--xw-space-8); max-width: 42rem; }
-[data-mode='mobile'] .xw-loy-page { padding-top: var(--xw-space-6); }
+.xw-loy-config { max-width: 42rem; }
 
 .xw-loy-tabs { display: flex; gap: var(--xw-space-2); margin-bottom: var(--xw-space-6); border-bottom: 1px solid var(--xw-border-subtle); }
 .xw-loy-tab { box-sizing: border-box; min-height: var(--xw-touch); padding: 0 var(--xw-space-3); background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
