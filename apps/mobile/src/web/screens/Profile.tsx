@@ -96,9 +96,7 @@ export function ProfileView({ t, user, businessName, onSaveName, onRequestPhoneC
   }
 
   return (
-    <div className="xw-page xw-profile-page">
-      <h1 className="xw-h1">{t('profile')}</h1>
-
+    <div className="xw-profile-content">
       <div className="xw-profile-field">
         <Input label={t('profile_name_label')} value={name} onChange={setName} error={nameError} autoComplete="name" name="name" maxLength={80} />
         <Button onPress={() => void saveName()} loading={busyName} loadingLabel={t('loading')}>

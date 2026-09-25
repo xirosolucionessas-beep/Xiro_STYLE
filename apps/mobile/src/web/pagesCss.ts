@@ -157,6 +157,10 @@ export function buildPagesCss(): string {
 
 a.xw-btn { text-decoration: none; }
 
+/* Pantallas de formulario y ajustes internos (ancho angosto): el contenido va en una tarjeta, como los paneles del resto. */
+[data-page-width='form'] .xw-screen .xw-page { box-sizing: border-box; width: calc(100% - 2 * var(--xw-space-6)); max-width: calc(var(--xw-page-max) - 2 * var(--xw-space-6)); margin-block: var(--xw-space-2) var(--xw-space-8); padding: var(--xw-space-6); background: var(--xw-surface); border: 1px solid var(--xw-border-subtle); border-radius: var(--xw-radius-xl); }
+[data-mode='mobile'] [data-page-width='form'] .xw-screen .xw-page { width: calc(100% - 2 * var(--xw-space-4)); padding: var(--xw-space-4); }
+
 /* Botones de la cabecera de página: mismo lenguaje que el Inicio */
 .xw-head .xw-btn { min-height: var(--xw-touch); }
 `.trim();

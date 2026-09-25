@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeClients, catalogStats, clientRows, inventoryValue, isTruncated, newClientsInPeriod, newThisMonth, periodTotals, RECORD_LIMIT, salesByDay, topClients, topServices } from '../src/lib/sections';
+import { activeClients, catalogStats, clientHistory, clientRows, inventoryValue, isTruncated, margin, newClientsInPeriod, newThisMonth, periodTotals, RECORD_LIMIT, salesByDay, topClients, topServices } from '../src/lib/sections';
 
 const TZ = 'America/Bogota';
 const now = new Date('2026-09-24T20:00:00Z'); // 24 sep, 15:00 en Bogotá
@@ -76,5 +76,18 @@ describe('reportes', () => {
   it('avisa cuando el historial puede estar cortado por el límite del servidor', () => {
     expect(isTruncated(Array.from({ length: RECORD_LIMIT }))).toBe(true);
     expect(isTruncated([])).toBe(false);
+  });
+});
+
+describe('fichas', () => {
+  it('margen sobre el precio, y null sin costo o sin precio', () => {
+    expect(margin(25_000, 10_000)).toEqual({ amount: 15_000, percent: 60 });
+    expect(margin(25_000, 0)).toBeNull();
+    expect(margin(0, 5_000)).toBeNull();
+  });
+
+  it('resumen del historial de un cliente', () => {
+    expect(clientHistory([{ amount: 30_000, createdAt: at('20') }, { amount: 20_000, createdAt: at('22') }])).toEqual({ count: 2, total: 50_000, last: Date.parse(at('22')) });
+    expect(clientHistory([])).toEqual({ count: 0, total: 0, last: null });
   });
 });

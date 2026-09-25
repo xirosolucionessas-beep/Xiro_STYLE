@@ -104,9 +104,9 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
       return AUTH('privacy_page_title');
   }
 
-  if (/^\/item\/[^/]+$/.test(path)) return { titleKey: 'item_details', section: 'inventory', trail: [HOME, INVENTORY, { labelKey: 'crumb_detail' }], auth: false, width: 'form', needsHeading: false };
-  if (/^\/catalog-item\/[^/]+$/.test(path)) return { titleKey: 'catalog', section: 'services', trail: [HOME, SERVICES, { labelKey: 'crumb_detail' }], auth: false, width: 'form', needsHeading: false };
-  if (/^\/client\/[^/]+$/.test(path)) return { titleKey: 'clients', section: 'clients', trail: [HOME, CLIENTS, { labelKey: 'crumb_detail' }], auth: false, width: 'form', needsHeading: false };
+  if (/^\/item\/[^/]+$/.test(path)) return { titleKey: 'item_details', section: 'inventory', trail: [HOME, INVENTORY, { labelKey: 'crumb_detail' }], auth: false, width: 'wide', needsHeading: false };
+  if (/^\/catalog-item\/[^/]+$/.test(path)) return { titleKey: 'catalog', section: 'services', trail: [HOME, SERVICES, { labelKey: 'crumb_detail' }], auth: false, width: 'wide', needsHeading: false };
+  if (/^\/client\/[^/]+$/.test(path)) return { titleKey: 'clients', section: 'clients', trail: [HOME, CLIENTS, { labelKey: 'crumb_detail' }], auth: false, width: 'wide', needsHeading: false };
 
   return { titleKey: 'app_name', section: null, trail: [{ labelKey: 'app_name' }], auth: false, width: 'wide', needsHeading: false };
 }

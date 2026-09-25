@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
 import { AgendaView } from '../src/web/screens/Agenda';
+import { ClientDetailView, type ClientDetailViewProps } from '../src/web/screens/ClientDetail';
+import { ItemDetailView, type ItemDetailViewProps } from '../src/web/screens/ItemDetail';
 import { CatalogView, type CatalogViewProps } from '../src/web/screens/Catalog';
 import { ClientsView, type ClientsViewProps } from '../src/web/screens/Clients';
 import { InventoryView, type InventoryViewProps } from '../src/web/screens/Inventory';
@@ -340,5 +342,93 @@ describe('FilterChips', () => {
     await userEvent.tab();
     await userEvent.keyboard('{Tab}{Enter}');
     expect(onChange).toHaveBeenCalledWith('b');
+  });
+});
+
+/* ---------- Fichas ---------- */
+
+function clientDetail(overrides: Partial<ClientDetailViewProps> = {}) {
+  const props: ClientDetailViewProps = {
+    t,
+    rows: [
+      { id: 'phone', label: 'Celular', value: '+573001112233', href: 'tel:+573001112233' },
+      { id: 'email', label: 'Correo electrónico', value: '—' },
+    ],
+    history: { loading: false, rows: [{ id: 'r1', label: 'Corte', note: 'Con degradado', amount: '$ 25.000', date: '20 sept 2026' }] },
+    kpis: [{ id: 'count', icon: 'scissors', label: 'Servicios', value: '1' }],
+    whatsappHref: 'https://wa.me/573001112233',
+    callHref: 'tel:+573001112233',
+    deleting: false,
+    canManage: true,
+    onEdit: vi.fn(),
+    onDelete: vi.fn(),
+    ...overrides,
+  };
+  return { props, ...render(<ClientDetailView {...props} />) };
+}
+
+describe('ClientDetailView', () => {
+  it('muestra el contacto, el historial real y las acciones (WhatsApp, llamar, editar, eliminar)', async () => {
+    const { props, container } = clientDetail();
+    expect(screen.getByRole('link', { name: '+573001112233' }).getAttribute('href')).toBe('tel:+573001112233');
+    expect(screen.getByRole('link', { name: /WhatsApp/ }).getAttribute('target')).toBe('_blank');
+    expect(screen.getByRole('link', { name: /Llamar/ }).getAttribute('href')).toBe('tel:+573001112233');
+    expect(screen.getByText('Con degradado')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Editar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
+    expect(props.onEdit).toHaveBeenCalledOnce();
+    expect(props.onDelete).toHaveBeenCalledOnce();
+    await noViolations(container);
+  });
+
+  it('sin permiso no muestra el historial ni editar/eliminar; sin teléfono no ofrece WhatsApp ni llamar', () => {
+    clientDetail({ history: null, kpis: [], canManage: false, whatsappHref: undefined, callHref: undefined });
+    expect(screen.queryByRole('heading', { name: 'Historial de servicios' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull();
+    expect(screen.queryByRole('link', { name: /WhatsApp/ })).toBeNull();
+  });
+
+  it('un cliente sin servicios muestra el estado vacío del historial', () => {
+    clientDetail({ history: { loading: false, rows: [] } });
+    expect(screen.getByText('Este cliente aún no tiene servicios registrados.')).toBeTruthy();
+  });
+});
+
+function itemDetail(overrides: Partial<ItemDetailViewProps> = {}) {
+  const props: ItemDetailViewProps = {
+    t,
+    name: 'Cera',
+    photos: [],
+    status: 'reorder',
+    statusLabel: 'Por reponer',
+    description: 'Cera fijadora',
+    kpis: [{ id: 'stock', icon: 'package', label: 'Stock', value: '2 unidades' }, { id: 'margin', icon: 'trending-up', label: 'Margen', value: '—' }],
+    rows: [{ id: 'code', label: 'Código o referencia', value: 'CE-1' }],
+    notes: 'Pedir a proveedor',
+    deleting: false,
+    onEdit: vi.fn(),
+    onDelete: vi.fn(),
+    ...overrides,
+  };
+  return { props, ...render(<ItemDetailView {...props} />) };
+}
+
+describe('ItemDetailView', () => {
+  it('muestra estado en texto, datos internos y notas, con editar y eliminar', async () => {
+    const { props, container } = itemDetail();
+    expect(screen.getByText('Por reponer')).toBeTruthy();
+    expect(screen.getByText('CE-1')).toBeTruthy();
+    expect(screen.getByText('Pedir a proveedor')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Editar artículo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
+    expect(props.onEdit).toHaveBeenCalledOnce();
+    expect(props.onDelete).toHaveBeenCalledOnce();
+    await noViolations(container);
+  });
+
+  it('sin notas no muestra esa fila y mientras elimina el botón queda ocupado', () => {
+    itemDetail({ notes: '', deleting: true });
+    expect(screen.queryByText('Notas internas')).toBeNull();
+    expect(screen.getByRole('button', { name: /Eliminar/ }).getAttribute('aria-busy')).toBe('true');
   });
 });

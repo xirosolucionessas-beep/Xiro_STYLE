@@ -148,10 +148,10 @@ function serviceDetail(overrides: Partial<ServiceDetailViewProps> = {}) {
 }
 
 describe('ServiceDetailView', () => {
-  it('shows name, category, description and price, and passes axe', async () => {
+  it('shows description and price (name and category go in the page header), and passes axe', async () => {
     const { container } = serviceDetail();
-    expect(screen.getByRole('heading', { level: 1, name: 'Corte Ejecutivo' })).toBeTruthy();
-    expect(screen.getByText('Cortes')).toBeTruthy();
+    expect(screen.getByText('Corte clásico con máquina y tijera.')).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
     expect(screen.getByText(money(35000))).toBeTruthy();
     await noViolations(container);
   });

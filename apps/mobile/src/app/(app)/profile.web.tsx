@@ -6,6 +6,7 @@
 import { api } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
 import { useSession } from '@/lib/session';
+import { Header, Screen } from '@/ui/Screen';
 import { ProfileView } from '@/web/screens/Profile';
 import { useWebText } from '@/web/services/useWebText';
 
@@ -45,6 +46,7 @@ export default function ProfileWeb() {
   }
 
   return (
+    <Screen header={<Header title={t('profile')} subtitle={user.email ?? undefined} />}>
     <ProfileView
       t={t}
       user={user}
@@ -56,5 +58,6 @@ export default function ProfileWeb() {
         if (window.confirm(t('logout_sub'))) void signOut();
       }}
     />
+    </Screen>
   );
 }

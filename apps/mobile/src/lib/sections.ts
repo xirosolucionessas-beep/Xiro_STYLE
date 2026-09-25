@@ -169,3 +169,24 @@ export function topClients(records: ReadonlyArray<{ clientName: string; amount: 
 
 /** Clientes creados dentro del periodo. */
 export const newClientsInPeriod = (clients: ReadonlyArray<{ createdAt: string }>, timezone: string, days: number, now: Date = new Date()): number => clients.filter((client) => inPeriod(client.createdAt, timezone, days, now)).length;
+
+/* ---------- Fichas ---------- */
+
+/** Margen sobre el precio (precio − costo). `null` si no hay costo cargado o no hay precio: no se muestra un margen inventado. */
+export function margin(price: number, cost: number): { amount: number; percent: number } | null {
+  if (!(cost > 0) || !(price > 0)) return null;
+  return { amount: price - cost, percent: Math.round(((price - cost) / price) * 100) };
+}
+
+export interface ClientHistory {
+  count: number;
+  total: number;
+  /** Último servicio (ms); `null` si no hay ninguno. */
+  last: number | null;
+}
+
+/** Resumen de los servicios de UN cliente. */
+export function clientHistory(records: ReadonlyArray<{ amount: number; createdAt: string }>): ClientHistory {
+  const times = records.map((record) => Date.parse(record.createdAt)).filter(Number.isFinite);
+  return { count: records.length, total: records.reduce((sum, record) => sum + record.amount, 0), last: times.length > 0 ? Math.max(...times) : null };
+}

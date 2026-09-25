@@ -98,14 +98,20 @@ a.xw-tile, button.xw-tile { cursor: pointer; }
 .xw-lightbox-arrow--next { right: var(--xw-space-4); }
 .xw-lightbox-bottom { flex: none; display: flex; justify-content: center; gap: 6px; padding: var(--xw-space-3); }
 
-/* ---------- Info de la ficha ---------- */
-.xw-detail { display: flex; flex-direction: column; }
-.xw-detail-title { margin: var(--xw-space-5) 0 0; color: var(--xw-text); font: ${font.weight.extrabold} var(--xw-text-2xl)/${font.lineHeight.tight} var(--xw-font); overflow-wrap: anywhere; }
-.xw-detail-category { margin: var(--xw-space-2) 0 0; color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-md)/${font.lineHeight.tight} var(--xw-font); }
-.xw-detail-desc { margin: var(--xw-space-3) 0 0; color: var(--xw-text-muted); font: var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); overflow-wrap: anywhere; }
-.xw-detail-price { margin: var(--xw-space-3) 0 0; color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-3xl)/1.1 var(--xw-font); }
-.xw-detail-actions { display: flex; flex-direction: column; gap: var(--xw-space-3); margin-top: var(--xw-space-6); }
+/* ---------- Ficha (servicio, artículo, cliente) ---------- */
+.xw-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--xw-space-5); align-items: start; }
+@container (min-width: 52rem) { .xw-detail { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+.xw-detail-media, .xw-detail-side { display: flex; flex-direction: column; gap: var(--xw-space-4); min-width: 0; }
+.xw-detail-desc { margin: 0; color: var(--xw-text-muted); font: var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); overflow-wrap: anywhere; }
+.xw-detail-price { margin: 0; color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-3xl)/1.1 var(--xw-font); }
+.xw-detail-actions { display: flex; flex-direction: column; gap: var(--xw-space-3); margin-top: var(--xw-space-2); }
 .xw-detail-public { display: inline-flex; align-items: center; justify-content: center; gap: var(--xw-space-2); min-height: var(--xw-touch); }
+.xw-dl { margin: 0; display: flex; flex-direction: column; }
+.xw-dl-row { display: flex; flex-direction: column; gap: 2px; padding: var(--xw-space-3) 0; border-bottom: 1px solid var(--xw-border-subtle); }
+.xw-dl-row:last-child { border-bottom: 0; }
+.xw-dl-row dt { color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); text-transform: uppercase; letter-spacing: .05em; }
+.xw-dl-row dd { margin: 0; color: var(--xw-text); overflow-wrap: anywhere; font: ${font.weight.semibold} var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); }
+.xw-dl-row dd a { color: var(--xw-accent); text-underline-offset: 3px; }
 
 @media (max-width: 639px) {
   /* Al último acceso rápido lo tapa la pila de flotantes (WhatsApp + Asistente): le deja el hueco fijo despejado. */

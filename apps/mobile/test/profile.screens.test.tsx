@@ -37,7 +37,8 @@ function profile(overrides: Partial<ProfileViewProps> = {}) {
 describe('ProfileView', () => {
   it('shows the account fields and passes axe', async () => {
     const { container } = profile();
-    expect(screen.getByRole('heading', { level: 1, name: 'Perfil' })).toBeTruthy();
+    // El título de la página lo aporta el encabezado del contenedor; la vista arranca en el campo del nombre.
+    expect(screen.getByLabelText('Nombre completo')).toBeTruthy();
     expect((screen.getByLabelText('Nombre completo') as HTMLInputElement).value).toBe('Ana Pérez');
     expect(screen.getByText('ana@correo.com')).toBeTruthy();
     expect(screen.getByText('+573001234567')).toBeTruthy();
