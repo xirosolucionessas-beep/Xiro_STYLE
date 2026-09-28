@@ -18,6 +18,8 @@ const PAIRS: Array<[native: string, web: string]> = [
   ['src/lib/storage.ts', 'src/lib/storage.web.ts'],
   ['src/shell/WebShell.tsx', 'src/shell/WebShell.web.tsx'],
   ['src/ui/ConnectionError.tsx', 'src/ui/ConnectionError.web.tsx'],
+  ['src/ui/booking/LocationMap.tsx', 'src/ui/booking/LocationMap.web.tsx'],
+  ['src/lib/currentPosition.ts', 'src/lib/currentPosition.web.ts'],
 ];
 
 const root = path.resolve(__dirname, '..');

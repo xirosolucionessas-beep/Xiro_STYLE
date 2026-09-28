@@ -1,6 +1,6 @@
 /** Metadatos de cada ruta de la app: título, migas de pan, sección activa y ancho de contenido. Puro (sin React). */
 
-export type SectionId = 'home' | 'notifications' | 'agenda' | 'reports' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
+export type SectionId = 'home' | 'notifications' | 'agenda' | 'booking' | 'reports' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
 
 export interface Crumb {
   /** Clave de traducción. */
@@ -49,6 +49,12 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
       return { titleKey: 'notifications', section: 'notifications', trail: [HOME, { labelKey: 'notifications' }], auth: false, width: 'wide', needsHeading: false };
     case '/agenda':
       return { titleKey: 'nav_agenda', section: 'agenda', trail: [HOME, { labelKey: 'nav_agenda' }], auth: false, width: 'wide', needsHeading: false };
+    case '/booking':
+      return { titleKey: 'booking_title', section: 'booking', trail: [HOME, { labelKey: 'booking_title' }], auth: false, width: 'wide', needsHeading: false };
+    case '/packages':
+      return { titleKey: 'pkg_title', section: 'services', trail: [HOME, SERVICES, { labelKey: 'pkg_title' }], auth: false, width: 'wide', needsHeading: false };
+    case '/review-items':
+      return { titleKey: 'review_title', section: 'services', trail: [HOME, SERVICES, { labelKey: 'review_title' }], auth: false, width: 'form', needsHeading: false };
     case '/reports':
       return { titleKey: 'nav_reports', section: 'reports', trail: [HOME, { labelKey: 'nav_reports' }], auth: false, width: 'wide', needsHeading: false };
     case '/inventory':

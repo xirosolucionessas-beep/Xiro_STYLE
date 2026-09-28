@@ -32,6 +32,7 @@ export default function ClientDetailWeb() {
   const records = useServiceRecords(id, canRecords && Boolean(id));
   const invalidate = useInvalidateClients();
   const [busy, setBusy] = useState(false);
+  const [anonymizing, setAnonymizing] = useState(false);
   const currency = business.currency as Currency;
   const date = useMemo(() => new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', year: 'numeric', timeZone: business.timezone }), [language, business.timezone]);
 
@@ -61,6 +62,21 @@ export default function ClientDetailWeb() {
     } catch (error) {
       toast(t(errorKey(error)));
       setBusy(false);
+    }
+  }
+
+  async function anonymize() {
+    if (!client) return;
+    if (!(await confirm({ title: t('client_anonymize_confirm_title'), message: t('client_anonymize_confirm_text'), confirmLabel: t('client_anonymize'), destructive: true }))) return;
+    setAnonymizing(true);
+    try {
+      await api.anonymizeClient(client.id);
+      await invalidate();
+      toast(t('client_anonymized'));
+    } catch (error) {
+      toast(t(errorKey(error)));
+    } finally {
+      setAnonymizing(false);
     }
   }
 
@@ -96,6 +112,8 @@ export default function ClientDetailWeb() {
         canManage={canManage}
         onEdit={() => router.push({ pathname: '/client/form', params: { id: client.id } })}
         onDelete={() => void remove()}
+        anonymizing={anonymizing}
+        onAnonymize={() => void anonymize()}
       />
     </Screen>
   );

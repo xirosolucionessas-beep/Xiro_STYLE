@@ -1,3 +1,7 @@
+export * from './agenda';
+export * from './booking';
+export * from './calendar';
+export * from './geo';
 export * from './i18n';
 export * from './money';
 export * from './phone';

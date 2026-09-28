@@ -77,6 +77,7 @@ describe('opción actual resaltada', () => {
     expect(isCurrentItem(find('clients'), '/clients')).toBe(true);
     expect(isCurrentItem(find('inventory'), '/inventory')).toBe(true);
     expect(isCurrentItem(find('team'), '/employees')).toBe(true);
-    expect(isCurrentItem(find('appointments'), '/agenda')).toBe(false); // sin ruta
+    expect(isCurrentItem(find('appointments'), '/agenda')).toBe(true);
+    expect(isCurrentItem(find('booking'), '/booking')).toBe(true);
   });
 });

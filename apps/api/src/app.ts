@@ -7,9 +7,11 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { eq, sql } from 'drizzle-orm';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import type { PgBoss } from 'pg-boss';
 import { loadConfig, type Config } from './config';
 import { assertPolicyCovers, authorize } from './authz';
 import { recordAudit } from './audit';
+import { GoogleMapsClient, type GoogleMaps } from './booking/google';
 import type { Ctx } from './context';
 import type { Database } from './db/client';
 import { users } from './db/schema';
@@ -18,13 +20,19 @@ import { MAX_IMAGE_BYTES } from './media';
 import { ConsoleNotifier, type Notifier } from './notifier';
 import { accountRoutes } from './routes/account';
 import { authRoutes } from './routes/auth';
+import { bookingRoutes } from './routes/booking';
+import { bookingConfigRoutes } from './routes/bookingConfig';
 import { catalogRoutes } from './routes/catalog';
 import { clientRoutes } from './routes/clients';
 import { employeeRoutes } from './routes/employees';
 import { loyaltyRoutes } from './routes/loyalty';
 import { notificationRoutes } from './routes/notifications';
+import { placesRoutes } from './routes/places';
 import { publicRoutes } from './routes/public';
+import { publicBookingRoutes } from './routes/publicBooking';
+import { realtimeRoutes } from './routes/realtime';
 import { serviceRecordRoutes } from './routes/serviceRecords';
+import type { RealtimeBus } from './realtime';
 import { adminSubscriptionRoutes, subscriptionRoutes } from './routes/subscriptions';
 import { webRoutes } from './routes/web';
 import { webhookRoutes } from './routes/webhooks';
@@ -45,7 +53,8 @@ declare module 'fastify' {
 }
 
 export interface BuildOptions {
-  config?: Partial<Omit<Config, 'database' | 'rateLimit' | 'security'>> & {
+  config?: Partial<Omit<Config, 'database' | 'rateLimit' | 'security' | 'booking'>> & {
+    booking?: Partial<Config['booking']>;
     database?: Partial<Config['database']>;
     rateLimit?: Partial<Config['rateLimit']>;
     security?: Partial<Config['security']>;
@@ -53,6 +62,13 @@ export interface BuildOptions {
   /** Conexión a PostgreSQL ya creada (el llamador es dueño del pool y lo cierra). */
   db: Database;
   notifier?: Notifier;
+  /** Cola de recordatorios de citas ya arrancada por `server.ts`. Sin ella (pruebas, o un arranque que no la usa),
+   * programar o cancelar un recordatorio es un no-op silencioso — ver jobs/reminders.ts. */
+  boss?: PgBoss | null;
+  /** Bus de LISTEN/NOTIFY ya arrancado por `server.ts`, para el stream de la Agenda en tiempo real — ver realtime.ts. */
+  realtime?: RealtimeBus | null;
+  /** Sustituto de Google Maps (pruebas). Sin él se crea el cliente real si hay `GOOGLE_MAPS_SERVER_KEY`; si no, queda en null. */
+  maps?: GoogleMaps | null;
   logger?: boolean;
 }
 
@@ -63,12 +79,13 @@ export function mergeConfig(base: Config, overrides: BuildOptions['config'] = {}
     database: { ...base.database, ...overrides.database },
     rateLimit: { ...base.rateLimit, ...overrides.rateLimit },
     security: { ...base.security, ...overrides.security },
+    booking: { ...base.booking, ...overrides.booking },
   } as Config;
 }
 
 /** Rutas que consultan la base de datos y por tanto se limitan por IP (los archivos estáticos no). */
-const isLimitedPath = (url: string) => (url.startsWith('/api/') && !url.startsWith('/api/health')) || url.startsWith('/catalog/');
-const SERVER_PATHS = /^\/(api|media|catalog-assets)(\/|$)|^\/catalog\/[^/?#]/;
+const isLimitedPath = (url: string) => (url.startsWith('/api/') && !url.startsWith('/api/health')) || url.startsWith('/catalog/') || url.startsWith('/reservar/');
+const SERVER_PATHS = /^\/(api|media|catalog-assets)(\/|$)|^\/catalog\/[^/?#]|^\/reservar(\/|$)/;
 
 export async function buildApp(options: BuildOptions): Promise<FastifyInstance> {
   const config = mergeConfig(loadConfig(), options.config);
@@ -90,6 +107,10 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     config,
     notifier: options.notifier ?? new ConsoleNotifier((line) => app.log.info(line)),
     accountLimiter: new WindowCounter(config.rateLimit.accountWindowMinutes * 60_000),
+    bookingLimiter: new WindowCounter(60_000),
+    boss: options.boss ?? null,
+    realtime: options.realtime ?? null,
+    maps: options.maps !== undefined ? options.maps : config.booking.googleServerKey ? new GoogleMapsClient(config.booking.googleServerKey) : null,
   };
 
   app.decorateRequest('actor', null as never);
@@ -97,19 +118,23 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
 
   /* ---------- Cabeceras de seguridad ---------- */
   const { security } = config;
+  // El mapa con pin arrastrable de la app web carga la API de JavaScript de Google. Esos orígenes se permiten SOLO si hay clave
+  // de navegador configurada (sin ella la política queda exactamente como antes) y solo aquí: la página pública /reservar
+  // tiene su propia política y no carga ningún script de Google (su mapa es una imagen servida por este mismo servidor).
+  const google = config.booking.googleBrowserKey;
   await app.register(helmet, {
     contentSecurityPolicy: security.csp
       ? {
           useDefaults: false,
           directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'"],
+            scriptSrc: ["'self'", ...(google ? ['https://maps.googleapis.com', 'https://maps.gstatic.com'] : [])],
             // react-native-web y el sistema de diseño inyectan hojas de estilo en línea.
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", 'data:', 'blob:', ...security.cspImg],
-            fontSrc: ["'self'", 'data:'],
+            styleSrc: ["'self'", "'unsafe-inline'", ...(google ? ['https://fonts.googleapis.com'] : [])],
+            imgSrc: ["'self'", 'data:', 'blob:', ...(google ? ['https://maps.googleapis.com', 'https://maps.gstatic.com', 'https://*.googleusercontent.com'] : []), ...security.cspImg],
+            fontSrc: ["'self'", 'data:', ...(google ? ['https://fonts.gstatic.com'] : [])],
             // blob: — la app web prepara las fotos en el navegador y las lee con fetch() antes de subirlas.
-            connectSrc: ["'self'", 'blob:', ...security.cspConnect],
+            connectSrc: ["'self'", 'blob:', ...(google ? ['https://maps.googleapis.com'] : []), ...security.cspConnect],
             workerSrc: ["'self'", 'blob:'],
             objectSrc: ["'none'"],
             baseUri: ["'none'"],
@@ -221,6 +246,10 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     { prefix: '/api/auth' },
   );
   await app.register(async (scope) => publicRoutes(scope, ctx), { prefix: '/api/public' });
+  await app.register(async (scope) => publicBookingRoutes(scope, ctx), { prefix: '/api/public/booking' });
+  // Sin `authenticate`: `EventSource` no puede mandar el header de sesión. La única llave es el ticket de un solo uso
+  // que emite `POST /api/booking/events/ticket`, esa sí dentro del grupo autenticado de más abajo.
+  await app.register(async (scope) => realtimeRoutes(scope, ctx), { prefix: '/api' });
   // Sin `authenticate`: los webhooks los llama el proveedor (RevenueCat/Stripe/PayPal), no un usuario con sesión.
   // Cada handler verifica la firma/secreto propio del proveedor en vez de depender del JWT de la app.
   await app.register(
@@ -276,6 +305,9 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
       loyaltyRoutes(scope, ctx);
       notificationRoutes(scope, ctx);
       employeeRoutes(scope, ctx);
+      bookingRoutes(scope, ctx);
+      bookingConfigRoutes(scope, ctx);
+      placesRoutes(scope, ctx);
     },
     { prefix: '/api' },
   );

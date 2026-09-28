@@ -2,7 +2,6 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
-import { AgendaView } from '../src/web/screens/Agenda';
 import { ClientDetailView, type ClientDetailViewProps } from '../src/web/screens/ClientDetail';
 import { NotificationsView } from '../src/web/screens/Notifications';
 import { SubscriptionView } from '../src/web/screens/Subscription';
@@ -253,20 +252,6 @@ describe('ReportsView', () => {
   });
 });
 
-/* ---------- Citas ---------- */
-
-describe('AgendaView', () => {
-  it('dice "Próximamente" y no muestra citas de ejemplo; ofrece lo que sí existe', async () => {
-    const navigate = vi.fn();
-    const { container } = render(<AgendaView t={t} navigate={navigate} />);
-    expect(screen.getByText('Próximamente')).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 2, name: 'La agenda de citas está en camino' })).toBeTruthy();
-    await userEvent.click(screen.getByRole('link', { name: 'Ver Reportes' }));
-    expect(navigate).toHaveBeenCalledWith('/reports');
-    await noViolations(container);
-  });
-});
-
 /* ---------- Ajustes ---------- */
 
 function settingsView(overrides: Partial<SettingsViewProps> = {}) {
@@ -280,7 +265,7 @@ function settingsView(overrides: Partial<SettingsViewProps> = {}) {
     onLanguage: vi.fn(),
     darkMode: true,
     onDarkMode: vi.fn(),
-    notifications: { enabled: true, loyalty: true, billing: false, busy: false, onToggle: vi.fn(), onLoyalty: vi.fn(), onBilling: vi.fn(), onTest: vi.fn() },
+    notifications: { enabled: true, loyalty: true, billing: false, appointments: true, reviews: true, busy: false, onToggle: vi.fn(), onLoyalty: vi.fn(), onBilling: vi.fn(), onAppointments: vi.fn(), onReviews: vi.fn(), onTest: vi.fn() },
     supportLinks: [{ id: 'logout', icon: 'log-out', title: 'Cerrar sesión', sub: 'Salir', tone: 'danger', onPress: vi.fn() }],
     navigate: vi.fn(),
     ...overrides,
@@ -319,7 +304,7 @@ describe('SettingsView', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Enviar notificación de prueba' }));
     expect(on.props.notifications!.onTest).toHaveBeenCalled();
     on.unmount();
-    settingsView({ notifications: { enabled: false, loyalty: true, billing: true, busy: true, onToggle: vi.fn(), onLoyalty: vi.fn(), onBilling: vi.fn(), onTest: vi.fn() } });
+    settingsView({ notifications: { enabled: false, loyalty: true, billing: true, appointments: true, reviews: true, busy: true, onToggle: vi.fn(), onLoyalty: vi.fn(), onBilling: vi.fn(), onAppointments: vi.fn(), onReviews: vi.fn(), onTest: vi.fn() } });
     expect(screen.queryByRole('switch', { name: 'Fidelización' })).toBeNull();
     expect((screen.getByRole('switch', { name: 'Activar notificaciones' }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -330,7 +315,7 @@ describe('SettingsView', () => {
   });
 
   it('muestra el aviso del navegador cuando no se pueden activar', () => {
-    settingsView({ notifications: { enabled: false, loyalty: true, billing: true, busy: false, note: 'Bloqueadas en este navegador', onToggle: vi.fn(), onLoyalty: vi.fn(), onBilling: vi.fn(), onTest: vi.fn() } });
+    settingsView({ notifications: { enabled: false, loyalty: true, billing: true, appointments: true, reviews: true, busy: false, note: 'Bloqueadas en este navegador', onToggle: vi.fn(), onLoyalty: vi.fn(), onBilling: vi.fn(), onAppointments: vi.fn(), onReviews: vi.fn(), onTest: vi.fn() } });
     expect(screen.getByText('Bloqueadas en este navegador')).toBeTruthy();
   });
 });
@@ -364,21 +349,25 @@ function clientDetail(overrides: Partial<ClientDetailViewProps> = {}) {
     canManage: true,
     onEdit: vi.fn(),
     onDelete: vi.fn(),
+    anonymizing: false,
+    onAnonymize: vi.fn(),
     ...overrides,
   };
   return { props, ...render(<ClientDetailView {...props} />) };
 }
 
 describe('ClientDetailView', () => {
-  it('muestra el contacto, el historial real y las acciones (WhatsApp, llamar, editar, eliminar)', async () => {
+  it('muestra el contacto, el historial real y las acciones (WhatsApp, llamar, editar, eliminar datos, eliminar)', async () => {
     const { props, container } = clientDetail();
     expect(screen.getByRole('link', { name: '+573001112233' }).getAttribute('href')).toBe('tel:+573001112233');
     expect(screen.getByRole('link', { name: /WhatsApp/ }).getAttribute('target')).toBe('_blank');
     expect(screen.getByRole('link', { name: /Llamar/ }).getAttribute('href')).toBe('tel:+573001112233');
     expect(screen.getByText('Con degradado')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Editar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar datos personales' }));
     await userEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
     expect(props.onEdit).toHaveBeenCalledOnce();
+    expect(props.onAnonymize).toHaveBeenCalledOnce();
     expect(props.onDelete).toHaveBeenCalledOnce();
     await noViolations(container);
   });

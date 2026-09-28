@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ApiError } from '@/lib/api';
 import { SessionProvider, useSession } from '@/lib/session';
@@ -54,7 +55,16 @@ function Gate() {
     if (status !== 'loading') void SplashScreen.hideAsync();
   }, [status]);
 
-  if (status === 'loading' && !failedBefore) return null;
+  // En nativo esto queda tapado por el splash del sistema (se oculta justo cuando 'loading' termina, ver arriba), pero
+  // en web no hay splash nativo: sin este indicador, validar la sesión guardada (una llamada real a la API) se vería
+  // como una pantalla en blanco durante ese primer instante.
+  if (status === 'loading' && !failedBefore) {
+    return (
+      <View style={[styles.boot, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.gold} size="large" />
+      </View>
+    );
+  }
 
   if (status === 'error' || status === 'loading') return <ConnectionError retrying={status === 'loading'} onRetry={retryBoot} />;
 
@@ -67,3 +77,7 @@ function Gate() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  boot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+});

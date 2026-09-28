@@ -1,5 +1,5 @@
 import type { Item } from '@xiro/shared';
-import { dayKey } from './homeMetrics';
+import { dayKey, tracksStock } from './homeMetrics';
 
 /**
  * Cálculos del tablero de Inicio (web) con datos que la app YA tiene: servicios registrados, clientes e inventario.
@@ -61,8 +61,9 @@ export function newClients(clients: ReadonlyArray<{ createdAt: string }>, timezo
 }
 
 /** Productos por reponer o agotados, del más crítico (menos unidades) al menos. */
-export function lowStockList(items: ReadonlyArray<Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus'>>, limit = 4): Array<Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus'>> {
+export function lowStockList<T extends Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus'> & Partial<Pick<Item, 'kind' | 'kindConfirmed'>>>(items: ReadonlyArray<T>, limit = 4): T[] {
   return items
+    .filter(tracksStock)
     .filter((item) => item.stockStatus === 'reorder' || item.stockStatus === 'out_of_stock')
     .sort((a, b) => a.stock - b.stock || a.name.localeCompare(b.name))
     .slice(0, limit);
@@ -86,7 +87,7 @@ export interface ActivityItem {
 export interface ActivityInput {
   records?: ReadonlyArray<{ id: string; clientName: string; label: string; amount: number; createdAt: string }>;
   clients?: ReadonlyArray<{ id: string; name: string; createdAt: string }>;
-  items?: ReadonlyArray<Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus' | 'updatedAt'>>;
+  items?: ReadonlyArray<Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus' | 'updatedAt'> & Partial<Pick<Item, 'kind' | 'kindConfirmed'>>>;
   limit?: number;
 }
 
@@ -98,7 +99,7 @@ export function buildActivity({ records = [], clients = [], items = [], limit = 
   const events: ActivityItem[] = [
     ...records.map((r): ActivityItem => ({ id: `service:${r.id}`, kind: 'service', at: Date.parse(r.createdAt), primary: r.clientName, secondary: r.label, amount: r.amount })),
     ...clients.map((c): ActivityItem => ({ id: `client:${c.id}`, kind: 'client', at: Date.parse(c.createdAt), primary: c.name })),
-    ...items.filter((i) => i.stockStatus === 'reorder' || i.stockStatus === 'out_of_stock').map((i): ActivityItem => ({ id: `stock:${i.id}`, kind: 'stock', at: Date.parse(i.updatedAt), primary: i.name, units: i.stock })),
+    ...items.filter((i) => tracksStock(i) && (i.stockStatus === 'reorder' || i.stockStatus === 'out_of_stock')).map((i): ActivityItem => ({ id: `stock:${i.id}`, kind: 'stock', at: Date.parse(i.updatedAt), primary: i.name, units: i.stock })),
   ].filter((event) => Number.isFinite(event.at));
   return events.sort((a, b) => b.at - a.at).slice(0, limit);
 }

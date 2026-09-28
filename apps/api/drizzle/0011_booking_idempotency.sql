@@ -1,0 +1,2 @@
+ALTER TABLE "appointments" ADD COLUMN "idempotency_hash" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "appointments_idem_uq" ON "appointments" USING btree ("business_id","idempotency_hash") WHERE "appointments"."idempotency_hash" is not null;

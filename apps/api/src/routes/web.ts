@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Ctx } from '../context';
 import { eq } from 'drizzle-orm';
+import { resolveSlug, loadProfileRow } from '../booking/view';
 import { businesses } from '../db/schema';
 import { isUuid } from '../errors';
 import { loadItems } from '../serializers';
@@ -16,6 +17,12 @@ const escapeHtml = (value: string) =>
 
 const CATALOG_CSP =
   "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+// challenges.cloudflare.com: solo entra en juego si se configura TURNSTILE_SITE_KEY (si no, la página nunca lo carga).
+// style-src 'unsafe-inline': la portada del negocio se pinta con un estilo en línea (imagen subida por el propio negocio,
+// nunca texto de un tercero); mismo trato que ya recibe el resto de la app (ver CSP de la app web en este archivo).
+const RESERVAR_CSP =
+  "default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /**
  * Catálogo público (HTML), fotos subidas y —si existe— la app web exportada por Expo.
@@ -72,6 +79,58 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
 
   app.get<{ Params: { slug: string } }>('/catalog/:slug', catalogPage);
   app.get<{ Params: { slug: string; id: string } }>('/catalog/:slug/item/:id', catalogPage);
+
+  /* Página pública de reservas (Vite + React, apps/public), bajo /reservar/<negocio>. */
+  if (config.publicWebDir && existsSync(path.join(config.publicWebDir, 'index.html'))) {
+    const dir = config.publicWebDir;
+    const reservarTemplate = readFileSync(path.join(dir, 'index.html'), 'utf8');
+
+    app.register(fastifyStatic, {
+      root: dir,
+      prefix: '/reservar/',
+      index: false,
+      wildcard: false,
+      decorateReply: false,
+      setHeaders: (res, filePath) => {
+        const hashed = filePath.includes(`${path.sep}assets${path.sep}`);
+        res.header('Cache-Control', hashed ? 'public, max-age=31536000, immutable' : 'no-cache');
+      },
+    });
+
+    async function ogTagsForBooking(request: FastifyRequest, slug: string): Promise<string> {
+      const generic = '<title>Reserva tu cita | Xiro Style</title><meta name="robots" content="noindex">';
+      const resolved = await resolveSlug(db, slug.slice(0, 60));
+      if (!resolved) return generic;
+      const profile = await loadProfileRow(db, resolved.business.id);
+      // Sin publicar se trata igual que si no existiera: no se filtra ni su nombre por esta vía.
+      if (!profile?.published) return generic;
+      const origin = `${request.protocol}://${request.host}`;
+      const title = `Reserva tu cita | ${profile.displayName || resolved.business.name}`;
+      const description = profile.tagline || profile.description || 'Agenda tu cita en línea, cuando quieras.';
+      const tags = [
+        `<title>${escapeHtml(title)}</title>`,
+        `<meta property="og:type" content="website">`,
+        `<meta property="og:title" content="${escapeHtml(title)}">`,
+        `<meta property="og:description" content="${escapeHtml(description.slice(0, 200))}">`,
+        `<meta name="description" content="${escapeHtml(description.slice(0, 200))}">`,
+      ];
+      if (resolved.business.logoFile) tags.push(`<meta property="og:image" content="${escapeHtml(`${origin}/media/${resolved.business.logoFile}`)}">`);
+      return tags.join('\n  ');
+    }
+
+    async function reservarPage(request: FastifyRequest<{ Params: { slug: string } }>, reply: FastifyReply) {
+      const tags = await ogTagsForBooking(request, request.params.slug);
+      return reply
+        .header('Content-Security-Policy', RESERVAR_CSP)
+        .header('Cache-Control', 'no-cache')
+        .type('text/html; charset=utf-8')
+        .send(reservarTemplate.replace('<!--OG_TAGS-->', tags));
+    }
+
+    app.get<{ Params: { slug: string } }>('/reservar/:slug', reservarPage);
+    // Enlace de gestión de una cita (ver, cancelar, mover, eliminar datos): misma página, el token lo procesa el cliente.
+    app.get<{ Params: { slug: string } }>('/reservar/:slug/gestion/:token', reservarPage as never);
+  }
 
   /* App web (Expo export) con fallback a index.html para las rutas del cliente. */
   if (config.webDir && existsSync(path.join(config.webDir, 'index.html'))) {

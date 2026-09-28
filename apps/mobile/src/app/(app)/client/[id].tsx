@@ -32,6 +32,7 @@ export default function ClientDetail() {
   const { data: client, isPending } = useClient(id);
   const invalidate = useInvalidateClients();
   const [busy, setBusy] = useState(false);
+  const [anonymizing, setAnonymizing] = useState(false);
 
   if (isPending) return <Screen header={<Header title={t('clients')} />}><ActivityIndicator style={{ marginTop: 40 }} /></Screen>;
   if (!client) return <Screen header={<Header title={t('clients')} />}><EmptyState icon="people-outline" message={t('not_found')} /></Screen>;
@@ -50,6 +51,21 @@ export default function ClientDetail() {
     }
   }
 
+  async function anonymize() {
+    if (!client) return;
+    if (!(await confirm({ title: t('client_anonymize_confirm_title'), message: t('client_anonymize_confirm_text'), confirmLabel: t('client_anonymize'), destructive: true }))) return;
+    setAnonymizing(true);
+    try {
+      await api.anonymizeClient(client.id);
+      await invalidate();
+      toast(t('client_anonymized'));
+    } catch (error) {
+      toast(t(errorKey(error)));
+    } finally {
+      setAnonymizing(false);
+    }
+  }
+
   return (
     <Screen header={<Header title={client.name} />}>
       <Card>
@@ -65,6 +81,7 @@ export default function ClientDetail() {
         </>
       ) : null}
       <Button label={t('edit')} icon="create-outline" variant="secondary" onPress={() => router.push({ pathname: '/client/form', params: { id: client.id } })} style={{ marginTop: 10 }} />
+      <Button label={t('client_anonymize')} icon="eye-off-outline" variant="secondary" loading={anonymizing} onPress={anonymize} style={{ marginTop: 10 }} />
       <Button label={t('delete')} icon="trash-outline" variant="danger" loading={busy} onPress={remove} style={{ marginTop: 10 }} />
     </Screen>
   );

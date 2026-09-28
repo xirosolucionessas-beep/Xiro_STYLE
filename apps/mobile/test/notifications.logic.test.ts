@@ -4,7 +4,7 @@ import { OUTCOME_MESSAGE, turnOff, turnOn } from '../src/lib/notifications';
 import type { PushAdapter, PushOutcome } from '../src/lib/pushTypes';
 import { urlBase64ToBytes } from '../src/lib/vapid';
 
-const current: NotificationSettings = { enabled: false, loyaltyEnabled: true, billingEnabled: false };
+const current: NotificationSettings = { enabled: false, loyaltyEnabled: true, billingEnabled: false, appointmentsEnabled: true, reviewsEnabled: true };
 
 function deps(outcome: PushOutcome = 'granted') {
   const push: PushAdapter = { permission: vi.fn(async () => 'granted' as const), enable: vi.fn(async () => outcome), disable: vi.fn(async () => undefined) };
@@ -30,7 +30,7 @@ describe('turnOn', () => {
       push: { permission: d.push.permission, enable: async () => (order.push('permission'), 'granted' as const), disable: d.push.disable },
     });
     expect(order).toEqual(['rationale', 'permission']);
-    expect(result).toEqual({ ok: true, settings: { enabled: true, loyaltyEnabled: true, billingEnabled: false } });
+    expect(result).toEqual({ ok: true, settings: { enabled: true, loyaltyEnabled: true, billingEnabled: false, appointmentsEnabled: true, reviewsEnabled: true } });
   });
 
   it.each(['denied', 'unsupported', 'not_configured', 'ios_needs_install'] as const)('%s: stays off, never saves enabled:true, and reports why', async (outcome) => {
@@ -46,7 +46,7 @@ describe('turnOff', () => {
     const d = deps();
     const result = await turnOff({ ...d, current: { ...current, enabled: true } });
     expect(d.push.disable).toHaveBeenCalled();
-    expect(result).toEqual({ ok: true, settings: { enabled: false, loyaltyEnabled: true, billingEnabled: false } });
+    expect(result).toEqual({ ok: true, settings: { enabled: false, loyaltyEnabled: true, billingEnabled: false, appointmentsEnabled: true, reviewsEnabled: true } });
   });
 });
 

@@ -1,11 +1,10 @@
-import { eq } from 'drizzle-orm';
 import type { PublicCatalog } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
-import { businesses } from '../db/schema';
 import { isUuid, notFound, parse } from '../errors';
 import { mediaUrl } from '../media';
+import { resolveSlug } from '../booking/view';
 import { loadItems, toPublicItem, type BusinessRow } from '../serializers';
 
 const slugParams = z.object({ slug: z.string().min(1).max(60) });
@@ -19,9 +18,10 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db } = ctx;
 
   const loadBusiness = async (slug: string) => {
-    const [business] = await db.select().from(businesses).where(eq(businesses.slug, slug)).limit(1);
-    if (!business) throw notFound();
-    return business;
+    // Una dirección anterior del negocio (que cambió su slug) sigue mostrando su catálogo.
+    const resolved = await resolveSlug(db, slug);
+    if (!resolved) throw notFound();
+    return resolved.business;
   };
 
   const describe = (business: BusinessRow): PublicCatalog['business'] => ({

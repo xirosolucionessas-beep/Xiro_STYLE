@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { errorKey } from '@/lib/api';
+import { tracksStock } from '@/lib/homeMetrics';
 import { useCategories, useItems } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
@@ -27,7 +28,8 @@ export default function Inventory() {
     if (fromLink) setStatus(fromLink);
   }, [fromLink]);
 
-  const all = items.data ?? [];
+  // Inventario = productos (los servicios no llevan existencias).
+  const all = useMemo(() => (items.data ?? []).filter(tracksStock), [items.data]);
   const summary = useMemo(() => summarizeStock(all), [all]);
   const visible = useMemo(
     () => all.filter((item) => (!category || item.categoryId === category) && (!status || item.stockStatus === status)),

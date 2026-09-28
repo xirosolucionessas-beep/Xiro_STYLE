@@ -14,6 +14,15 @@ export const keys = {
   notificationSettings: ['notificationSettings'] as const,
   employees: ['employees'] as const,
   auditLogs: ['auditLogs'] as const,
+  appointments: ['appointments'] as const,
+  professionals: ['professionals'] as const,
+  bookingSettings: ['bookingSettings'] as const,
+  closures: ['closures'] as const,
+  bookingReviews: ['bookingReviews'] as const,
+  packages: ['packages'] as const,
+  variants: ['variants'] as const,
+  classification: ['classification'] as const,
+  placesConfig: ['placesConfig'] as const,
 };
 
 export const useItems = (enabled = true) => useQuery({ queryKey: keys.items, queryFn: api.items, enabled });
@@ -72,4 +81,36 @@ export function useInvalidateLoyalty() {
       queryClient.invalidateQueries({ queryKey: keys.loyaltyRedemptions }),
       queryClient.invalidateQueries({ queryKey: keys.serviceRecords }),
     ]);
+}
+
+/* ---------- Citas y página pública ---------- */
+
+/** Citas de un rango (ISO UTC). Se refrescan al volver a la pantalla: otra persona del equipo o un cliente pudo reservar. */
+export const useAppointments = (range: { from: string; to: string; professionalId?: string } | null, enabled = true) =>
+  useQuery({ queryKey: [...keys.appointments, range?.from, range?.to, range?.professionalId ?? ''], queryFn: () => api.appointments(range!), enabled: enabled && range !== null, staleTime: 15_000 });
+export const useProfessionals = (enabled = true) => useQuery({ queryKey: keys.professionals, queryFn: api.professionals, enabled });
+export const useBookingSettings = (enabled = true) => useQuery({ queryKey: keys.bookingSettings, queryFn: api.bookingSettings, enabled });
+export const useClosures = (enabled = true) => useQuery({ queryKey: keys.closures, queryFn: api.closures, enabled });
+export const useBookingReviews = (enabled = true) => useQuery({ queryKey: keys.bookingReviews, queryFn: api.bookingReviews, enabled });
+export const usePackages = (enabled = true) => useQuery({ queryKey: keys.packages, queryFn: api.packages, enabled });
+export const useVariants = (itemId: string | undefined) => useQuery({ queryKey: [...keys.variants, itemId], queryFn: () => api.variants(itemId!), enabled: Boolean(itemId) });
+/** Artículos sin confirmar como servicio o producto (solo quien gestiona el catálogo). */
+export const useClassification = (enabled = true) => useQuery({ queryKey: keys.classification, queryFn: () => api.classification(), enabled });
+
+/** ¿El servidor tiene Google configurado? y, para el mapa interactivo de la web, la clave del navegador. */
+export const usePlacesConfig = () => useQuery({ queryKey: keys.placesConfig, queryFn: api.placesConfig, staleTime: 5 * 60_000 });
+
+export function useInvalidateAppointments() {
+  const queryClient = useQueryClient();
+  // Cerrar una cita cobra servicios, suma sellos y descuenta productos: se refrescan también esos datos.
+  return (alsoBusiness = false) =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: keys.appointments }),
+      ...(alsoBusiness ? [queryClient.invalidateQueries({ queryKey: keys.items }), queryClient.invalidateQueries({ queryKey: keys.serviceRecords }), queryClient.invalidateQueries({ queryKey: keys.loyaltyClients }), queryClient.invalidateQueries({ queryKey: keys.clients })] : []),
+    ]);
+}
+
+export function useInvalidateBooking() {
+  const queryClient = useQueryClient();
+  return () => Promise.all([keys.bookingSettings, keys.professionals, keys.closures, keys.bookingReviews, keys.packages, keys.variants, keys.classification].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
 }

@@ -23,12 +23,16 @@ export interface NotificationsModel {
   enabled: boolean;
   loyalty: boolean;
   billing: boolean;
+  appointments: boolean;
+  reviews: boolean;
   busy: boolean;
   /** Aviso cuando el navegador no permite activarlas (bloqueadas o sin soporte). */
   note?: string;
   onToggle: (next: boolean) => void;
   onLoyalty: (next: boolean) => void;
   onBilling: (next: boolean) => void;
+  onAppointments: (next: boolean) => void;
+  onReviews: (next: boolean) => void;
   onTest: () => void;
 }
 
@@ -142,6 +146,8 @@ export function SettingsView({ t, accountLinks, language, onLanguage, darkMode, 
                 <SwitchRow icon="bell" title={t('notifications_enable_cta')} checked={notifications.enabled} onChange={notifications.onToggle} disabled={notifications.busy} />
                 {notifications.enabled ? (
                   <>
+                    <SwitchRow icon="calendar-days" title={t('notifications_category_appointments')} checked={notifications.appointments} onChange={notifications.onAppointments} disabled={notifications.busy} />
+                    <SwitchRow icon="message-square" title={t('notifications_category_reviews')} checked={notifications.reviews} onChange={notifications.onReviews} disabled={notifications.busy} />
                     <SwitchRow icon="star" title={t('notifications_category_loyalty')} checked={notifications.loyalty} onChange={notifications.onLoyalty} disabled={notifications.busy} />
                     <SwitchRow icon="credit-card" title={t('notifications_category_billing')} checked={notifications.billing} onChange={notifications.onBilling} disabled={notifications.busy} />
                     <LinkRow link={{ id: 'test', icon: 'send', title: t('notifications_test_cta'), onPress: notifications.onTest }} navigate={navigate} />

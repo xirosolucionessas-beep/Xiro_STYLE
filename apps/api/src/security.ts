@@ -36,6 +36,15 @@ export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString('base64url');
 }
 
+/**
+ * Token que se puede volver a calcular (HMAC-SHA256 con un secreto del servidor) en vez de sortearlo: permite devolver el MISMO
+ * enlace de gestión al repetirse una confirmación idempotente sin guardar el enlace en claro. Sin el secreto es tan impredecible
+ * como uno aleatorio (43 caracteres, 256 bits); las partes se separan con un byte nulo para que ("ab","c") y ("a","bc") no coincidan.
+ */
+export function deriveToken(secret: string, ...parts: string[]): string {
+  return createHmac('sha256', secret).update(parts.join('\u0000')).digest('base64url');
+}
+
 export function sixDigitCode(): string {
   return randomInt(0, 1_000_000).toString().padStart(6, '0');
 }

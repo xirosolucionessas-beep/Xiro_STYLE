@@ -71,6 +71,21 @@ export interface NotificationsConfig {
   vapidSubject: string | null;
 }
 
+export interface BookingConfig {
+  /** Peticiones por minuto a la página pública de UN negocio (todas las IP juntas): frena el abuso dirigido a un solo negocio. */
+  publicPerMinutePerBusiness: number;
+  /** Secreto de Cloudflare Turnstile. Sin él la verificación anti-bots queda apagada (siguen el campo trampa y los límites). */
+  turnstileSecret: string | null;
+  /** Clave PÚBLICA de Turnstile (no es secreta): la página de reservas la necesita para dibujar el widget. Sin ella no se muestra ningún widget. */
+  turnstileSiteKey: string | null;
+  /** Clave de Google Maps Platform SOLO del servidor (Places, Geocoding, Static Maps): nunca sale en una respuesta. Sin ella el
+   * selector de ubicación avisa que no está configurado y la página pública muestra solo dirección y botones, sin mapa. */
+  googleServerKey: string | null;
+  /** Clave de Google Maps JavaScript API para el mapa con pin arrastrable de la app web. SÍ viaja al navegador de quien
+   * gestiona la página, así que debe restringirse por dominio (referrer) en Google Cloud; ver docs/GOOGLE_MAPS.md. */
+  googleBrowserKey: string | null;
+}
+
 export interface Config {
   port: number;
   host: string;
@@ -85,6 +100,8 @@ export interface Config {
   accessTokenTtl: string;
   corsOrigins: string[];
   webDir: string | null;
+  /** Carpeta de la página pública de reservas exportada por Vite (apps/public/dist). Sin ella, /reservar responde 404. */
+  publicWebDir: string | null;
   exposeDevOtp: boolean;
   /** true = confía en X-Forwarded-For · número = saltos de proxy confiables. */
   trustProxy: boolean | number;
@@ -92,6 +109,7 @@ export interface Config {
   security: SecurityConfig;
   subscriptions: SubscriptionsConfig;
   notifications: NotificationsConfig;
+  booking: BookingConfig;
 }
 
 const DEV_DATABASE_URL = 'postgres://xiro:xiro@localhost:54320/xiro';
@@ -120,6 +138,7 @@ const envSchema = z.object({
   JWT_ACCESS_TTL: z.string().regex(/^\d+[smh]$/, 'JWT_ACCESS_TTL debe ser como 15m, 30s o 1h').default('15m'),
   CORS_ORIGINS: z.string().optional(),
   WEB_DIR: z.string().optional(),
+  PUBLIC_WEB_DIR: z.string().optional(),
   EXPOSE_DEV_OTP: z.enum(['true', 'false']).optional(),
   TRUST_PROXY: z.string().optional(),
   RATE_LIMIT: z.enum(['on', 'off']).default('on'),
@@ -132,6 +151,11 @@ const envSchema = z.object({
   SECURITY_HSTS: z.enum(['on', 'off']).optional(),
   CSP_CONNECT_SRC: z.string().optional(),
   CSP_IMG_SRC: z.string().optional(),
+  BOOKING_PUBLIC_PER_MIN_BUSINESS: int('BOOKING_PUBLIC_PER_MIN_BUSINESS', 240, 1, 100_000),
+  TURNSTILE_SECRET: z.string().optional(),
+  TURNSTILE_SITE_KEY: z.string().optional(),
+  GOOGLE_MAPS_SERVER_KEY: z.string().optional(),
+  GOOGLE_MAPS_BROWSER_KEY: z.string().optional(),
   REVENUECAT_WEBHOOK_AUTH: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
@@ -220,6 +244,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     accessTokenTtl: e.JWT_ACCESS_TTL,
     corsOrigins: validateOrigins(csv(e.CORS_ORIGINS), production),
     webDir: e.WEB_DIR ? path.resolve(e.WEB_DIR) : path.resolve('../mobile/dist'),
+    publicWebDir: e.PUBLIC_WEB_DIR ? path.resolve(e.PUBLIC_WEB_DIR) : path.resolve('../public/dist'),
     exposeDevOtp: e.EXPOSE_DEV_OTP === 'true',
     trustProxy: parseTrustProxy(e.TRUST_PROXY),
     rateLimit: {
@@ -252,6 +277,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       paypalEnv: e.PAYPAL_ENV,
       bankTransferInstructions: e.BANK_TRANSFER_INSTRUCTIONS ?? null,
       adminSecret: e.ADMIN_SECRET ?? null,
+    },
+    booking: {
+      publicPerMinutePerBusiness: e.BOOKING_PUBLIC_PER_MIN_BUSINESS,
+      turnstileSecret: e.TURNSTILE_SECRET ?? null,
+      turnstileSiteKey: e.TURNSTILE_SITE_KEY ?? null,
+      googleServerKey: e.GOOGLE_MAPS_SERVER_KEY || null,
+      googleBrowserKey: e.GOOGLE_MAPS_BROWSER_KEY || null,
     },
     notifications: {
       vapidPublicKey: e.VAPID_PUBLIC_KEY ?? null,

@@ -41,6 +41,8 @@ function dashboard(overrides: Partial<DashboardViewProps> = {}) {
     summary: { loading: false, empty: false, rows: [{ id: 'count', label: 'Servicios realizados', value: '4' }] },
     stock: { loading: false, allHref: '/inventory?status=reorder', rows: [{ id: '1', name: 'Cera', badge: '3 uds', out: false, href: '/item/1' }] },
     activity: { loading: false, rows: [{ id: 'a1', icon: 'scissors', title: 'Servicio a Juan', detail: 'Corte', time: 'hace 5 min', amount: '$ 25.000' }] },
+    appointments: { loading: false, allHref: '/agenda', rows: [{ id: 'p1', day: 'mar 6', time: '10:00 a. m.', client: 'Laura Gómez', detail: 'Corte, Barba', status: 'Confirmada', tone: 'accent' as const, href: '/agenda' }] },
+    reviewBanner: null,
     onOpenAssistant: vi.fn(),
     navigate: vi.fn(),
     year: 2026,
@@ -69,10 +71,30 @@ describe('DashboardView', () => {
     expect(screen.getByText('Caja sin abrir')).toBeTruthy();
   });
 
-  it('las citas no existen todavía: dice "Próximamente" en lugar de inventar datos', () => {
+  it('las próximas citas muestran día, hora, cliente, servicios y estado en texto, y enlazan a la agenda', () => {
     dashboard();
     const panel = screen.getByRole('heading', { name: 'Próximas citas' }).closest('section')!;
-    expect(within(panel).getByText('Próximamente')).toBeTruthy();
+    expect(within(panel).getByText(/Laura Gómez/)).toBeTruthy();
+    expect(within(panel).getByText('Corte, Barba')).toBeTruthy();
+    expect(within(panel).getByText('Confirmada')).toBeTruthy();
+    expect(within(panel).getByRole('link', { name: 'Ver agenda' }).getAttribute('href')).toBe('/agenda');
+    expect(within(panel).queryByText('Próximamente')).toBeNull();
+  });
+
+  it('sin citas próximas lo dice; sin permiso para la agenda el panel no aparece', () => {
+    const empty = dashboard({ appointments: { loading: false, allHref: '/agenda', rows: [] } });
+    expect(screen.getByText('No tienes citas próximas.')).toBeTruthy();
+    empty.unmount();
+    dashboard({ appointments: null });
+    expect(screen.queryByRole('heading', { name: 'Próximas citas' })).toBeNull();
+  });
+
+  it('avisa que hay artículos por revisar (servicio o producto) y lleva a la revisión', async () => {
+    const { props } = dashboard({ reviewBanner: { count: 3, href: '/review-items' } });
+    const link = screen.getByRole('link', { name: /Revisa tus servicios y productos \(3\)/ });
+    expect(link.getAttribute('href')).toBe('/review-items');
+    await userEvent.click(link);
+    expect(props.navigate).toHaveBeenCalledWith('/review-items');
   });
 
   it('inventario sin faltantes se declara en orden; con faltantes enlaza al producto', async () => {

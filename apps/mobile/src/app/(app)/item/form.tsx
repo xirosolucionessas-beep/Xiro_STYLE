@@ -10,6 +10,7 @@ import { useCategories, useInvalidateCatalog, useItem } from '@/lib/queries';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
 import { useDialogs } from '@/ui/Dialogs';
+import { VariantsSection } from '@/ui/booking/VariantsSection';
 import { Field } from '@/ui/Field';
 import { Chip, ChipRow, Photo, SectionTitle, stockColor, Toggle } from '@/ui/Kit';
 import { Header, Screen } from '@/ui/Screen';
@@ -38,6 +39,10 @@ export default function ItemForm() {
   const [form, setForm] = useState({ name: '', shortDescription: '', description: '', detail: '', price: '', referenceCode: '', cost: '', stock: '0', notes: '' });
   const [categoryId, setCategoryId] = useState('');
   const [published, setPublished] = useState(true);
+  const [kind, setKind] = useState<'service' | 'product'>('service');
+  const [bookable, setBookable] = useState(true);
+  const [minutes, setMinutes] = useState('30');
+  const [cleanup, setCleanup] = useState('0');
   const [status, setStatus] = useState<StockStatus>('out_of_stock');
   const [statusTouched, setStatusTouched] = useState(false);
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
@@ -64,6 +69,10 @@ export default function ItemForm() {
     });
     setCategoryId(existing.categoryId);
     setPublished(existing.published);
+    setKind(existing.kind);
+    setBookable(existing.bookable);
+    setMinutes(String(existing.durationMinutes));
+    setCleanup(String(existing.cleanupMinutes));
     setStatus(existing.stockStatus);
     setStatusTouched(true);
     setPhotos(existing.photos.map((p) => ({ key: p.id, id: p.id, url: p.url })));
@@ -107,6 +116,9 @@ export default function ItemForm() {
       detail: form.detail,
       price: toInt(form.price),
       published,
+      kind,
+      bookable,
+      ...(kind === 'service' ? { durationMinutes: toInt(minutes), cleanupMinutes: toInt(cleanup) } : {}),
       referenceCode: form.referenceCode,
       internalUnitCost: toInt(form.cost),
       stock: toInt(form.stock),
@@ -189,6 +201,31 @@ export default function ItemForm() {
         <Toggle value={published} onChange={setPublished} label={t('item_published')} />
       </View>
 
+      <SectionTitle>{t('item_booking_section')}</SectionTitle>
+      <AppText variant="label" tone="gold" style={{ marginBottom: 6 }}>
+        {t('item_kind')} *
+      </AppText>
+      <ChipRow label={t('item_kind')}>
+        <Chip label={t('kind_service')} selected={kind === 'service'} onPress={() => setKind('service')} />
+        <Chip label={t('kind_product')} selected={kind === 'product'} onPress={() => setKind('product')} />
+      </ChipRow>
+      <AppText variant="small" tone="muted" style={{ marginTop: 6, marginBottom: 10 }}>
+        {kind === 'service' ? t('item_kind_service_hint') : t('item_kind_product_hint')}
+      </AppText>
+      {kind === 'service' ? (
+        <>
+          <Field label={`${t('item_duration')} *`} value={minutes} onChangeText={(v) => setMinutes(v.replace(/\D/g, ''))} error={errors.durationMinutes} keyboardType="number-pad" hint={t('item_duration_hint')} maxLength={3} />
+          <Field label={t('item_cleanup')} value={cleanup} onChangeText={(v) => setCleanup(v.replace(/\D/g, ''))} error={errors.cleanupMinutes} keyboardType="number-pad" hint={t('item_cleanup_hint')} maxLength={3} />
+        </>
+      ) : null}
+      <View style={styles.switchRow}>
+        <AppText variant="bodyStrong" style={{ flex: 1 }}>
+          {kind === 'service' ? t('item_bookable_service') : t('item_bookable_product')}
+        </AppText>
+        <Toggle value={bookable} onChange={setBookable} label={kind === 'service' ? t('item_bookable_service') : t('item_bookable_product')} />
+      </View>
+      {id && kind === 'service' ? <VariantsSection itemId={id} basePrice={toInt(form.price)} baseMinutes={toInt(minutes) || 30} canManage /> : null}
+
       <SectionTitle>{t('photos')}</SectionTitle>
       <AppText variant="small" tone="muted" style={{ marginBottom: 10 }}>
         {t('photos_hint')}
@@ -218,6 +255,8 @@ export default function ItemForm() {
       <SectionTitle>{t('section_internal')}</SectionTitle>
       <Field label={t('item_code')} value={form.referenceCode} onChangeText={set('referenceCode')} placeholder="PRD-0012" maxLength={40} />
       <Field label={t('item_cost')} value={form.cost} onChangeText={digits('cost')} keyboardType="number-pad" prefix="$" />
+      {kind === 'product' ? (
+        <>
       <Field label={`${t('stock_quantity')} *`} value={form.stock} onChangeText={digits('stock')} error={errors.stock} keyboardType="number-pad" />
 
       <AppText variant="label" tone="gold" style={{ marginBottom: 6 }}>
@@ -251,6 +290,8 @@ export default function ItemForm() {
         );
       })}
       </View>
+        </>
+      ) : null}
 
       <View style={{ height: 14 }} />
       <Field label={t('item_notes')} value={form.notes} onChangeText={set('notes')} multiline maxLength={1000} />

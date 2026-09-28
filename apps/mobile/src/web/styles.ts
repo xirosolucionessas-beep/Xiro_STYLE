@@ -108,7 +108,8 @@ button.xw-card:hover, a.xw-card:hover { background: var(--xw-surface-alt); borde
 button.xw-card:active, a.xw-card:active { transform: scale(.99); }
 
 /* ---------- Modal ---------- */
-.xw-backdrop { position: fixed; inset: 0; z-index: 9000; display: flex; align-items: center; justify-content: center; padding: var(--xw-space-4); background: var(--xw-overlay); }
+/* Por encima de las pantallas modales de React Native Web (z-index 9999): confirmaciones y avisos deben verse SOBRE los formularios modales. */
+.xw-backdrop { position: fixed; inset: 0; z-index: 10100; display: flex; align-items: center; justify-content: center; padding: var(--xw-space-4); background: var(--xw-overlay); }
 .xw-modal { box-sizing: border-box; width: 100%; max-width: 32rem; max-height: calc(100vh - 2rem); overflow: auto; background: var(--xw-surface); color: var(--xw-text);
   border: 1px solid var(--xw-border); border-radius: var(--xw-radius-xl); padding: var(--xw-space-6); font-family: var(--xw-font); }
 .xw-modal--lg { max-width: 48rem; }
@@ -124,7 +125,7 @@ button.xw-card:active, a.xw-card:active { transform: scale(.99); }
 @media (prefers-reduced-motion: reduce) { .xw-modal--sheet { animation: none !important; } }
 
 /* ---------- Toast ---------- */
-.xw-toasts { position: fixed; z-index: 9500; left: 0; right: 0; bottom: var(--xw-space-4); display: flex; flex-direction: column; align-items: center; gap: var(--xw-space-2); padding: 0 var(--xw-space-4); pointer-events: none; }
+.xw-toasts { position: fixed; z-index: 10200; left: 0; right: 0; bottom: var(--xw-space-4); display: flex; flex-direction: column; align-items: center; gap: var(--xw-space-2); padding: 0 var(--xw-space-4); pointer-events: none; }
 .xw-toasts > div { display: flex; flex-direction: column; align-items: center; gap: var(--xw-space-2); width: 100%; }
 .xw-toast { pointer-events: auto; display: flex; align-items: center; gap: var(--xw-space-3); box-sizing: border-box; max-width: 32rem; width: 100%; padding: var(--xw-space-3) var(--xw-space-2) var(--xw-space-3) var(--xw-space-4);
   background: var(--xw-surface-alt); color: var(--xw-text); border: 2px solid var(--xw-border); border-radius: var(--xw-radius-lg); font: ${font.weight.semibold} var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); animation: xw-rise var(--xw-base) ease-out; }

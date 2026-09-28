@@ -18,7 +18,7 @@ let dataDir: string;
 let testDb: TestDatabase;
 let cleanupConfig: () => void;
 const sentOtps: OtpMessage[] = [];
-const notifier: Notifier = { sendOtp: async (message) => void sentOtps.push(message) };
+const notifier: Notifier = { sendOtp: async (message) => void sentOtps.push(message), sendAppointmentReminder: async () => undefined };
 
 beforeAll(async () => {
   testDb = await createTestDatabase();
@@ -463,6 +463,29 @@ describe('account', () => {
     const other = await register();
     expect((await app.inject({ method: 'GET', url: '/api/clients', headers: auth(other) })).json()).toEqual([]);
   });
+
+  it('anonymize (Ley 1581 right to erasure) clears identity fields but keeps the client row and its history', async () => {
+    const session = await register();
+    const client = await createClient(session, { name: 'Valentina Rojas', phone: '573001234567', email: 'valentina@correo.com', address: 'Calle 10', notes: 'VIP' });
+    const item = await createItem(session);
+    const record = await app.inject({ method: 'POST', url: '/api/service-records', headers: auth(session), payload: { clientId: client.id, itemId: item.id } });
+    expect(record.statusCode).toBe(201);
+
+    const anonymized = await app.inject({ method: 'POST', url: `/api/clients/${client.id}/anonymize`, headers: auth(session) });
+    expect(anonymized.statusCode).toBe(200);
+    expect(anonymized.json()).toMatchObject({ id: client.id, name: 'Cliente eliminado', email: null, phone: null, address: '', notes: '' });
+
+    const stillThere = await app.inject({ method: 'GET', url: `/api/clients/${client.id}`, headers: auth(session) });
+    expect(stillThere.json()).toMatchObject({ name: 'Cliente eliminado' });
+    // El historial de servicios (registro contable) se conserva intacto.
+    const history = await app.inject({ method: 'GET', url: `/api/service-records?clientId=${client.id}`, headers: auth(session) });
+    expect(history.json<unknown[]>()).toHaveLength(1);
+
+    // Nunca sobre el cliente de otro negocio.
+    const other = await register();
+    expect((await app.inject({ method: 'POST', url: `/api/clients/${client.id}/anonymize`, headers: auth(other) })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/clients/00000000-0000-4000-8000-000000000000/anonymize', headers: auth(session) })).statusCode).toBe(404);
+  });
 });
 
 describe('loyalty and service records', () => {
@@ -603,14 +626,14 @@ describe('notifications', () => {
   it('defaults to off, with both categories on, until the business saves its own settings', async () => {
     const session = await register();
     const res = await app.inject({ method: 'GET', url: '/api/notifications/settings', headers: auth(session) });
-    expect(res.json()).toEqual({ enabled: false, loyaltyEnabled: true, billingEnabled: true });
+    expect(res.json()).toEqual({ enabled: false, loyaltyEnabled: true, billingEnabled: true, appointmentsEnabled: true, reviewsEnabled: true });
   });
 
   it('saves settings and reloads them', async () => {
     const session = await register();
-    const saved = await app.inject({ method: 'PUT', url: '/api/notifications/settings', headers: auth(session), payload: { enabled: true, loyaltyEnabled: false, billingEnabled: true } });
+    const saved = await app.inject({ method: 'PUT', url: '/api/notifications/settings', headers: auth(session), payload: { enabled: true, loyaltyEnabled: false, billingEnabled: true, appointmentsEnabled: false, reviewsEnabled: true } });
     expect(saved.statusCode).toBe(200);
-    expect(saved.json()).toEqual({ enabled: true, loyaltyEnabled: false, billingEnabled: true });
+    expect(saved.json()).toEqual({ enabled: true, loyaltyEnabled: false, billingEnabled: true, appointmentsEnabled: false, reviewsEnabled: true });
     const reloaded = await app.inject({ method: 'GET', url: '/api/notifications/settings', headers: auth(session) });
     expect(reloaded.json()).toEqual(saved.json());
   });
@@ -716,7 +739,7 @@ describe('notifications', () => {
 
     const b = await register();
     const bSettings = await app.inject({ method: 'GET', url: '/api/notifications/settings', headers: auth(b) });
-    expect(bSettings.json()).toEqual({ enabled: false, loyaltyEnabled: true, billingEnabled: true }); // no ve lo que A activó
+    expect(bSettings.json()).toEqual({ enabled: false, loyaltyEnabled: true, billingEnabled: true, appointmentsEnabled: true, reviewsEnabled: true }); // no ve lo que A activó
     const bTest = await app.inject({ method: 'POST', url: '/api/notifications/test', headers: auth(b) });
     expect(bTest.json().code).toBe('push_no_devices'); // no hereda el token de A
     // B no puede borrar el token de A a ciegas (solo borra los suyos, no hay error si no encuentra nada).

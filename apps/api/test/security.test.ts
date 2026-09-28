@@ -14,7 +14,7 @@ let app: FastifyInstance;
 let cleanups: Array<() => void> = [];
 const apps: FastifyInstance[] = [];
 const otps: OtpMessage[] = [];
-const notifier: Notifier = { sendOtp: async (message) => void otps.push(message) };
+const notifier: Notifier = { sendOtp: async (message) => void otps.push(message), sendAppointmentReminder: async () => undefined };
 
 async function makeApp(config: BuildOptions['config'] = {}) {
   const setup = testAppConfig(config);

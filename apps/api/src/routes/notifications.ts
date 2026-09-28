@@ -6,7 +6,7 @@ import { notificationSettings, pushTokens } from '../db/schema';
 import { parse } from '../errors';
 import { sendTestNotification } from '../push';
 
-const DEFAULT_SETTINGS: NotificationSettings = { enabled: false, loyaltyEnabled: true, billingEnabled: true };
+const DEFAULT_SETTINGS: NotificationSettings = { enabled: false, loyaltyEnabled: true, billingEnabled: true, appointmentsEnabled: true, reviewsEnabled: true };
 
 /**
  * Notificaciones push: preferencias por negocio (interruptor general + por categoría), registro de tokens por
@@ -20,7 +20,7 @@ export function notificationRoutes(app: FastifyInstance, ctx: Ctx): void {
   app.get('/notifications/settings', async (request): Promise<NotificationSettings> => {
     const [row] = await db.select().from(notificationSettings).where(eq(notificationSettings.businessId, businessOf(request))).limit(1);
     if (!row) return DEFAULT_SETTINGS;
-    return { enabled: row.enabled, loyaltyEnabled: row.loyaltyEnabled, billingEnabled: row.billingEnabled };
+    return { enabled: row.enabled, loyaltyEnabled: row.loyaltyEnabled, billingEnabled: row.billingEnabled, appointmentsEnabled: row.appointmentsEnabled, reviewsEnabled: row.reviewsEnabled };
   });
 
   app.put('/notifications/settings', async (request): Promise<NotificationSettings> => {
@@ -28,10 +28,10 @@ export function notificationRoutes(app: FastifyInstance, ctx: Ctx): void {
     const input = parse(notificationSettingsUpdateSchema, request.body);
     await db
       .insert(notificationSettings)
-      .values({ businessId, enabled: input.enabled, loyaltyEnabled: input.loyaltyEnabled, billingEnabled: input.billingEnabled })
+      .values({ businessId, enabled: input.enabled, loyaltyEnabled: input.loyaltyEnabled, billingEnabled: input.billingEnabled, appointmentsEnabled: input.appointmentsEnabled, reviewsEnabled: input.reviewsEnabled })
       .onConflictDoUpdate({
         target: notificationSettings.businessId,
-        set: { enabled: input.enabled, loyaltyEnabled: input.loyaltyEnabled, billingEnabled: input.billingEnabled, updatedAt: new Date() },
+        set: { enabled: input.enabled, loyaltyEnabled: input.loyaltyEnabled, billingEnabled: input.billingEnabled, appointmentsEnabled: input.appointmentsEnabled, reviewsEnabled: input.reviewsEnabled, updatedAt: new Date() },
       });
     return input;
   });

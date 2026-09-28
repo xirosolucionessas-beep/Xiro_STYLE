@@ -24,6 +24,9 @@ export function isUniqueViolation(error: unknown, constraint?: string): boolean 
 /** 23503: violación de FOREIGN KEY. */
 export const isForeignKeyViolation = (error: unknown) => pgCode(error) === '23503';
 
+/** 23P01: violación de una restricción de EXCLUSIÓN (dos citas activas del mismo profesional que se cruzan). */
+export const isExclusionViolation = (error: unknown) => pgCode(error) === '23P01';
+
 /** 23514: violación de CHECK. */
 export const isCheckViolation = (error: unknown) => pgCode(error) === '23514';
 

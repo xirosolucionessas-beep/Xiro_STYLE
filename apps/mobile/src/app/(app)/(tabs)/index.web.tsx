@@ -15,7 +15,8 @@ import { supportMessage, supportWhatsappUrl } from '@/lib/contact';
 import { lowStock } from '@/lib/homeMetrics';
 import { api } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
-import { keys, useCashToday, useClients, useItems, useServiceRecords } from '@/lib/queries';
+import { dayRange, formatClock, formatDay, localDate, localTime, STATUS_TONE, summarizeItems, todayIn, upcoming } from '@/lib/agenda';
+import { keys, useAppointments, useCashToday, useClassification, useClients, useItems, useServiceRecords } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { Brand } from '@/ui/Brand';
 import { useDialogs } from '@/ui/Dialogs';
@@ -79,6 +80,12 @@ export default function HomeWeb() {
   const canClients = meets(viewer, ['clients_view']);
   const canCatalog = meets(viewer, ['catalog_view']);
   const records = useServiceRecords(undefined, canSales);
+  const canAgenda = meets(viewer, ['agenda_own']);
+  const canReview = meets(viewer, ['catalog_manage']);
+  const todayKey = todayIn(business.timezone);
+  const week = useMemo(() => dayRange(todayKey, business.timezone, 7), [todayKey, business.timezone]);
+  const appointments = useAppointments(week, canAgenda);
+  const classification = useClassification(canReview);
   const clients = useClients('', canClients);
   const items = useItems(canCatalog);
   const currency = business.currency as Currency;
@@ -147,7 +154,7 @@ export default function HomeWeb() {
   const actor = actorOf(user);
   const allActions: Array<HomeAction & { requires?: Requirement }> = [
     { id: 'new_service', icon: 'plus', label: t('new_service'), href: '/item/form', requires: ['catalog_manage'] },
-    { id: 'appointments', icon: 'calendar-days', label: t('appointments'), soon: true, requires: 'owner' },
+    { id: 'appointments', icon: 'calendar-days', label: t('appointments'), href: '/agenda', requires: ['agenda_own'] },
     { id: 'catalog', icon: 'book-open', label: t('catalog'), href: '/catalog', requires: ['catalog_view'] },
     { id: 'inventory', icon: 'package', label: t('inventory'), href: '/inventory', requires: ['catalog_view'] },
     { id: 'cash_close', icon: 'receipt', label: t('cash_close'), soon: true, requires: 'owner' },
@@ -163,6 +170,18 @@ export default function HomeWeb() {
       ? [
           { id: 'sales', icon: 'coins' as const, label: t('dash_kpi_sales'), value: dashboard.days ? money(dashboard.days.today.total) : '—', loading: records.isLoading, trend: salesTrend ? trendView(salesTrend, t) : undefined, onPress: () => router.push('/loyalty') },
           { id: 'services', icon: 'scissors' as const, label: t('dash_kpi_services'), value: dashboard.days ? String(dashboard.days.today.count) : '—', loading: records.isLoading, trend: servicesTrend ? trendView(servicesTrend, t) : undefined },
+        ]
+      : []),
+    ...(canAgenda
+      ? [
+          {
+            id: 'appointments',
+            icon: 'calendar-days' as const,
+            label: t('dash_kpi_appointments'),
+            value: appointments.data ? String(appointments.data.filter((a) => localDate(a.startsAt, business.timezone) === todayKey && a.status !== 'cancelled' && a.status !== 'no_show').length) : '—',
+            loading: appointments.isLoading,
+            onPress: () => router.push('/agenda'),
+          },
         ]
       : []),
     ...(canClients ? [{ id: 'clients', icon: 'users' as const, label: t('dash_kpi_clients'), value: dashboard.newClients ? String(dashboard.newClients.today) : '—', loading: clients.isLoading, trend: clientsTrend ? trendView(clientsTrend, t) : undefined, onPress: () => router.navigate('/clients') }] : []),
@@ -192,6 +211,24 @@ export default function HomeWeb() {
         rows: dashboard.lowStock.map((item) => ({ id: item.id, name: item.name, out: item.stockStatus === 'out_of_stock', badge: item.stockStatus === 'out_of_stock' ? t('dash_stock_out') : t('dash_stock_units', { n: item.stock }), href: `/item/${item.id}` })),
       }
     : null;
+
+  const appointmentsPanel = canAgenda
+    ? {
+        loading: appointments.isLoading,
+        allHref: '/agenda',
+        rows: upcoming(appointments.data ?? [], new Date(nowMs), 5).map((appt) => ({
+          id: appt.id,
+          day: formatDay(localDate(appt.startsAt, business.timezone), language, { weekday: 'short', day: 'numeric' }),
+          time: formatClock(localTime(appt.startsAt, business.timezone), language),
+          client: appt.client.name,
+          detail: summarizeItems(appt.items),
+          status: t(`appt_status_${appt.status}`),
+          tone: STATUS_TONE[appt.status],
+          href: '/agenda',
+        })),
+      }
+    : null;
+  const reviewBanner = canReview && classification.data && classification.data.length > 0 ? { count: classification.data.length, href: '/review-items' } : null;
 
   const activityRows: ActivityRowView[] = dashboard.activity.map((event) => ({
     id: event.id,
@@ -225,6 +262,8 @@ export default function HomeWeb() {
           summary={summary}
           stock={stock}
           activity={activity}
+          appointments={appointmentsPanel}
+          reviewBanner={reviewBanner}
           onOpenAssistant={assistant.open}
           navigate={(href) => router.navigate(href as never)}
           year={new Date(nowMs).getFullYear()}

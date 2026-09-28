@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Ico, type IconName } from '../icons';
 import type { HeaderT } from '../shell/HeaderTools';
-import { KpiRow, LoadingRows, Panel, type KpiView } from '../ui/Page';
+import { Badge, KpiRow, LoadingRows, Panel, type KpiView } from '../ui/Page';
 import { linkProps } from '../ui/link';
 import { cx, useWebStyles } from '../ui/shared';
 import { ActionTile, type HomeAction } from './Home';
@@ -29,6 +29,18 @@ export interface ActivityRowView {
   amount?: string;
 }
 
+export interface AppointmentRowView {
+  id: string;
+  /** "lun 5" — día corto ya formateado. */
+  day: string;
+  time: string;
+  client: string;
+  detail: string;
+  status: string;
+  tone: 'success' | 'warning' | 'danger' | 'accent' | 'muted';
+  href: string;
+}
+
 export interface DashboardViewProps {
   t: HeaderT;
   /** "Buenos días" ya resuelto con la hora del negocio. */
@@ -50,6 +62,10 @@ export interface DashboardViewProps {
   summary: { loading: boolean; rows: SummaryRow[]; empty: boolean } | null;
   stock: { loading: boolean; rows: StockRow[]; allHref: string } | null;
   activity: { loading: boolean; rows: ActivityRowView[] } | null;
+  /** Próximas citas; null = esta persona no ve la agenda. */
+  appointments: { loading: boolean; rows: AppointmentRowView[]; allHref: string } | null;
+  /** Aviso "Revisa tus servicios y productos" (solo quien gestiona el catálogo y solo si hay pendientes). */
+  reviewBanner: { count: number; href: string } | null;
   onOpenAssistant: () => void;
   navigate: (href: string) => void;
   year: number;
@@ -63,7 +79,7 @@ export interface DashboardViewProps {
  */
 export function DashboardView(props: DashboardViewProps) {
   useWebStyles();
-  const { t, kpis, actions, summary, stock, activity, navigate } = props;
+  const { t, kpis, actions, summary, stock, activity, appointments, reviewBanner, navigate } = props;
   const hero: CSSProperties | undefined = props.heroUrl ? { backgroundImage: `linear-gradient(100deg, rgba(8,8,10,.92) 8%, rgba(8,8,10,.55) 60%, rgba(8,8,10,.35)), url("${props.heroUrl}")` } : undefined;
   const initial = props.userName.trim().charAt(0).toUpperCase() || '?';
 
@@ -109,6 +125,22 @@ export function DashboardView(props: DashboardViewProps) {
         </button>
       ) : null}
 
+      {reviewBanner ? (
+        <a className="xw-card xw-setup" {...linkProps(reviewBanner.href, navigate)}>
+          <span className="xw-setup-ic" aria-hidden="true">
+            <Ico name="circle-check" size={20} />
+          </span>
+          <span className="xw-setup-text">
+            <span className="xw-tile-label">{t('review_banner', { count: reviewBanner.count })}</span>
+            <br />
+            <span className="xw-home-sub">{t('review_banner_hint')}</span>
+          </span>
+          <span className="xw-setup-chevron" aria-hidden="true">
+            <Ico name="chevron-right" size={18} />
+          </span>
+        </a>
+      ) : null}
+
       <KpiRow kpis={kpis} label={t('dash_kpis')} t={t} />
 
       <div className="xw-dash-grid">
@@ -152,9 +184,38 @@ export function DashboardView(props: DashboardViewProps) {
         </div>
 
         <div className="xw-dash-col">
-          <Panel title={t('dash_appointments_title')} icon="calendar-days" action={<span className="xw-chip">{t('soon')}</span>}>
-            <p className="xw-panel-empty">{t('dash_appointments_soon')}</p>
-          </Panel>
+          {appointments ? (
+            <Panel
+              title={t('dash_appointments_title')}
+              icon="calendar-days"
+              action={
+                <a className="xw-link-btn" {...link(appointments.allHref)}>
+                  {t('dash_appts_see_all')}
+                </a>
+              }>
+              {appointments.loading ? <LoadingRows label={t('dash_loading')} /> : null}
+              {!appointments.loading && appointments.rows.length === 0 ? <p className="xw-panel-empty">{t('dash_appts_empty')}</p> : null}
+              {appointments.rows.length > 0 ? (
+                <ul className="xw-stock">
+                  {appointments.rows.map((row) => (
+                    <li key={row.id}>
+                      <a className="xw-stock-row" {...link(row.href)}>
+                        <span className="xw-stock-name">
+                          <strong>
+                            {row.day} · {row.time}
+                          </strong>{' '}
+                          {row.client}
+                          <br />
+                          <span className="xw-home-sub">{row.detail}</span>
+                        </span>
+                        <Badge tone={row.tone}>{row.status}</Badge>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </Panel>
+          ) : null}
 
           {summary ? (
             <Panel title={t('dash_summary_title')} icon="receipt">

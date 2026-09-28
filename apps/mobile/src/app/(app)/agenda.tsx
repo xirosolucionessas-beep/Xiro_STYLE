@@ -1,9 +1,9 @@
-import { Redirect } from 'expo-router';
+import { AgendaPanel } from '@/ui/agenda/AgendaPanel';
 
 /**
- * Citas existe solo en la Web (agenda.web.tsx). Este archivo es el hermano sin extensión de plataforma que exige
- * Expo Router: en Android/iOS ninguna pantalla enlaza aquí, y si alguien llega por URL vuelve al inicio.
+ * Citas (Android, iOS y Web): la agenda del negocio. Quién la ve lo decide src/lib/access.ts (permiso "ver mi agenda") y el
+ * servidor lo impone en cada petición. Presentación en src/ui/agenda/AgendaPanel.tsx.
  */
 export default function Agenda() {
-  return <Redirect href="/" />;
+  return <AgendaPanel />;
 }

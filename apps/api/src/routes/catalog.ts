@@ -102,6 +102,18 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
     internalNotes: input.internalNotes,
   });
 
+  /**
+   * Campos de reserva (opcionales): las apps ya instaladas no los envían, y en ese caso el servidor conserva lo que ya
+   * había. Si llega `kind`, la persona está decidiendo la clasificación: queda confirmada.
+   */
+  const bookingValues = (input: ReturnType<typeof itemInputSchema.parse>) => ({
+    ...(input.kind !== undefined ? { kind: input.kind, kindConfirmed: true } : {}),
+    ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
+    ...(input.cleanupMinutes !== undefined ? { cleanupMinutes: input.cleanupMinutes } : {}),
+    ...(input.bookable !== undefined ? { bookable: input.bookable } : {}),
+    ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+  });
+
   const unknownCategory = () => new AppError(400, 'validation_error', 'Unknown category');
 
   app.get('/items', async (request) => (await loadItems(db, businessOf(request))).map((item) => redactItemForActor(item, request.actor)));
@@ -114,7 +126,9 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (!isUuid(input.categoryId)) throw unknownCategory();
     try {
       // La FK compuesta (categoría, negocio) hace que la propia base de datos rechace categorías de otro negocio.
-      const [row] = await db.insert(items).values({ businessId, ...itemValues(input) }).returning({ id: items.id });
+      // Sin `kind` explícito: con existencias se trata como producto; si no, como servicio (queda "sin confirmar").
+      const inferred = input.kind === undefined ? { kind: input.stock > 0 ? 'product' : 'service' } : {};
+      const [row] = await db.insert(items).values({ businessId, ...itemValues(input), ...inferred, ...bookingValues(input) }).returning({ id: items.id });
       return reply.status(201).send(await requireItem(businessId, row!.id));
     } catch (error) {
       if (isForeignKeyViolation(error)) throw unknownCategory();
@@ -132,7 +146,7 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
     try {
       updated = await db
         .update(items)
-        .set({ ...itemValues(input as ReturnType<typeof itemInputSchema.parse>), updatedAt: new Date() })
+        .set({ ...itemValues(input as ReturnType<typeof itemInputSchema.parse>), ...bookingValues(input as ReturnType<typeof itemInputSchema.parse>), updatedAt: new Date() })
         .where(
           and(
             eq(items.id, id),

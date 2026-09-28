@@ -43,6 +43,48 @@
       "when": 1790217359651,
       "tag": "0005_polite_marvel_apes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790478973598,
+      "tag": "0006_citas",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790481222811,
+      "tag": "0007_citas_cobro",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790553958973,
+      "tag": "0008_notification_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790556083667,
+      "tag": "0009_appointments_notify",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790571740893,
+      "tag": "0010_map_location",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790574939958,
+      "tag": "0011_booking_idempotency",
+      "breakpoints": true
     }
   ]
 }

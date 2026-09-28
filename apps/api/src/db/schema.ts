@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, date, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
-import type { BusinessHours } from '@xiro/shared';
+import { boolean, check, date, doublePrecision, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import type { BookingSettings, BusinessHours, CustomField, PublicSection } from '@xiro/shared';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow();
@@ -57,6 +57,8 @@ export const users = pgTable(
   },
   (t) => [
     check('users_role_ck', sql`${t.role} in ('owner','employee')`),
+    // Necesario para las FK compuestas de las tablas de citas (una cita solo puede apuntar a personas del mismo negocio).
+    unique('users_id_business_uq').on(t.id, t.businessId),
     uniqueIndex('users_email_uq').on(t.email),
     uniqueIndex('users_phone_uq').on(t.phone),
     index('users_business_idx').on(t.businessId),
@@ -172,10 +174,22 @@ export const items = pgTable(
     stock: integer('stock').notNull().default(0),
     stockStatus: text('stock_status').notNull(),
     internalNotes: text('internal_notes').notNull().default(''),
+    /** 'service' se reserva en una cita (tiene duración); 'product' se vende/aparta (tiene stock). */
+    kind: text('kind').notNull().default('service'),
+    durationMinutes: integer('duration_minutes').notNull().default(30),
+    cleanupMinutes: integer('cleanup_minutes').notNull().default(0),
+    bookable: boolean('bookable').notNull().default(true),
+    /** El dueño ya confirmó la clasificación servicio/producto en la pantalla de revisión. */
+    kindConfirmed: boolean('kind_confirmed').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
     createdAt: createdAt(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
+    unique('items_id_business_uq').on(t.id, t.businessId),
+    check('items_kind_ck', sql`${t.kind} in ('service','product')`),
+    check('items_duration_ck', sql`${t.durationMinutes} between 5 and 720`),
+    check('items_cleanup_ck', sql`${t.cleanupMinutes} between 0 and 120`),
     // La categoría debe existir Y pertenecer al mismo negocio (lo garantiza la base de datos, no solo el código).
     foreignKey({ columns: [t.categoryId, t.businessId], foreignColumns: [categories.id, categories.businessId], name: 'items_category_business_fk' }),
     index('items_business_updated_idx').on(t.businessId, t.updatedAt.desc()),
@@ -216,7 +230,7 @@ export const clients = pgTable(
     notes: text('notes').notNull().default(''),
     createdAt: createdAt(),
   },
-  (t) => [index('clients_business_name_idx').on(t.businessId, sql`lower(${t.name})`)],
+  (t) => [index('clients_business_name_idx').on(t.businessId, sql`lower(${t.name})`), unique('clients_id_business_uq').on(t.id, t.businessId)],
 );
 
 /**
@@ -328,6 +342,8 @@ export const serviceRecords = pgTable(
     amount: integer('amount').notNull(),
     note: text('note').notNull().default(''),
     loyaltyCounted: boolean('loyalty_counted').notNull().default(false),
+    /** Cita de la que salió este cobro (al completarla). Sin cita = registro manual. */
+    appointmentId: uuid('appointment_id').references(() => appointments.id, { onDelete: 'set null' }),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -336,6 +352,7 @@ export const serviceRecords = pgTable(
   (t) => [
     index('service_records_client_idx').on(t.businessId, t.clientId, t.createdAt.desc()),
     index('service_records_business_idx').on(t.businessId, t.createdAt.desc()),
+    index('service_records_appointment_idx').on(t.appointmentId),
     check('service_records_amount_ck', sql`${t.amount} >= 0 and ${t.amount} <= 1000000000`),
   ],
 );
@@ -418,6 +435,8 @@ export const notificationSettings = pgTable('notification_settings', {
   enabled: boolean('enabled').notNull().default(false),
   loyaltyEnabled: boolean('loyalty_enabled').notNull().default(true),
   billingEnabled: boolean('billing_enabled').notNull().default(true),
+  appointmentsEnabled: boolean('appointments_enabled').notNull().default(true),
+  reviewsEnabled: boolean('reviews_enabled').notNull().default(true),
   updatedAt: ts('updated_at').notNull().defaultNow(),
 });
 
@@ -468,4 +487,358 @@ export const auditLogs = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('audit_logs_business_idx').on(t.businessId, t.createdAt.desc()), index('audit_logs_user_idx').on(t.userId, t.createdAt.desc())],
+);
+
+
+/* =====================================================================================================================
+ * Citas (agendamiento) y página pública de reservas.
+ * TODAS las tablas de esta sección llevan business_id y tienen Row Level Security (ver la migración): además del filtro
+ * que pone el código, PostgreSQL rechaza leer o escribir filas de otro negocio. Las referencias a personas, artículos y
+ * clientes son FK compuestas (id, business_id): una cita jamás puede apuntar a datos de otro negocio.
+ * ===================================================================================================================== */
+
+const businessRef = () =>
+  uuid('business_id')
+    .notNull()
+    .references(() => businesses.id, { onDelete: 'cascade' });
+
+/** Perfil público de la página de reservas (una fila por negocio). El slug vive en `businesses.slug`. */
+export const businessPublicProfiles = pgTable(
+  'business_public_profiles',
+  {
+    businessId: uuid('business_id')
+      .primaryKey()
+      .references(() => businesses.id, { onDelete: 'cascade' }),
+    published: boolean('published').notNull().default(false),
+    displayName: text('display_name').notNull().default(''),
+    tagline: text('tagline').notNull().default(''),
+    description: text('description').notNull().default(''),
+    conditions: text('conditions').notNull().default(''),
+    privacyPolicy: text('privacy_policy').notNull().default(''),
+    phone: text('phone').notNull().default(''),
+    instagram: text('instagram').notNull().default(''),
+    facebook: text('facebook').notNull().default(''),
+    tiktok: text('tiktok').notNull().default(''),
+    website: text('website').notNull().default(''),
+    latitude: doublePrecision('latitude'),
+    longitude: doublePrecision('longitude'),
+    /** Dirección formateada del pin (la que devolvió el buscador o la geocodificación inversa) y el lugar de Google, si vino de uno. */
+    mapAddress: text('map_address').notNull().default(''),
+    placeId: text('place_id'),
+    coverFile: text('cover_file'),
+    galleryFiles: jsonb('gallery_files').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    sections: jsonb('sections').$type<Partial<Record<PublicSection, boolean>>>().notNull().default(sql`'{}'::jsonb`),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [check('bpp_coords_ck', sql`(${t.latitude} is null) = (${t.longitude} is null)`)],
+);
+
+/** Reglas de agenda y reservas del negocio (una fila por negocio; sin fila se usan los valores por defecto). */
+export const businessSettings = pgTable(
+  'business_settings',
+  {
+    businessId: uuid('business_id')
+      .primaryKey()
+      .references(() => businesses.id, { onDelete: 'cascade' }),
+    slotIntervalMinutes: integer('slot_interval_minutes').notNull().default(30),
+    minNoticeMinutes: integer('min_notice_minutes').notNull().default(60),
+    maxDaysAhead: integer('max_days_ahead').notNull().default(60),
+    cancelUntilHours: integer('cancel_until_hours').notNull().default(2),
+    maxModifications: integer('max_modifications').notNull().default(2),
+    autoConfirm: boolean('auto_confirm').notNull().default(true),
+    requireEmail: boolean('require_email').notNull().default(true),
+    maxPendingPerPhone: integer('max_pending_per_phone').notNull().default(3),
+    /** null = usar `businesses.hours`. Con valor, sustituye ese horario con varios bloques por día. */
+    hoursBlocks: jsonb('hours_blocks').$type<BookingSettings['hoursBlocks']>(),
+    customFields: jsonb('custom_fields').$type<CustomField[]>().notNull().default(sql`'[]'::jsonb`),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('bs_interval_ck', sql`${t.slotIntervalMinutes} in (15,30,60)`),
+    check('bs_notice_ck', sql`${t.minNoticeMinutes} between 0 and 10080`),
+    check('bs_ahead_ck', sql`${t.maxDaysAhead} between 1 and 365`),
+  ],
+);
+
+/** Días cerrados (festivos, vacaciones del negocio). */
+export const businessClosures = pgTable(
+  'business_closures',
+  {
+    id: id(),
+    businessId: businessRef(),
+    date: date('date', { mode: 'string' }).notNull(),
+    reason: text('reason').notNull().default(''),
+  },
+  (t) => [uniqueIndex('business_closures_day_uq').on(t.businessId, t.date)],
+);
+
+/** Direcciones anteriores de la página: redirigen a la actual (no hay RLS: se consulta por slug antes de saber el negocio). */
+export const businessSlugHistory = pgTable(
+  'business_slug_history',
+  {
+    slug: text('slug').primaryKey(),
+    businessId: businessRef(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('business_slug_history_business_idx').on(t.businessId)],
+);
+
+/** Perfil de atención de una persona del equipo (dueño o empleado): si se puede reservar con ella y cómo se ve en la web. */
+export const employeeProfiles = pgTable(
+  'employee_profiles',
+  {
+    userId: uuid('user_id').primaryKey(),
+    businessId: businessRef(),
+    bookable: boolean('bookable').notNull().default(false),
+    publicName: text('public_name').notNull().default(''),
+    bio: text('bio').notNull().default(''),
+    photoFile: text('photo_file'),
+    visible: boolean('visible').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.userId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'employee_profiles_user_business_fk' }).onDelete('cascade'),
+    unique('employee_profiles_user_business_uq').on(t.userId, t.businessId),
+    index('employee_profiles_business_idx').on(t.businessId, t.sortOrder),
+  ],
+);
+
+/** Horario de trabajo de una persona: varios bloques por día ("HH:MM"). Sin filas = sigue el horario del negocio. */
+export const employeeSchedules = pgTable(
+  'employee_schedules',
+  {
+    id: id(),
+    businessId: businessRef(),
+    userId: uuid('user_id').notNull(),
+    weekday: integer('weekday').notNull(),
+    startTime: text('start_time').notNull(),
+    endTime: text('end_time').notNull(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.userId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'employee_schedules_user_business_fk' }).onDelete('cascade'),
+    index('employee_schedules_user_idx').on(t.userId, t.weekday),
+    check('employee_schedules_day_ck', sql`${t.weekday} between 0 and 6`),
+    check('employee_schedules_order_ck', sql`${t.startTime} < ${t.endTime}`),
+  ],
+);
+
+/** Ausencias y vacaciones. */
+export const employeeTimeOff = pgTable(
+  'employee_time_off',
+  {
+    id: id(),
+    businessId: businessRef(),
+    userId: uuid('user_id').notNull(),
+    startsAt: ts('starts_at').notNull(),
+    endsAt: ts('ends_at').notNull(),
+    reason: text('reason').notNull().default(''),
+  },
+  (t) => [
+    foreignKey({ columns: [t.userId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'employee_time_off_user_business_fk' }).onDelete('cascade'),
+    index('employee_time_off_user_idx').on(t.userId, t.startsAt),
+    check('employee_time_off_order_ck', sql`${t.startsAt} < ${t.endsAt}`),
+  ],
+);
+
+/** Qué servicios hace cada persona (con precio o duración propios opcionales). */
+export const employeeServices = pgTable(
+  'employee_services',
+  {
+    businessId: businessRef(),
+    userId: uuid('user_id').notNull(),
+    itemId: uuid('item_id').notNull(),
+    priceOverride: integer('price_override'),
+    durationOverride: integer('duration_override'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.itemId] }),
+    foreignKey({ columns: [t.userId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'employee_services_user_business_fk' }).onDelete('cascade'),
+    foreignKey({ columns: [t.itemId, t.businessId], foreignColumns: [items.id, items.businessId], name: 'employee_services_item_business_fk' }).onDelete('cascade'),
+    index('employee_services_item_idx').on(t.itemId),
+    check('employee_services_price_ck', sql`${t.priceOverride} is null or ${t.priceOverride} between 0 and 1000000000`),
+    check('employee_services_duration_ck', sql`${t.durationOverride} is null or ${t.durationOverride} between 5 and 720`),
+  ],
+);
+
+/** Estilos/variantes de un servicio (ej. "Corte" → "Fade", "Clásico"), con precio y duración propios. */
+export const serviceVariants = pgTable(
+  'service_variants',
+  {
+    id: id(),
+    businessId: businessRef(),
+    itemId: uuid('item_id').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    price: integer('price').notNull(),
+    durationMinutes: integer('duration_minutes'),
+    photoFile: text('photo_file'),
+    active: boolean('active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  (t) => [
+    foreignKey({ columns: [t.itemId, t.businessId], foreignColumns: [items.id, items.businessId], name: 'service_variants_item_business_fk' }).onDelete('cascade'),
+    unique('service_variants_id_business_uq').on(t.id, t.businessId),
+    index('service_variants_item_idx').on(t.itemId, t.sortOrder),
+    check('service_variants_price_ck', sql`${t.price} between 0 and 1000000000`),
+    check('service_variants_duration_ck', sql`${t.durationMinutes} is null or ${t.durationMinutes} between 5 and 720`),
+  ],
+);
+
+/** Paquetes de servicios con precio y duración propios. */
+export const servicePackages = pgTable(
+  'service_packages',
+  {
+    id: id(),
+    businessId: businessRef(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    price: integer('price').notNull(),
+    durationMinutes: integer('duration_minutes'),
+    photoFile: text('photo_file'),
+    active: boolean('active').notNull().default(true),
+    visibleOnWeb: boolean('visible_on_web').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  (t) => [
+    unique('service_packages_id_business_uq').on(t.id, t.businessId),
+    index('service_packages_business_idx').on(t.businessId, t.sortOrder),
+    check('service_packages_price_ck', sql`${t.price} between 0 and 1000000000`),
+  ],
+);
+
+export const servicePackageEntries = pgTable(
+  'service_package_entries',
+  {
+    id: id(),
+    businessId: businessRef(),
+    packageId: uuid('package_id').notNull(),
+    itemId: uuid('item_id').notNull(),
+    variantId: uuid('variant_id'),
+  },
+  (t) => [
+    foreignKey({ columns: [t.packageId, t.businessId], foreignColumns: [servicePackages.id, servicePackages.businessId], name: 'service_package_entries_package_fk' }).onDelete('cascade'),
+    foreignKey({ columns: [t.itemId, t.businessId], foreignColumns: [items.id, items.businessId], name: 'service_package_entries_item_fk' }).onDelete('cascade'),
+    foreignKey({ columns: [t.variantId, t.businessId], foreignColumns: [serviceVariants.id, serviceVariants.businessId], name: 'service_package_entries_variant_fk' }).onDelete('set null'),
+    index('service_package_entries_package_idx').on(t.packageId),
+  ],
+);
+
+/**
+ * Citas. Los instantes van en UTC. `busy_until` = fin del servicio + tiempo de limpieza: es lo que ocupa el calendario.
+ * La migración añade una restricción de EXCLUSIÓN (btree_gist) que impide que dos citas activas del mismo profesional se
+ * crucen: es la garantía real contra el doble agendamiento, aunque dos reservas lleguen exactamente a la vez.
+ */
+export const appointments = pgTable(
+  'appointments',
+  {
+    id: id(),
+    businessId: businessRef(),
+    clientId: uuid('client_id').notNull(),
+    professionalId: uuid('professional_id').notNull(),
+    startsAt: ts('starts_at').notNull(),
+    endsAt: ts('ends_at').notNull(),
+    busyUntil: ts('busy_until').notNull(),
+    status: text('status').notNull().default('pending'),
+    source: text('source').notNull(),
+    customerNotes: text('customer_notes').notNull().default(''),
+    internalNotes: text('internal_notes').notNull().default(''),
+    totalPrice: integer('total_price').notNull().default(0),
+    durationMinutes: integer('duration_minutes').notNull(),
+    /** Hash SHA-256 del token de gestión que recibe el cliente (el token en claro no se guarda). */
+    tokenHash: text('token_hash'),
+    tokenExpiresAt: ts('token_expires_at'),
+    /** Hash SHA-256 de (negocio + clave de idempotencia) de la confirmación pública: un reintento de la misma confirmación devuelve esta cita. */
+    idempotencyHash: text('idempotency_hash'),
+    modificationCount: integer('modification_count').notNull().default(0),
+    termsAcceptedAt: ts('terms_accepted_at'),
+    termsAcceptedIp: text('terms_accepted_ip'),
+    remindersOptIn: boolean('reminders_opt_in').notNull().default(false),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    cancelledAt: ts('cancelled_at'),
+    cancelReason: text('cancel_reason').notNull().default(''),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'appointments_client_business_fk' }).onDelete('cascade'),
+    foreignKey({ columns: [t.professionalId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'appointments_professional_business_fk' }),
+    unique('appointments_id_business_uq').on(t.id, t.businessId),
+    uniqueIndex('appointments_token_uq').on(t.tokenHash),
+    uniqueIndex('appointments_idem_uq').on(t.businessId, t.idempotencyHash).where(sql`${t.idempotencyHash} is not null`),
+    index('appointments_business_start_idx').on(t.businessId, t.startsAt),
+    index('appointments_professional_start_idx').on(t.businessId, t.professionalId, t.startsAt),
+    index('appointments_client_idx').on(t.businessId, t.clientId),
+    check('appointments_status_ck', sql`${t.status} in ('pending','confirmed','in_progress','completed','cancelled','no_show')`),
+    check('appointments_source_ck', sql`${t.source} in ('app','web','walk_in')`),
+    check('appointments_order_ck', sql`${t.startsAt} < ${t.endsAt} and ${t.endsAt} <= ${t.busyUntil}`),
+    check('appointments_total_ck', sql`${t.totalPrice} between 0 and 1000000000`),
+  ],
+);
+
+/** Lo reservado en una cita, con precio y duración CONGELADOS al momento de reservar. */
+export const appointmentItems = pgTable(
+  'appointment_items',
+  {
+    id: id(),
+    businessId: businessRef(),
+    appointmentId: uuid('appointment_id').notNull(),
+    kind: text('kind').notNull(),
+    itemId: uuid('item_id'),
+    variantId: uuid('variant_id'),
+    packageId: uuid('package_id'),
+    name: text('name').notNull(),
+    price: integer('price').notNull(),
+    durationMinutes: integer('duration_minutes').notNull().default(0),
+    quantity: integer('quantity').notNull().default(1),
+  },
+  (t) => [
+    foreignKey({ columns: [t.appointmentId, t.businessId], foreignColumns: [appointments.id, appointments.businessId], name: 'appointment_items_appointment_fk' }).onDelete('cascade'),
+    index('appointment_items_appointment_idx').on(t.appointmentId),
+    check('appointment_items_kind_ck', sql`${t.kind} in ('service','package','product')`),
+    check('appointment_items_qty_ck', sql`${t.quantity} between 1 and 20`),
+  ],
+);
+
+/** Historial de cada cita (auditoría): quién la creó, movió, confirmó o canceló. Nunca se guardan datos personales del cliente. */
+export const appointmentEvents = pgTable(
+  'appointment_events',
+  {
+    id: id(),
+    businessId: businessRef(),
+    appointmentId: uuid('appointment_id').notNull(),
+    type: text('type').notNull(),
+    actorKind: text('actor_kind').notNull(),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    data: jsonb('data').$type<Record<string, string | number | boolean | null>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.appointmentId, t.businessId], foreignColumns: [appointments.id, appointments.businessId], name: 'appointment_events_appointment_fk' }).onDelete('cascade'),
+    index('appointment_events_appointment_idx').on(t.appointmentId, t.createdAt),
+    check('appointment_events_actor_ck', sql`${t.actorKind} in ('staff','client','system')`),
+  ],
+);
+
+/** Reseñas de citas completadas (una por cita), con moderación del negocio. */
+export const reviews = pgTable(
+  'reviews',
+  {
+    id: id(),
+    businessId: businessRef(),
+    appointmentId: uuid('appointment_id').notNull(),
+    rating: integer('rating').notNull(),
+    comment: text('comment').notNull().default(''),
+    /** Nombre y primera letra del apellido ("María P."): lo único del cliente que se muestra. */
+    authorName: text('author_name').notNull(),
+    status: text('status').notNull().default('pending'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.appointmentId, t.businessId], foreignColumns: [appointments.id, appointments.businessId], name: 'reviews_appointment_fk' }).onDelete('cascade'),
+    uniqueIndex('reviews_appointment_uq').on(t.appointmentId),
+    index('reviews_business_status_idx').on(t.businessId, t.status, t.createdAt.desc()),
+    check('reviews_rating_ck', sql`${t.rating} between 1 and 5`),
+    check('reviews_status_ck', sql`${t.status} in ('pending','approved','hidden')`),
+  ],
 );

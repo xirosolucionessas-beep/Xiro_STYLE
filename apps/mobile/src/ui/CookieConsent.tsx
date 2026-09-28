@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { usePathname, useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { Animated, Easing, Modal, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Modal, Platform, StyleSheet, Text, View } from 'react-native';
 import { useCookieConsent } from '@/lib/useCookieConsent';
 import { useSettings } from '@/lib/settings';
 import { Button } from './Button';
@@ -69,7 +69,13 @@ export function CookieConsent() {
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 24, backgroundColor: 'rgba(0,0,0,0.55)' },
-  wrap: { width: '100%', maxWidth: 520, alignSelf: 'center', shadowColor: GOLD, shadowOpacity: 0.35, shadowRadius: 24, shadowOffset: { width: 0, height: 8 } },
+  wrap: {
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
+    // Ver la nota en ConnectionError.tsx: mismo brillo, "boxShadow" nativo en web en vez de dejar que RNW lo convierta.
+    ...Platform.select({ web: { boxShadow: `0px 8px 24px ${GOLD}59` }, ios: { shadowColor: GOLD, shadowOpacity: 0.35, shadowRadius: 24, shadowOffset: { width: 0, height: 8 } } }),
+  },
   border: { borderRadius: 24, padding: 1.5 },
   card: { borderRadius: 22.5, padding: 20, gap: 14, backgroundColor: 'rgba(14,13,10,0.96)' },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12 },

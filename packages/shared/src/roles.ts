@@ -7,7 +7,19 @@ export type Role = (typeof ROLES)[number];
  * Permisos que un dueño puede dar a un empleado. Lo que NO aparece aquí es SIEMPRE solo del dueño (datos del negocio,
  * caja, plan y pagos, notificaciones, configuración de fidelización y la gestión de empleados): no hay forma de concederlo.
  */
-export const EMPLOYEE_PERMISSIONS = ['clients_view', 'clients_manage', 'catalog_view', 'catalog_manage', 'services_record', 'loyalty_redeem'] as const;
+export const EMPLOYEE_PERMISSIONS = [
+  'clients_view',
+  'clients_manage',
+  'catalog_view',
+  'catalog_manage',
+  'services_record',
+  'loyalty_redeem',
+  // Citas: ver solo la propia agenda, ver la de todos, crear/editar citas, y gestionar la página pública de reservas.
+  'agenda_own',
+  'agenda_all',
+  'appointments_manage',
+  'public_page_manage',
+] as const;
 export type EmployeePermission = (typeof EMPLOYEE_PERMISSIONS)[number];
 
 /** Un permiso "mayor" incluye lo que necesita para funcionar (no se puede editar clientes sin poder verlos). */
@@ -17,6 +29,10 @@ const IMPLIES: Partial<Record<EmployeePermission, EmployeePermission[]>> = {
   // Registrar un servicio pide elegir cliente y servicio; canjear un premio pide ver al cliente.
   services_record: ['clients_view', 'catalog_view'],
   loyalty_redeem: ['clients_view'],
+  agenda_all: ['agenda_own'],
+  // Crear o mover una cita pide ver la agenda, elegir cliente y elegir servicios.
+  appointments_manage: ['agenda_own', 'clients_view', 'catalog_view'],
+  public_page_manage: ['catalog_view'],
 };
 
 /** Descarta lo desconocido, quita duplicados, agrega lo implícito y devuelve en el orden canónico. */

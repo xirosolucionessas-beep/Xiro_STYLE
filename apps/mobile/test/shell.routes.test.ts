@@ -82,8 +82,9 @@ describe('navigation config', () => {
     expect(NAV_ITEMS.map((item) => item.href)).toContain('/reports');
   });
 
-  it('Citas and Reportes are owner-only in the menu (the server enforces the same)', () => {
-    expect(NAV_ITEMS.find((item) => item.id === 'agenda')!.requires).toBe('owner');
+  it('Citas needs the agenda permission, My web page the public-page permission and Reportes is owner-only (the server enforces the same)', () => {
+    expect(NAV_ITEMS.find((item) => item.id === 'agenda')!.requires).toEqual(['agenda_own']);
+    expect(NAV_ITEMS.find((item) => item.id === 'booking')!.requires).toEqual(['public_page_manage']);
     expect(NAV_ITEMS.find((item) => item.id === 'reports')!.requires).toBe('owner');
   });
 

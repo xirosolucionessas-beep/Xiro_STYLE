@@ -1,11 +1,12 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { serviceRecordInputSchema, type ServiceRecord } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
-import { clients, items, loyaltyProgramItems, loyaltyPrograms, loyaltyProgress, serviceRecords } from '../db/schema';
+import { clients, items, serviceRecords } from '../db/schema';
 import { notFound, parse, uuid } from '../errors';
 import { notifyBusiness } from '../push';
+import { recordService } from '../serviceRecording';
 
 const listQuery = z.object({ clientId: z.string().optional() });
 
@@ -57,34 +58,7 @@ export function serviceRecordRoutes(app: FastifyInstance, ctx: Ctx): void {
 
     const amount = input.amount ?? item.price;
 
-    const outcome = await db.transaction(async (tx) => {
-      const [program] = await tx.select().from(loyaltyPrograms).where(eq(loyaltyPrograms.businessId, businessId)).limit(1);
-      let eligible = false;
-      if (program?.enabled) {
-        const [link] = await tx
-          .select()
-          .from(loyaltyProgramItems)
-          .where(and(eq(loyaltyProgramItems.programId, program.id), eq(loyaltyProgramItems.itemId, itemId)))
-          .limit(1);
-        eligible = Boolean(link);
-      }
-
-      const [record] = await tx
-        .insert(serviceRecords)
-        .values({ businessId, clientId, itemId, label: item.name, amount, note: input.note, loyaltyCounted: eligible, createdBy: request.user.sub })
-        .returning();
-
-      let rewardJustEarned = false;
-      if (eligible) {
-        const [updated] = await tx
-          .insert(loyaltyProgress)
-          .values({ businessId, clientId, count: 1 })
-          .onConflictDoUpdate({ target: [loyaltyProgress.businessId, loyaltyProgress.clientId], set: { count: sql`${loyaltyProgress.count} + 1`, updatedAt: new Date() } })
-          .returning();
-        rewardJustEarned = updated!.count >= program!.goal;
-      }
-      return { record: record!, rewardJustEarned };
-    });
+    const outcome = await db.transaction((tx) => recordService(tx, { businessId, clientId, itemId, label: item.name, amount, note: input.note, createdBy: request.user.sub }));
 
     // Fuera de la transacción: el envío de push es un aviso de mejor esfuerzo, nunca debe bloquear ni revertir el registro.
     if (outcome.rewardJustEarned) {

@@ -18,7 +18,7 @@ let app: FastifyInstance;
 let testDb: TestDatabase;
 let cleanup: () => void;
 const otps: OtpMessage[] = [];
-const notifier: Notifier = { sendOtp: async (message) => void otps.push(message) };
+const notifier: Notifier = { sendOtp: async (message) => void otps.push(message), sendAppointmentReminder: async () => undefined };
 
 beforeAll(async () => {
   testDb = await createTestDatabase({ poolMax: 20 });

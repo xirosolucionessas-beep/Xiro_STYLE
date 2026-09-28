@@ -1,0 +1,2 @@
+ALTER TABLE "notification_settings" ADD COLUMN "appointments_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "notification_settings" ADD COLUMN "reviews_enabled" boolean DEFAULT true NOT NULL;

@@ -132,6 +132,32 @@ export async function notifyBusiness(ctx: PushCtx, businessId: string, category:
   }
 }
 
+/** Fecha/hora corta en formato fijo (día/mes, 24h) para el cuerpo de un aviso: no depende del idioma de quien lo recibe,
+ * a diferencia del resto del texto (que sí se traduce por dispositivo en `sendToTokens`). */
+export function formatPushMoment(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat('es-CO', { timeZone: timezone, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
+}
+
+/**
+ * Aviso de un evento de UNA cita (reserva nueva, cancelación, cambio de horario, reseña) a los dispositivos del
+ * profesional asignado — nunca al cliente, que no tiene la app. Se salta cuando quien originó el cambio es ese mismo
+ * profesional (ya lo sabe, lo acaba de hacer) y cuando el negocio desactivó la categoría correspondiente.
+ */
+export async function notifyAppointment(ctx: PushCtx, businessId: string, professionalId: string, skipUserId: string | null, category: 'appointments' | 'reviews', event: PushEvent): Promise<void> {
+  if (professionalId === skipUserId) return;
+  const { db } = ctx;
+  const [settings] = await db.select().from(notificationSettings).where(eq(notificationSettings.businessId, businessId)).limit(1);
+  if (!settings?.enabled) return;
+  if (category === 'appointments' && !settings.appointmentsEnabled) return;
+  if (category === 'reviews' && !settings.reviewsEnabled) return;
+  try {
+    const rows = await db.select().from(pushTokens).where(and(eq(pushTokens.businessId, businessId), eq(pushTokens.userId, professionalId)));
+    await sendToTokens(ctx, rows, event);
+  } catch {
+    // Ver nota en notifyBusiness: un fallo de red hacia Expo/el navegador no debe propagarse al llamador.
+  }
+}
+
 /** Envío explícito a los dispositivos del usuario que lo pide (botón "Enviar notificación de prueba"): SIEMPRE se
  * intenta, sin mirar los interruptores — es una acción directa de la persona, no un evento automático. */
 export async function sendTestNotification(ctx: PushCtx, businessId: string, userId: string): Promise<{ sent: number; pruned: number }> {

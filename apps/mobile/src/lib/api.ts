@@ -1,6 +1,29 @@
 import type {
   ApiErrorBody,
+  AppointmentDto,
+  AppointmentStatus,
   AuthSession,
+  AvailabilityResponse,
+  BookingAdminSettings,
+  BookingSettingsInput,
+  ClassificationEntry,
+  ClosureDto,
+  DaySummary,
+  PackageDto,
+  PackageInput,
+  PickedLocation,
+  PlaceSuggestion,
+  PlacesConfig,
+  ProfessionalDto,
+  ProfessionalInput,
+  PublicProfileInput,
+  ReverseGeocodeResult,
+  ReviewDto,
+  ScheduleBlock,
+  StaffAppointmentInput,
+  TimeOffDto,
+  VariantDto,
+  VariantInput,
   Business,
   BusinessUpdateInput,
   CashOpening,
@@ -13,6 +36,7 @@ import type {
   EmployeeUpdateInput,
   Item,
   ItemInput,
+  Language,
   LoginInput,
   LoyaltyClientProgress,
   LoyaltyProgram,
@@ -38,6 +62,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     readonly issues: Array<{ path: string; message: string }> = [],
+    /** Campos extra del cuerpo del error (p. ej. `alternatives` en `slot_taken`). */
+    readonly extra: Record<string, unknown> = {},
   ) {
     super(code);
   }
@@ -125,7 +151,7 @@ async function tryRefresh(): Promise<boolean> {
 
 async function toError(response: Response): Promise<ApiError> {
   const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
-  return new ApiError(response.status, body?.code ?? 'unknown_error', body?.issues);
+  return new ApiError(response.status, body?.code ?? 'unknown_error', body?.issues, (body ?? {}) as Record<string, unknown>);
 }
 
 interface RequestOptions {
@@ -196,6 +222,8 @@ export const api = {
   createClient: (body: ClientInput) => request<Client>('/api/clients', { method: 'POST', body }),
   updateClient: (id: string, body: ClientInput) => request<Client>(`/api/clients/${id}`, { method: 'PUT', body }),
   deleteClient: (id: string) => request<void>(`/api/clients/${id}`, { method: 'DELETE' }),
+  /** Derecho de supresión (Ley 1581): borra los datos identificables del cliente; conserva sus citas y servicios como historial. */
+  anonymizeClient: (id: string) => request<Client>(`/api/clients/${id}/anonymize`, { method: 'POST' }),
 
   loyaltyProgram: () => request<LoyaltyProgram>('/api/loyalty/program'),
   updateLoyaltyProgram: (body: LoyaltyProgramUpdateInput) => request<LoyaltyProgram>('/api/loyalty/program', { method: 'PUT', body }),
@@ -217,6 +245,62 @@ export const api = {
   updateEmployee: (id: string, body: EmployeeUpdateInput) => request<Employee>(`/api/employees/${id}`, { method: 'PATCH', body }),
   auditLogs: (userId?: string) => request<AuditLogEntry[]>(`/api/audit-logs${userId ? `?userId=${userId}` : ''}`),
 
+  /* ---------- Citas (agenda del personal) ---------- */
+  appointments: (query: { from: string; to: string; professionalId?: string; status?: AppointmentStatus }) =>
+    request<AppointmentDto[]>(`/api/appointments?${new URLSearchParams(Object.entries(query).filter((e): e is [string, string] => Boolean(e[1]))).toString()}`),
+  createAppointment: (body: StaffAppointmentInput) => request<AppointmentDto>('/api/appointments', { method: 'POST', body }),
+  updateAppointment: (id: string, body: { startsAt?: string; professionalId?: string; internalNotes?: string; customerNotes?: string }) => request<AppointmentDto>(`/api/appointments/${id}`, { method: 'PATCH', body }),
+  setAppointmentStatus: (id: string, status: AppointmentStatus, reason = '') => request<AppointmentDto & { rewardJustEarned?: boolean }>(`/api/appointments/${id}/status`, { method: 'POST', body: { status, reason } }),
+  staffAvailability: (query: AvailabilityQuery) => request<AvailabilityResponse>(`/api/booking/availability?${availabilityParams(query)}`),
+  staffDays: (query: AvailabilityQuery & { from: string; days: number }) => request<DaySummary[]>(`/api/booking/days?${availabilityParams(query)}`),
+  /** Ticket de un solo uso (30s) para abrir el stream de "algo cambió en tus citas" — ver lib/realtime.web.ts. */
+  eventsTicket: () => request<{ ticket: string }>('/api/booking/events/ticket', { method: 'POST' }),
+
+  /* ---------- Mi página web ---------- */
+  bookingSettings: () => request<BookingAdminSettings>('/api/booking/settings'),
+  saveBookingSettings: (body: BookingSettingsInput) => request<BookingAdminSettings>('/api/booking/settings', { method: 'PUT', body }),
+  saveBookingProfile: (body: PublicProfileInput) => request<BookingAdminSettings>('/api/booking/profile', { method: 'PUT', body }),
+  /* Ubicación del local: todo pasa por el servidor, que es quien tiene la clave de Google (ver booking/google.ts). */
+  placesConfig: () => request<PlacesConfig>('/api/booking/places/config'),
+  placesAutocomplete: (q: string, session: string, lang: Language) => request<PlaceSuggestion[]>(`/api/booking/places/autocomplete?${new URLSearchParams({ q, session, lang })}`),
+  placesDetails: (placeId: string, session: string, lang: Language) => request<PickedLocation>(`/api/booking/places/details?${new URLSearchParams({ placeId, session, lang })}`),
+  placesReverse: (lat: number, lng: number, lang: Language) => request<ReverseGeocodeResult>(`/api/booking/places/reverse?${new URLSearchParams({ lat: String(lat), lng: String(lng), lang })}`),
+  placesStaticMap: (lat: number, lng: number) => request<{ image: string }>(`/api/booking/places/static-map?${new URLSearchParams({ lat: String(lat), lng: String(lng) })}`),
+  uploadBookingCover: (form: FormData) => request<BookingAdminSettings>('/api/booking/profile/cover', { method: 'PUT', form }),
+  deleteBookingCover: () => request<BookingAdminSettings>('/api/booking/profile/cover', { method: 'DELETE' }),
+  addGalleryPhoto: (form: FormData) => request<BookingAdminSettings>('/api/booking/profile/gallery', { method: 'POST', form }),
+  deleteGalleryPhoto: (file: string) => request<BookingAdminSettings>(`/api/booking/profile/gallery/${encodeURIComponent(file)}`, { method: 'DELETE' }),
+  checkSlug: (slug: string) => request<{ slug: string; available: boolean; reason?: string }>(`/api/booking/slug/check?slug=${encodeURIComponent(slug)}`),
+  saveSlug: (slug: string) => request<{ slug: string }>('/api/booking/slug', { method: 'PUT', body: { slug } }),
+  closures: () => request<ClosureDto[]>('/api/booking/closures'),
+  addClosure: (body: { date: string; reason: string }) => request<ClosureDto>('/api/booking/closures', { method: 'POST', body }),
+  deleteClosure: (id: string) => request<void>(`/api/booking/closures/${id}`, { method: 'DELETE' }),
+  bookingReviews: () => request<ReviewDto[]>('/api/booking/reviews'),
+  moderateReview: (id: string, status: 'approved' | 'hidden') => request<ReviewDto>(`/api/booking/reviews/${id}`, { method: 'PATCH', body: { status } }),
+
+  /* ---------- Profesionales ---------- */
+  professionals: () => request<ProfessionalDto[]>('/api/professionals'),
+  updateProfessional: (id: string, body: ProfessionalInput) => request<ProfessionalDto>(`/api/professionals/${id}`, { method: 'PATCH', body }),
+  uploadProfessionalPhoto: (id: string, form: FormData) => request<ProfessionalDto>(`/api/professionals/${id}/photo`, { method: 'PUT', form }),
+  deleteProfessionalPhoto: (id: string) => request<ProfessionalDto>(`/api/professionals/${id}/photo`, { method: 'DELETE' }),
+  saveSchedule: (id: string, blocks: ScheduleBlock[]) => request<ProfessionalDto>(`/api/professionals/${id}/schedule`, { method: 'PUT', body: { blocks } }),
+  saveProfessionalServices: (id: string, services: Array<{ itemId: string; priceOverride: number | null; durationOverride: number | null }>) => request<ProfessionalDto>(`/api/professionals/${id}/services`, { method: 'PUT', body: { services } }),
+  timeOff: (id: string) => request<TimeOffDto[]>(`/api/professionals/${id}/time-off`),
+  addTimeOff: (id: string, body: { startsAt: string; endsAt: string; reason: string }) => request<TimeOffDto>(`/api/professionals/${id}/time-off`, { method: 'POST', body }),
+  deleteTimeOff: (id: string) => request<void>(`/api/time-off/${id}`, { method: 'DELETE' }),
+
+  /* ---------- Estilos, paquetes y clasificación ---------- */
+  variants: (itemId: string) => request<VariantDto[]>(`/api/items/${itemId}/variants`),
+  addVariant: (itemId: string, body: VariantInput) => request<VariantDto>(`/api/items/${itemId}/variants`, { method: 'POST', body }),
+  updateVariant: (id: string, body: VariantInput) => request<VariantDto>(`/api/variants/${id}`, { method: 'PUT', body }),
+  deleteVariant: (id: string) => request<void>(`/api/variants/${id}`, { method: 'DELETE' }),
+  packages: () => request<PackageDto[]>('/api/packages'),
+  createPackage: (body: PackageInput) => request<PackageDto>('/api/packages', { method: 'POST', body }),
+  updatePackage: (id: string, body: PackageInput) => request<PackageDto>(`/api/packages/${id}`, { method: 'PUT', body }),
+  deletePackage: (id: string) => request<void>(`/api/packages/${id}`, { method: 'DELETE' }),
+  classification: (all = false) => request<ClassificationEntry[]>(`/api/items/classification${all ? '?all=1' : ''}`),
+  confirmClassification: (entries: Array<{ itemId: string; kind: 'service' | 'product'; durationMinutes?: number }>) => request<{ confirmed: number }>('/api/items/classification', { method: 'POST', body: { entries } }),
+
   subscription: () => request<Subscription>('/api/subscription'),
   startTrial: (plan: SubscriptionPlan, platform: SubscriptionPlatform) => request<Subscription>('/api/subscription/trial', { method: 'POST', body: { plan, platform } }),
   cancelSubscription: () => request<Subscription>('/api/subscription/cancel', { method: 'POST' }),
@@ -224,6 +308,28 @@ export const api = {
   checkoutPaypal: (plan: SubscriptionPlan) => request<{ url: string }>('/api/subscription/checkout/paypal', { method: 'POST', body: { plan } }),
   checkoutBankTransfer: (plan: SubscriptionPlan) => request<{ instructions: string; plan: SubscriptionPlan }>('/api/subscription/checkout/bank-transfer', { method: 'POST', body: { plan } }),
 };
+
+/** Lo elegido para reservar: servicios (con estilo), paquetes y el profesional; viaja como `services=id:estilo,id` y `packages=id,id`. */
+export interface AvailabilityQuery {
+  date?: string;
+  professionalId?: string;
+  services: Array<{ itemId: string; variantId?: string | null }>;
+  packages: string[];
+  /** Al mover una cita: ignórala al calcular horarios. */
+  excludeAppointmentId?: string;
+}
+
+function availabilityParams(query: AvailabilityQuery & { from?: string; days?: number }): string {
+  const params = new URLSearchParams();
+  if (query.date) params.set('date', query.date);
+  if (query.from) params.set('from', query.from);
+  if (query.days) params.set('days', String(query.days));
+  params.set('professionalId', query.professionalId ?? 'any');
+  params.set('services', query.services.map((s) => (s.variantId ? `${s.itemId}:${s.variantId}` : s.itemId)).join(','));
+  params.set('packages', query.packages.join(','));
+  if (query.excludeAppointmentId) params.set('excludeAppointmentId', query.excludeAppointmentId);
+  return params.toString();
+}
 
 /** Traduce un error de API a una clave de i18n (o el mensaje del primer campo inválido). */
 export function errorKey(error: unknown): string {

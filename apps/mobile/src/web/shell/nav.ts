@@ -18,7 +18,8 @@ export interface NavItem {
 /** Orden de la barra lateral. Editar aquí para añadir/quitar secciones. */
 export const NAV_ITEMS: NavItem[] = [
   { id: 'home', labelKey: 'nav_home', icon: 'home', section: 'home', href: '/' },
-  { id: 'agenda', labelKey: 'nav_agenda', icon: 'calendar', section: 'agenda', href: '/agenda', requires: 'owner' },
+  { id: 'agenda', labelKey: 'nav_agenda', icon: 'calendar', section: 'agenda', href: '/agenda', requires: ['agenda_own'] },
+  { id: 'booking', labelKey: 'nav_booking', icon: 'globe', section: 'booking', href: '/booking', requires: ['public_page_manage'] },
   { id: 'clients', labelKey: 'nav_clients', icon: 'users', section: 'clients', href: '/clients', requires: ['clients_view'] },
   { id: 'services', labelKey: 'nav_services', icon: 'book', section: 'services', href: '/catalog', requires: ['catalog_view'] },
   { id: 'inventory', labelKey: 'nav_inventory', icon: 'box', section: 'inventory', href: '/inventory', requires: ['catalog_view'] },

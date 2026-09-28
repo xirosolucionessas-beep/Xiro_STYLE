@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
 import { errorKey, resolveMedia } from '@/lib/api';
+import { tracksStock } from '@/lib/homeMetrics';
 import { inventoryValue } from '@/lib/sections';
 import { useCategories, useItems } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
@@ -35,7 +36,8 @@ export default function InventoryWeb() {
   const [picked, setPicked] = useState<{ value: StockStatus | null; link: StockStatus | null } | null>(null);
   const status = picked && picked.link === fromLink ? picked.value : fromLink;
 
-  const all = useMemo(() => items.data ?? [], [items.data]);
+  // Inventario = productos (los servicios no llevan existencias).
+  const all = useMemo(() => (items.data ?? []).filter(tracksStock), [items.data]);
   const summary = useMemo(() => summarizeStock(all), [all]);
   const value = useMemo(() => inventoryValue(all), [all]);
   const rows = useMemo<InventoryRowView[]>(

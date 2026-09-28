@@ -14,7 +14,7 @@ export function VisuallyHidden({ children }: { children: ReactNode }) {
 }
 
 /** Icono decorativo (aria-hidden): nunca es la única señal de estado, siempre va con texto. */
-export type IconName = 'alert' | 'check' | 'info' | 'eye' | 'eye-off' | 'chevron-down' | 'chevron-right' | 'close' | 'inbox' | 'home' | 'calendar' | 'users' | 'book' | 'box' | 'briefcase' | 'chart' | 'sliders' | 'menu' | 'chevrons-left' | 'chevrons-right' | 'arrow-left' | 'star';
+export type IconName = 'alert' | 'check' | 'info' | 'eye' | 'eye-off' | 'chevron-down' | 'chevron-right' | 'close' | 'inbox' | 'home' | 'calendar' | 'users' | 'book' | 'box' | 'briefcase' | 'chart' | 'sliders' | 'menu' | 'chevrons-left' | 'chevrons-right' | 'arrow-left' | 'star' | 'globe';
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<typeof name, ReactNode> = {
@@ -105,6 +105,12 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
       </>
     ),
     star: <path d="m12 3 2.6 5.9 6.4.6-4.8 4.3 1.4 6.3L12 17l-5.6 3 1.4-6.3-4.8-4.3 6.4-.6L12 3Z" />,
+    globe: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+      </>
+    ),
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">

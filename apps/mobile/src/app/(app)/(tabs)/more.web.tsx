@@ -20,7 +20,7 @@ import { Header, Screen } from '@/ui/Screen';
 import { SettingsView, type NotificationsModel, type SettingsLink } from '@/web/screens/Settings';
 import { useWebText } from '@/web/services/useWebText';
 
-const DEFAULTS: NotificationSettings = { enabled: false, loyaltyEnabled: true, billingEnabled: true };
+const DEFAULTS: NotificationSettings = { enabled: false, loyaltyEnabled: true, billingEnabled: true, appointmentsEnabled: true, reviewsEnabled: true };
 
 /** Notificaciones del negocio (mismo flujo que la sección nativa: explicar → pedir permiso → registrar → guardar). */
 function useNotificationsModel(enabled: boolean, t: (key: string) => string): NotificationsModel | null {
@@ -63,6 +63,8 @@ function useNotificationsModel(enabled: boolean, t: (key: string) => string): No
     enabled: settings.enabled,
     loyalty: settings.loyaltyEnabled,
     billing: settings.billingEnabled,
+    appointments: settings.appointmentsEnabled,
+    reviews: settings.reviewsEnabled,
     busy,
     note: permission === 'denied' ? t('sec_set_notifs_blocked') : permission === 'unavailable' ? t('sec_set_notifs_unsupported') : undefined,
     onToggle: (next) =>
@@ -73,6 +75,8 @@ function useNotificationsModel(enabled: boolean, t: (key: string) => string): No
       }),
     onLoyalty: (next) => void run(async () => void (await save({ ...settings, loyaltyEnabled: next }))),
     onBilling: (next) => void run(async () => void (await save({ ...settings, billingEnabled: next }))),
+    onAppointments: (next) => void run(async () => void (await save({ ...settings, appointmentsEnabled: next }))),
+    onReviews: (next) => void run(async () => void (await save({ ...settings, reviewsEnabled: next }))),
     onTest: () =>
       void run(async () => {
         const { sent } = await api.sendTestNotification();

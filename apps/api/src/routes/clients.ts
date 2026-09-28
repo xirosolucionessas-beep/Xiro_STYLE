@@ -1,9 +1,10 @@
 import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
-import { clientInputSchema } from '@xiro/shared';
+import { clientInputSchema, type Client } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
 import { clients } from '../db/schema';
+import { anonymizeClient } from '../booking/privacy';
 import { notFound, parse, uuid } from '../errors';
 import { toClient } from '../serializers';
 
@@ -59,5 +60,15 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     const deleted = await db.delete(clients).where(ownedBy(businessOf(request), uuid((request.params as { id?: string }).id))).returning({ id: clients.id });
     if (deleted.length === 0) throw notFound();
     return reply.status(204).send();
+  });
+
+  /** Derecho de supresión (Ley 1581): borra los datos identificables del cliente y conserva las citas como registro contable. */
+  app.post('/clients/:id/anonymize', async (request): Promise<Client> => {
+    const id = uuid((request.params as { id?: string }).id);
+    const businessId = businessOf(request);
+    const ok = await db.transaction((tx) => anonymizeClient(tx, businessId, id));
+    if (!ok) throw notFound();
+    const [row] = await db.select().from(clients).where(ownedBy(businessId, id)).limit(1);
+    return toClient(row!);
   });
 }

@@ -27,7 +27,7 @@ export function Screen({ children, footer, header }: ScreenProps) {
 }
 
 /** Icono de la sección a la que pertenece la pantalla (las sub-pantallas heredan el de su sección). */
-const SECTION_ICON: Record<SectionId, IconName> = { home: 'house', notifications: 'bell', agenda: 'calendar-days', reports: 'bar-chart', clients: 'users', services: 'book-open', inventory: 'package', loyalty: 'gift', employees: 'briefcase', settings: 'sliders' };
+const SECTION_ICON: Record<SectionId, IconName> = { home: 'house', notifications: 'bell', agenda: 'calendar-days', booking: 'globe', reports: 'bar-chart', clients: 'users', services: 'book-open', inventory: 'package', loyalty: 'gift', employees: 'briefcase', settings: 'sliders' };
 
 export function Header({ title, subtitle, onBack, right, root }: HeaderProps) {
   useWebStyles();

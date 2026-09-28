@@ -114,6 +114,12 @@ export async function loadItems(db: DbExecutor, businessId: string, options: { i
     internalNotes: item.internalNotes,
     photos: (byItem.get(item.id) ?? []).map((photo) => ({ id: photo.id, url: mediaUrl(photo.file) })),
     updatedAt: item.updatedAt.toISOString(),
+    kind: item.kind as Item['kind'],
+    durationMinutes: item.durationMinutes,
+    cleanupMinutes: item.cleanupMinutes,
+    bookable: item.bookable,
+    kindConfirmed: item.kindConfirmed,
+    sortOrder: item.sortOrder,
   }));
 }
 

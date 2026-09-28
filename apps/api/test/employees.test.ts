@@ -1,4 +1,4 @@
-import type { AuditLogEntry, AuthSession, Employee, EmployeePermission, Item, Subscription, User } from '@xiro/shared';
+import { EMPLOYEE_PERMISSIONS, type AuditLogEntry, type AuthSession, type Employee, type EmployeePermission, type Item, type Subscription, type User } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { assertPolicyCovers, authorize, POLICY } from '../src/authz';
@@ -75,7 +75,7 @@ describe('gestión de empleados (dueño)', () => {
     expect(me.json<{ user: User }>().user).toMatchObject({ role: 'employee', permissions: ['clients_view', 'catalog_view', 'services_record'], businessId: owner.business.id });
     const ownerMe = await app.inject({ method: 'GET', url: '/api/me', headers: auth(owner) });
     expect(ownerMe.json<{ user: User }>().user).toMatchObject({ role: 'owner' });
-    expect(ownerMe.json<{ user: User }>().user.permissions).toHaveLength(6);
+    expect(ownerMe.json<{ user: User }>().user.permissions).toHaveLength(EMPLOYEE_PERMISSIONS.length);
   });
 
   it('valida: exige correo o celular, contraseña fuerte, y rechaza duplicados', async () => {
@@ -166,10 +166,12 @@ describe('qué puede hacer un empleado', () => {
     expect(await status(viewer.session, 'POST', '/api/clients', { name: 'Nuevo' })).toBe(403);
     expect(await status(viewer.session, 'PUT', `/api/clients/${client.id}`, { name: 'Cambio' })).toBe(403);
     expect(await status(viewer.session, 'DELETE', `/api/clients/${client.id}`)).toBe(403);
+    expect(await status(viewer.session, 'POST', `/api/clients/${client.id}/anonymize`)).toBe(403);
 
     const manager = await createEmployee(owner, ['clients_manage']);
     expect(await status(manager.session, 'POST', '/api/clients', { name: 'Nuevo' })).toBe(201);
     expect(await status(manager.session, 'PUT', `/api/clients/${client.id}`, { name: 'Cambio' })).toBe(200);
+    expect(await status(manager.session, 'POST', `/api/clients/${client.id}/anonymize`)).toBe(200);
     expect(await status(manager.session, 'DELETE', `/api/clients/${client.id}`)).toBe(204);
   });
 
@@ -190,8 +192,7 @@ describe('qué puede hacer un empleado', () => {
       ['POST', '/api/subscription/cancel'],
       ['GET', '/api/notifications/settings'],
       ['PUT', '/api/notifications/settings', { enabled: true, loyaltyEnabled: true, billingEnabled: true }],
-      ['POST', '/api/notifications/register', { platform: 'expo', token: 'ExponentPushToken[emp]' }],
-      ['POST', '/api/notifications/test'],
+      // (registrar y probar SUS dispositivos push ya es de cualquier persona con sesión: ver booking.staff.test.ts)
       ['GET', '/api/employees'],
       ['POST', '/api/employees', { name: 'X', email: 'x@correo.com', password: PASSWORD }],
       ['PATCH', `/api/employees/${employee.id}`, { permissions: [] }],

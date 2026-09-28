@@ -158,6 +158,10 @@ export const cashOpeningSchema = z.object({
 
 export const categoryInputSchema = z.object({ name: required(40) });
 
+/** Un artículo del catálogo es un servicio (se reserva en una cita, tiene duración) o un producto (se vende, tiene stock). */
+export const ITEM_KINDS = ['service', 'product'] as const;
+export type ItemKind = (typeof ITEM_KINDS)[number];
+
 export const itemInputSchema = z.object({
   name: required(80),
   categoryId: z.string().min(1, 'required'),
@@ -171,6 +175,11 @@ export const itemInputSchema = z.object({
   stock: z.number().int().min(0).max(1_000_000).default(0),
   stockStatus: z.enum(STOCK_STATUSES).optional(),
   internalNotes: trimmed(1000).default(''),
+  kind: z.enum(ITEM_KINDS).optional(),
+  durationMinutes: z.number().int().min(5).max(720).optional(),
+  cleanupMinutes: z.number().int().min(0).max(120).optional(),
+  bookable: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(10_000).optional(),
 });
 export type ItemInput = z.input<typeof itemInputSchema>;
 
@@ -209,6 +218,8 @@ export const notificationSettingsUpdateSchema = z.object({
   enabled: z.boolean(),
   loyaltyEnabled: z.boolean(),
   billingEnabled: z.boolean(),
+  appointmentsEnabled: z.boolean().default(true),
+  reviewsEnabled: z.boolean().default(true),
 });
 export type NotificationSettingsUpdateInput = z.input<typeof notificationSettingsUpdateSchema>;
 
@@ -328,6 +339,16 @@ export interface Item {
   internalNotes: string;
   photos: ItemPhoto[];
   updatedAt: string;
+  kind: ItemKind;
+  /** Duración de la cita para un servicio (minutos). */
+  durationMinutes: number;
+  /** Tiempo de limpieza/preparación tras el servicio (minutos). */
+  cleanupMinutes: number;
+  /** Se puede reservar en línea. */
+  bookable: boolean;
+  /** El dueño ya confirmó la clasificación servicio/producto en la pantalla de revisión. */
+  kindConfirmed: boolean;
+  sortOrder: number;
 }
 
 export interface Client {
@@ -381,6 +402,8 @@ export interface NotificationSettings {
   enabled: boolean;
   loyaltyEnabled: boolean;
   billingEnabled: boolean;
+  appointmentsEnabled: boolean;
+  reviewsEnabled: boolean;
 }
 
 export interface CashOpening {
