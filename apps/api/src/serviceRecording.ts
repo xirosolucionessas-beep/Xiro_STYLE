@@ -9,6 +9,8 @@ export interface RecordServiceInput {
   itemId: string | null;
   label: string;
   amount: number;
+  /** De qué tipo era lo cobrado (Tarea 5): separa el valor de servicios del de productos en Inicio/Reportes. */
+  kind: 'service' | 'product';
   note: string;
   createdBy: string;
   appointmentId?: string | null;
@@ -40,6 +42,7 @@ export async function recordService(tx: DbExecutor, input: RecordServiceInput): 
       itemId: input.itemId,
       label: input.label,
       amount: input.amount,
+      kind: input.kind,
       note: input.note,
       loyaltyCounted: eligible,
       appointmentId: input.appointmentId ?? null,

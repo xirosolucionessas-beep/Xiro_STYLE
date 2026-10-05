@@ -143,6 +143,8 @@ export const businessUpdateSchema = z
     address: trimmed(160),
     city: trimmed(80),
     country: trimmed(80),
+    /** NIT o cédula, para el encabezado de la factura de suscripción; opcional. */
+    taxId: trimmed(40),
     currency: z.enum(CURRENCIES),
     hours: businessHoursSchema,
   })
@@ -220,6 +222,11 @@ export const notificationSettingsUpdateSchema = z.object({
   billingEnabled: z.boolean(),
   appointmentsEnabled: z.boolean().default(true),
   reviewsEnabled: z.boolean().default(true),
+  clientsEnabled: z.boolean().default(true),
+  salesEnabled: z.boolean().default(true),
+  inventoryEnabled: z.boolean().default(true),
+  employeesEnabled: z.boolean().default(true),
+  securityEnabled: z.boolean().default(true),
 });
 export type NotificationSettingsUpdateInput = z.input<typeof notificationSettingsUpdateSchema>;
 
@@ -267,6 +274,7 @@ export interface User {
   name: string;
   email: string | null;
   phone: string | null;
+  photoUrl: string | null;
   language: Language;
   theme: ThemeMode;
   businessId: string;
@@ -280,6 +288,8 @@ export interface Employee {
   name: string;
   email: string | null;
   phone: string | null;
+  /** Foto de cuenta opcional (misma que `/me/photo`); null ⇒ se muestra un avatar con sus iniciales. */
+  photoUrl: string | null;
   permissions: EmployeePermission[];
   active: boolean;
   createdAt: string;
@@ -305,6 +315,8 @@ export interface Business {
   address: string;
   city: string;
   country: string;
+  /** NIT o cédula, para el encabezado de la factura de suscripción; "" si no lo ha completado. */
+  taxId: string;
   currency: (typeof CURRENCIES)[number];
   timezone: string;
   hours: BusinessHours;
@@ -358,6 +370,8 @@ export interface Client {
   phone: string | null;
   address: string;
   notes: string;
+  /** Foto opcional del cliente; null ⇒ se muestra un avatar con sus iniciales. */
+  photoUrl: string | null;
   createdAt: string;
 }
 
@@ -368,6 +382,8 @@ export interface ServiceRecord {
   itemId: string | null;
   label: string;
   amount: number;
+  /** De qué tipo era lo cobrado: separa el valor de servicios del de productos en Inicio/Reportes. */
+  kind: 'service' | 'product';
   note: string;
   loyaltyCounted: boolean;
   createdAt: string;
@@ -404,7 +420,38 @@ export interface NotificationSettings {
   billingEnabled: boolean;
   appointmentsEnabled: boolean;
   reviewsEnabled: boolean;
+  clientsEnabled: boolean;
+  salesEnabled: boolean;
+  inventoryEnabled: boolean;
+  employeesEnabled: boolean;
+  securityEnabled: boolean;
 }
+
+export const NOTIFICATION_CATEGORIES = ['appointments', 'reviews', 'loyalty', 'billing', 'clients', 'sales', 'inventory', 'employees', 'security'] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+/**
+ * Una notificación del centro de notificaciones de la app (distinta del aviso push: esta SIEMPRE se guarda cuando
+ * ocurre el evento, sin importar las preferencias de push de quien la recibe — ver la tabla `notifications`).
+ * `titleKey`/`bodyKey` son claves de traducción (como las de `push.ts`): el texto se arma en el cliente con `t()`,
+ * en el idioma de quien está mirando en ese momento, nunca el que tenía el dispositivo cuando se generó.
+ */
+export interface NotificationDto {
+  id: string;
+  category: NotificationCategory;
+  titleKey: string;
+  bodyKey: string;
+  params: Record<string, string | number>;
+  /** Ruta dentro de la app a la que llevar al tocarla; null = sin destino específico. */
+  href: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export const notificationsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type NotificationsQuery = z.input<typeof notificationsQuerySchema>;
 
 export interface CashOpening {
   id: string;
@@ -420,7 +467,11 @@ export interface AuthSession {
   business: Business;
 }
 
-/** What the public catalog may expose. Never cost, internal price, stock, notes, users or clients. */
+/**
+ * What the public catalog may expose. Never cost, internal price, exact stock count, notes, users or clients.
+ * `soldOut` is the one deliberate exception: a plain yes/no signal (never the actual quantity) so the storefront can
+ * show "Agotado" instead of letting someone order something there is none of. Always `false` for a service.
+ */
 export interface PublicItem {
   id: string;
   name: string;
@@ -431,6 +482,7 @@ export interface PublicItem {
   price: number;
   image: string | null;
   gallery: string[];
+  soldOut: boolean;
 }
 
 export interface PublicCatalog {

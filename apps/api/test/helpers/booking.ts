@@ -10,10 +10,19 @@ export const unique = () => (counter += 1);
 
 export const auth = (session: { accessToken: string }) => ({ authorization: `Bearer ${session.accessToken}` });
 
-/** Día hábil (lunes a sábado: el horario por defecto no abre los domingos) `offset` o más días a partir de hoy, hora de Bogotá. */
+/**
+ * El `offset`-ésimo día hábil (lunes a sábado: el horario por defecto no abre los domingos) a partir de hoy, hora de
+ * Bogotá. Cuenta solo días hábiles al avanzar (nunca "calcula la fecha y despliega el domingo al lunes siguiente"):
+ * así dos offsets consecutivos NUNCA caen en la misma fecha, sin importar qué día de la semana sea "hoy" al correr la
+ * prueba (antes, workday(4) y workday(5) podían coincidir si un domingo quedaba justo en medio).
+ */
 export function workday(offset: number): string {
-  let date = addDays(localDate(new Date(), TZ), offset);
-  while (weekdayOf(date) === 0) date = addDays(date, 1);
+  let date = localDate(new Date(), TZ);
+  let remaining = offset;
+  while (remaining > 0) {
+    date = addDays(date, 1);
+    if (weekdayOf(date) !== 0) remaining -= 1;
+  }
   return date;
 }
 

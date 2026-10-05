@@ -18,6 +18,7 @@ function toServiceRecord(row: typeof serviceRecords.$inferSelect, clientName: st
     itemId: row.itemId,
     label: row.label,
     amount: row.amount,
+    kind: row.kind as ServiceRecord['kind'],
     note: row.note,
     loyaltyCounted: row.loyaltyCounted,
     createdAt: row.createdAt.toISOString(),
@@ -39,7 +40,7 @@ export function serviceRecordRoutes(app: FastifyInstance, ctx: Ctx): void {
       .select({ record: serviceRecords, clientName: clients.name })
       .from(serviceRecords)
       .innerJoin(clients, eq(clients.id, serviceRecords.clientId))
-      .where(and(eq(serviceRecords.businessId, businessId), clientId ? eq(serviceRecords.clientId, uuid(clientId)) : undefined))
+      .where(and(eq(serviceRecords.businessId, businessId), eq(serviceRecords.voided, false), clientId ? eq(serviceRecords.clientId, uuid(clientId)) : undefined))
       .orderBy(desc(serviceRecords.createdAt))
       .limit(200);
     return rows.map(({ record, clientName }) => toServiceRecord(record, clientName));
@@ -53,16 +54,16 @@ export function serviceRecordRoutes(app: FastifyInstance, ctx: Ctx): void {
 
     const [client] = await db.select({ id: clients.id, name: clients.name }).from(clients).where(and(eq(clients.id, clientId), eq(clients.businessId, businessId))).limit(1);
     if (!client) throw notFound();
-    const [item] = await db.select({ id: items.id, name: items.name, price: items.price }).from(items).where(and(eq(items.id, itemId), eq(items.businessId, businessId))).limit(1);
+    const [item] = await db.select({ id: items.id, name: items.name, price: items.price, kind: items.kind }).from(items).where(and(eq(items.id, itemId), eq(items.businessId, businessId))).limit(1);
     if (!item) throw notFound();
 
     const amount = input.amount ?? item.price;
 
-    const outcome = await db.transaction((tx) => recordService(tx, { businessId, clientId, itemId, label: item.name, amount, note: input.note, createdBy: request.user.sub }));
+    const outcome = await db.transaction((tx) => recordService(tx, { businessId, clientId, itemId, label: item.name, amount, kind: item.kind as 'service' | 'product', note: input.note, createdBy: request.user.sub }));
 
     // Fuera de la transacción: el envío de push es un aviso de mejor esfuerzo, nunca debe bloquear ni revertir el registro.
     if (outcome.rewardJustEarned) {
-      void notifyBusiness({ db, config: ctx.config }, businessId, 'loyalty', { titleKey: 'push_loyalty_reward_title', bodyKey: 'push_loyalty_reward_body', params: { client: client.name } });
+      void notifyBusiness({ db, config: ctx.config }, businessId, 'loyalty', { titleKey: 'push_loyalty_reward_title', bodyKey: 'push_loyalty_reward_body', params: { client: client.name }, dedupeKey: `loyalty:${outcome.record.id}`, href: `/client/${client.id}` });
     }
 
     return reply.status(201).send({ ...toServiceRecord(outcome.record, client.name), rewardJustEarned: outcome.rewardJustEarned });

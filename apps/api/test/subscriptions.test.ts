@@ -170,11 +170,18 @@ describe('transferencia bancaria de punta a punta (con ADMIN_SECRET configurado)
 
     const confirm = await bankApp.inject({ method: 'POST', url: '/api/admin/subscription/confirm-bank-transfer', headers: { 'x-admin-secret': ADMIN_SECRET }, payload: { businessId: session.business.id, plan: 'yearly' } });
     expect(confirm.statusCode).toBe(200);
-    const confirmed = confirm.json<Subscription>();
-    expect(confirmed).toMatchObject({ status: 'active', plan: 'yearly', paymentMethod: 'bank_transfer', hasAccess: true });
+    const confirmed = confirm.json<{ subscription: Subscription; invoiceId: string }>();
+    expect(confirmed.subscription).toMatchObject({ status: 'active', plan: 'yearly', paymentMethod: 'bank_transfer', hasAccess: true });
+    expect(confirmed.invoiceId).toBeTruthy();
 
     const after = await bankApp.inject({ method: 'GET', url: '/api/subscription', headers: auth(session) });
     expect(after.json<Subscription>().status).toBe('active');
+
+    const invoices = await bankApp.inject({ method: 'GET', url: '/api/subscription/invoices', headers: auth(session) });
+    expect(invoices.statusCode).toBe(200);
+    const invoiceList = invoices.json<{ invoices: Array<{ id: string; plan: string; amount: number; paymentMethod: string }> }>().invoices;
+    expect(invoiceList).toHaveLength(1);
+    expect(invoiceList[0]).toMatchObject({ id: confirmed.invoiceId, plan: 'yearly', paymentMethod: 'bank_transfer', amount: 349_000 });
   });
 });
 
@@ -196,15 +203,23 @@ describe('webhook RevenueCat (fuente de verdad iOS + Android)', () => {
     const status = await app.inject({ method: 'GET', url: '/api/subscription', headers: auth(session) });
     const body = status.json<Subscription>();
     expect(body).toMatchObject({ status: 'active', plan: 'yearly', platform: 'ios', hasAccess: true });
+
+    const invoices = await app.inject({ method: 'GET', url: '/api/subscription/invoices', headers: auth(session) });
+    const invoiceList = invoices.json<{ invoices: Array<{ plan: string; paymentMethod: string }> }>().invoices;
+    expect(invoiceList).toHaveLength(1);
+    expect(invoiceList[0]).toMatchObject({ plan: 'yearly', paymentMethod: 'card' });
   });
 
-  it('es idempotente: el mismo evento reenviado no duplica el registro de auditoría', async () => {
+  it('es idempotente: el mismo evento reenviado no duplica el registro de auditoría ni el comprobante', async () => {
     const session = await register();
     const payload = { event: { id: 'evt_dup_1', type: 'INITIAL_PURCHASE', app_user_id: session.business.id, product_id: 'xiro_monthly', store: 'PLAY_STORE', expiration_at_ms: Date.now() + 30 * 86_400_000 } };
     await app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH }, payload });
     const second = await app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH }, payload });
     expect(second.statusCode).toBe(200);
     expect(second.json().result).toBe('duplicate');
+
+    const invoices = await app.inject({ method: 'GET', url: '/api/subscription/invoices', headers: auth(session) });
+    expect(invoices.json<{ invoices: unknown[] }>().invoices).toHaveLength(1);
   });
 
   it('CANCELLATION conserva el acceso hasta el fin del período ya pagado', async () => {
@@ -215,6 +230,16 @@ describe('webhook RevenueCat (fuente de verdad iOS + Android)', () => {
     const status = await app.inject({ method: 'GET', url: '/api/subscription', headers: auth(session) });
     const body = status.json<Subscription>();
     expect(body).toMatchObject({ status: 'active', cancelAtPeriodEnd: true, hasAccess: true });
+  });
+
+  it('RENEWAL genera un segundo comprobante; UNCANCELLATION (sin cobro de por medio) no genera ninguno', async () => {
+    const session = await register();
+    await app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH }, payload: { event: { id: 'evt_r1', type: 'INITIAL_PURCHASE', app_user_id: session.business.id, product_id: 'xiro_monthly', store: 'APP_STORE', expiration_at_ms: Date.now() + 30 * 86_400_000 } } });
+    await app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH }, payload: { event: { id: 'evt_r2', type: 'UNCANCELLATION', app_user_id: session.business.id, product_id: 'xiro_monthly', store: 'APP_STORE', expiration_at_ms: Date.now() + 30 * 86_400_000 } } });
+    await app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH }, payload: { event: { id: 'evt_r3', type: 'RENEWAL', app_user_id: session.business.id, product_id: 'xiro_monthly', store: 'APP_STORE', expiration_at_ms: Date.now() + 60 * 86_400_000 } } });
+
+    const invoices = await app.inject({ method: 'GET', url: '/api/subscription/invoices', headers: auth(session) });
+    expect(invoices.json<{ invoices: unknown[] }>().invoices).toHaveLength(2); // INITIAL_PURCHASE + RENEWAL, no uno por UNCANCELLATION
   });
 
   it('EXPIRATION revoca el acceso sin gracia adicional (Apple/Google ya la aplicaron)', async () => {
@@ -278,6 +303,29 @@ describe('push de facturación al recibir un webhook', () => {
     const [, init] = fetchMock.mock.calls.at(-1)!;
     const sent = JSON.parse(init!.body as string);
     expect(sent).toMatchObject([{ to: 'ExponentPushToken[test-token]', title: 'Tu suscripción venció' }]);
+  });
+
+  it('BILLING_ISSUE queda en el centro de notificaciones del dueño, y un reenvío del mismo webhook (retry típico del proveedor) no lo duplica', async () => {
+    const session = await register();
+    await withPushEnabled(session);
+    const fetchMock = vi.fn(async (..._args: Parameters<typeof fetch>) => new Response(JSON.stringify({ data: [{ status: 'ok', id: 'ticket-1' }] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const purchase = { event: { id: 'evt_notif_issue1', type: 'INITIAL_PURCHASE', app_user_id: session.business.id, product_id: 'xiro_monthly', store: 'APP_STORE', expiration_at_ms: Date.now() + 30 * 86_400_000 } };
+    const issue = { event: { id: 'evt_notif_issue2', type: 'BILLING_ISSUE', app_user_id: session.business.id } };
+    await app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH }, payload: purchase });
+    await app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH }, payload: issue });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const list = await app.inject({ method: 'GET', url: '/api/notifications', headers: auth(session) });
+    const body = list.json<{ notifications: Array<{ category: string; titleKey: string; read: boolean }>; unread: number }>();
+    expect(body.unread).toBe(1);
+    expect(body.notifications).toMatchObject([{ category: 'billing', titleKey: 'push_billing_issue_title', read: false }]);
+
+    // El mismo evento reenviado (p. ej. un retry del proveedor) no debe producir una segunda notificación igual.
+    await app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH }, payload: issue });
+    const again = await app.inject({ method: 'GET', url: '/api/notifications', headers: auth(session) });
+    expect(again.json<{ notifications: unknown[] }>().notifications).toHaveLength(1);
   });
 
   it('sin notificaciones activadas, el webhook no intenta enviar nada', async () => {

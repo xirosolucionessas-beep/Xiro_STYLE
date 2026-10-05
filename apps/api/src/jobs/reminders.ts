@@ -81,6 +81,8 @@ export async function sendReminder(ctx: Ctx, data: ReminderJobData): Promise<voi
       titleKey: 'push_appt_reminder_title',
       bodyKey: 'push_appt_reminder_body',
       params: { time: formatPushMoment(row.startsAt.toISOString(), context.business.timezone) },
+      dedupeKey: `appt_reminder:${row.id}`,
+      href: '/agenda',
     });
 
     if (!row.remindersOptIn) return;

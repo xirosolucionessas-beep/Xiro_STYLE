@@ -1,4 +1,4 @@
-import { formatMoney, SUBSCRIPTION_PRICING, TRIAL_DAYS, YEARLY_SAVINGS_PCT, type Currency, type Subscription, type SubscriptionPlan } from '@xiro/shared';
+import { formatMoney, SUBSCRIPTION_PRICING, TRIAL_DAYS, YEARLY_SAVINGS_PCT, type Currency, type Subscription, type SubscriptionInvoiceDto, type SubscriptionPlan } from '@xiro/shared';
 import { useState, type ReactNode } from 'react';
 import { BancolombiaBadge, NequiBadge, PaypalLogo } from '../brand/logos';
 import { Ico, type IconName } from '../icons';
@@ -11,17 +11,21 @@ export type CheckoutResult = { url: string } | { instructions: string } | { erro
 
 export interface SubscriptionViewProps {
   t: T;
+  /** Para formatear la fecha de fin de prueba con el mismo formato que el resto de la web. */
+  language: string;
   currency: Currency;
   subscription?: Subscription;
   initialPlan?: SubscriptionPlan;
-  /** Logo del negocio (o el de la marca) para el panel de beneficios; decorativo. */
-  logo?: ReactNode;
   onCheckout: (plan: SubscriptionPlan, method: CheckoutPaymentMethod) => Promise<CheckoutResult>;
   /** "Saltar por ahora": activa la prueba gratis sin pasar por ningún método de pago. Ausente ⇒ no se ofrece (p.ej. ya sin prueba disponible). */
   onSkipTrial?: (plan: SubscriptionPlan) => Promise<{ ok: true } | { error: string }>;
   /** Volver al Dashboard sin cambiar nada. Solo aplica a quien YA tiene/tuvo un plan (gestión desde Ajustes); en el
    * onboarding de una cuenta nueva no hay a dónde "volver" todavía, así que no se ofrece. */
   onClose?: () => void;
+  /** Historial de Pagos: ausente ⇒ no se pide (p. ej. empleado, sin permiso) ni se muestra la sección. */
+  invoices?: SubscriptionInvoiceDto[];
+  onDownloadInvoice?: (invoice: SubscriptionInvoiceDto) => void;
+  onViewPosTicket?: (invoice: SubscriptionInvoiceDto) => void;
 }
 
 const METHODS: Array<{ id: CheckoutPaymentMethod; labelKey: string; hintKey?: string; /** El logo trae su propia placa blanca: se le quita el recuadro tintado. */ plate?: boolean; icon: (props: { size: number }) => ReactNode }> = [
@@ -50,7 +54,7 @@ const BENEFITS: Array<{ icon: IconName; key: string }> = [
   { icon: 'message-circle', key: 'sec_co_b6' },
 ];
 
-export function SubscriptionView({ t, currency, subscription, initialPlan, logo, onCheckout, onSkipTrial, onClose }: SubscriptionViewProps) {
+export function SubscriptionView({ t, language, currency, subscription, initialPlan, onCheckout, onSkipTrial, onClose, invoices, onDownloadInvoice, onViewPosTicket }: SubscriptionViewProps) {
   useWebStyles();
   const [plan, setPlan] = useState<SubscriptionPlan>(initialPlan ?? 'yearly');
   const [method, setMethod] = useState<CheckoutPaymentMethod>('card');
@@ -59,7 +63,12 @@ export function SubscriptionView({ t, currency, subscription, initialPlan, logo,
   const [bankInstructions, setBankInstructions] = useState<string>();
 
   const trialEligible = subscription?.status === 'none';
-  const alreadyPremium = Boolean(subscription?.hasAccess && subscription.status !== 'none');
+  // "Tu plan actual" solo aplica a quien YA paga (activo, o en gracia tras un cobro fallido): durante la prueba gratis
+  // no se ha cobrado nada todavía, así que se anuncia como prueba (mismo estado que muestra la barra lateral), nunca
+  // como si fuera un plan ya comprado.
+  const isTrialing = subscription?.status === 'trial' && subscription.hasAccess;
+  const isPaying = Boolean(subscription?.hasAccess && subscription.status !== 'none' && subscription.status !== 'trial');
+  const trialDate = subscription?.trialEndsAt ? new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(subscription.trialEndsAt)) : '';
 
   async function submit() {
     setBusy('submit');
@@ -102,11 +111,6 @@ export function SubscriptionView({ t, currency, subscription, initialPlan, logo,
         {/* Región con scroll propio cuando no cabe en el alto: debe poder enfocarse con el teclado (axe: scrollable-region-focusable). */}
         {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
         <aside className="xw-co-aside xw-scope-dark" tabIndex={0} aria-label={t('sec_co_kicker')}>
-          {logo ? (
-            <span className="xw-co-logo" aria-hidden="true">
-              {logo}
-            </span>
-          ) : null}
           <span className="xw-chip">
             <Ico name="crown" size={14} />
             &nbsp;{t('sec_co_kicker')}
@@ -130,12 +134,17 @@ export function SubscriptionView({ t, currency, subscription, initialPlan, logo,
         </aside>
 
         <div className="xw-co-main">
-          {alreadyPremium ? (
+          {isPaying ? (
             <div className="xw-note">
               <Ico name="check" />
               <span>
                 {t('subscription_current_plan')}: <strong>{subscription?.plan === 'yearly' ? t('plan_yearly') : t('plan_monthly')}</strong>
               </span>
+            </div>
+          ) : isTrialing ? (
+            <div className="xw-note">
+              <Ico name="crown" />
+              <span>{t('subscription_trial_active', { plan: subscription?.plan === 'yearly' ? t('plan_yearly') : t('plan_monthly'), date: trialDate })}</span>
             </div>
           ) : null}
 
@@ -235,6 +244,43 @@ export function SubscriptionView({ t, currency, subscription, initialPlan, logo,
               {method === 'bank_transfer' ? t('bank_transfer_note') : t('subscription_auto_renew_notice', { store: method === 'paypal' ? 'PayPal' : 'Stripe' })}
             </p>
           </section>
+
+          {invoices ? (
+            <section className="xw-co-step" aria-label={t('subscription_invoices_title')}>
+              <h2 className="xw-co-step-title" style={{ fontSize: 'var(--xw-text-md)' }}>
+                {t('subscription_invoices_title')}
+              </h2>
+              {invoices.length === 0 ? (
+                <p className="xw-hint">{t('subscription_invoices_empty')}</p>
+              ) : (
+                <ul className="xw-invoices" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {invoices.map((invoice) => (
+                    <li key={invoice.id} className="xw-invoice-row">
+                      <div className="xw-invoice-info">
+                        <span className="xw-invoice-plan">{invoice.plan === 'yearly' ? t('plan_yearly') : t('plan_monthly')}</span>
+                        <span className="xw-invoice-meta">
+                          {new Intl.DateTimeFormat(language === 'en' ? 'en-US' : 'es-CO', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(invoice.createdAt))} · {t(`pay_method_${invoice.paymentMethod}`)}
+                        </span>
+                      </div>
+                      <span className="xw-invoice-amount">{formatMoney(invoice.amount, invoice.currency as Currency)}</span>
+                      <div className="xw-invoice-actions">
+                        {onDownloadInvoice ? (
+                          <Button variant="secondary" size="sm" icon={<Ico name="download" size={14} />} onPress={() => onDownloadInvoice(invoice)}>
+                            {t('subscription_invoices_pdf')}
+                          </Button>
+                        ) : null}
+                        {onViewPosTicket ? (
+                          <Button variant="secondary" size="sm" icon={<Ico name="store" size={14} />} onPress={() => onViewPosTicket(invoice)}>
+                            {t('subscription_invoices_pos')}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
         </div>
       </div>
     </div>

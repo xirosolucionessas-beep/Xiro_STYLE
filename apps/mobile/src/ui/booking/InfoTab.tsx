@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { api } from '@/lib/api';
 import { pickFromLibrary, uploadableImage } from '@/lib/images';
 import { keys } from '@/lib/queries';
+import { useAuthed, useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '../Button';
 import { useDialogs } from '../Dialogs';
@@ -22,12 +23,17 @@ export function InfoTab({ data }: { data: BookingAdminSettings }) {
   const { t } = useSettings();
   const { toast, confirm } = useDialogs();
   const queryClient = useQueryClient();
+  const { business } = useAuthed();
+  const { setBusiness } = useSession();
   const save = useAction();
   const media = useAction();
+  const addressAction = useAction();
   const p = data.profile;
   const [form, setForm] = useState(() => toForm(p));
   const [sections, setSections] = useState(p.sections);
   const [location, setLocation] = useState(() => toLocation(p));
+  const [address, setAddress] = useState(business.address);
+  const [city, setCity] = useState(business.city);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -35,6 +41,23 @@ export function InfoTab({ data }: { data: BookingAdminSettings }) {
     setSections(p.sections);
     setLocation(toLocation(p));
   }, [data]);
+
+  useEffect(() => {
+    setAddress(business.address);
+    setCity(business.city);
+  }, [business.address, business.city]);
+
+  /**
+   * Dirección en texto plano, sin depender de Google ni de un pin: es la misma `businesses.address/city` que ya usa la
+   * página pública como respaldo cuando no hay mapa configurado (ver `LocationCard`). Se guarda aparte del resto del
+   * perfil porque vive en el negocio, no en `business_public_profiles`.
+   */
+  async function saveAddressText() {
+    const saved = await addressAction.run(() => api.updateBusiness({ address: address.trim(), city: city.trim() }));
+    if (!saved) return;
+    setBusiness(saved);
+    toast(t('saved'));
+  }
 
   const set = (key: keyof typeof form) => (value: string) => setForm((c) => ({ ...c, [key]: value }));
   const refresh = () => queryClient.invalidateQueries({ queryKey: keys.bookingSettings });
@@ -147,6 +170,19 @@ export function InfoTab({ data }: { data: BookingAdminSettings }) {
       <Field label="Facebook" value={form.facebook} onChangeText={set('facebook')} placeholder="https://facebook.com/..." autoCapitalize="none" keyboardType="email-address" error={errors.facebook} />
       <Field label="TikTok" value={form.tiktok} onChangeText={set('tiktok')} placeholder="https://tiktok.com/@..." autoCapitalize="none" keyboardType="email-address" error={errors.tiktok} />
       <Field label={t('bk_website')} value={form.website} onChangeText={set('website')} placeholder="https://..." autoCapitalize="none" keyboardType="email-address" error={errors.website} />
+
+      <SectionTitle>{t('bk_address_title')}</SectionTitle>
+      <AppText variant="small" tone="muted" style={{ marginBottom: 8 }}>
+        {t('bk_address_hint')}
+      </AppText>
+      <Field label={t('address')} value={address} onChangeText={setAddress} maxLength={160} error={addressAction.fields.address} />
+      <Field label={t('city')} value={city} onChangeText={setCity} maxLength={80} error={addressAction.fields.city} />
+      {addressAction.error ? (
+        <AppText tone="danger" style={{ marginBottom: 8 }} accessibilityLiveRegion="polite">
+          {addressAction.error}
+        </AppText>
+      ) : null}
+      <Button label={t('bk_address_save')} variant="secondary" compact loading={addressAction.busy} onPress={() => void saveAddressText()} style={{ alignSelf: 'flex-start' }} />
 
       <SectionTitle>{t('bk_map_title')}</SectionTitle>
       <AppText variant="small" tone="muted" style={{ marginBottom: 8 }}>

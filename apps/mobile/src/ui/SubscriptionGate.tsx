@@ -6,8 +6,9 @@
 import { subscriptionNotice, type Subscription } from '@xiro/shared';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { prefsStorage } from '@/lib/storage';
 import { useSubscription } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
@@ -24,6 +25,19 @@ function noticeKey(subscription: Subscription): string | null {
   return `${notice}:${subscription.trialEndsAt}:${subscription.currentPeriodEnd}:${subscription.gracePeriodEndsAt}`;
 }
 
+/** "2026-09-21": fecha local (no UTC) del dispositivo, con ceros a la izquierda. */
+function localDateKey(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// Igual que en la versión Web: un aviso descartado (botón X o "Ver planes más tarde") no debe reaparecer al
+// reabrir la app el MISMO día — antes `dismissed` vivía solo en memoria, así que cada reinicio lo mostraba de nuevo.
+// Si al día siguiente el problema sigue sin resolverse, se avisa una vez más (no se silencia para siempre).
+const dismissKeyFor = (userId: string) => `xiro.subGate.dismissed.${userId}`;
+
 export function SubscriptionGate() {
   const { t, colors, language } = useSettings();
   const router = useRouter();
@@ -32,6 +46,19 @@ export function SubscriptionGate() {
   const { data: subscription } = useSubscription(sessionStatus === 'signedIn');
   const { confirm } = useDialogs();
   const [dismissed, setDismissed] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void prefsStorage.get(dismissKeyFor(user.id)).then((raw) => {
+      if (cancelled || !raw) return;
+      const [key, day] = raw.split('|');
+      if (day === localDateKey()) setDismissed(key ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   if (sessionStatus !== 'signedIn' || !subscription) return null;
   const notice = subscriptionNotice(subscription);
@@ -46,7 +73,10 @@ export function SubscriptionGate() {
   const titleKey = blocking ? 'subscription_expired_title' : notice === 'grace' ? 'subscription_grace_title' : 'subscription_expiring_title';
   const bodyKey = isEmployee ? 'subscription_employee_blocked_body' : blocking ? 'subscription_expired_body' : notice === 'grace' ? 'subscription_grace_body' : 'subscription_expiring_body';
 
-  const dismiss = () => setDismissed(key);
+  const dismiss = () => {
+    setDismissed(key);
+    if (user) void prefsStorage.set(dismissKeyFor(user.id), `${key}|${localDateKey()}`);
+  };
   const goToPlans = (preselectCurrent: boolean) => {
     dismiss();
     router.push(preselectCurrent && subscription.plan ? { pathname: '/subscription', params: { plan: subscription.plan } } : '/subscription');

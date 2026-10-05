@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Ico, type IconName } from '../icons';
+import { resolveMedia } from '../media';
 import { cx } from '../ui/shared';
 
 export type HeaderT = (key: string, params?: Record<string, string | number>) => string;
@@ -154,18 +155,85 @@ export function NotificationsMenu({ t, rows, pending, badge, loading, onOpenRow,
 
 /* ---------------- Mensajes ---------------- */
 
-/** No existe mensajería en el backend: se muestra un estado vacío honesto en lugar de conversaciones inventadas. */
-export function MessagesMenu({ t }: { t: HeaderT }) {
+export interface MessageRow {
+  id: string;
+  peerName: string;
+  peerPhotoUrl: string | null;
+  /** "Tú: ..." si el último mensaje lo escribió quien mira esto. */
+  preview: string;
+  time: string;
+  unread: boolean;
+}
+
+export interface MessagesMenuProps {
+  t: HeaderT;
+  rows: MessageRow[];
+  unreadCount: number;
+  badge: string;
+  loading?: boolean;
+  onOpenRow: (id: string) => void;
+  onViewAll: () => void;
+}
+
+export function MessagesMenu({ t, rows, unreadCount, badge, loading, onOpenRow, onViewAll }: MessagesMenuProps) {
+  const label = unreadCount > 0 ? t('msg_unread_label', { n: unreadCount }) : t('messages_title');
   return (
-    <PopoverButton label={t('hdr_messages')} icon="message-square" title={t('hdr_messages')}>
-      {() => (
-      <div className="xw-pop-empty-block">
-        <span className="xw-pop-empty-ic" aria-hidden="true">
-          <Ico name="message-circle" size={28} />
-        </span>
-        <p className="xw-pop-empty-title">{t('hdr_messages_empty')}</p>
-        <p className="xw-pop-empty">{t('hdr_messages_soon')}</p>
-      </div>
+    <PopoverButton
+      label={label}
+      icon="message-square"
+      badge={badge}
+      title={t('messages_title')}
+      footer={(close) => (
+        <button
+          type="button"
+          className="xw-link-btn"
+          onClick={() => {
+            close();
+            onViewAll();
+          }}>
+          {t('msg_view_all')}
+        </button>
+      )}>
+      {(close) => (
+        <>
+          {loading ? <p className="xw-pop-empty">{t('dash_loading')}</p> : null}
+          {!loading && rows.length === 0 ? (
+            <div className="xw-pop-empty-block">
+              <span className="xw-pop-empty-ic" aria-hidden="true">
+                <Ico name="message-circle" size={28} />
+              </span>
+              <p className="xw-pop-empty-title">{t('msg_list_empty_title')}</p>
+              <p className="xw-pop-empty">{t('msg_list_empty_text')}</p>
+            </div>
+          ) : null}
+          <ul className="xw-pop-list">
+            {rows.map((row) => {
+              const peerPhoto = resolveMedia(row.peerPhotoUrl);
+              return (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  className="xw-notif xw-msg-row"
+                  data-unread={row.unread}
+                  onClick={() => {
+                    close();
+                    onOpenRow(row.id);
+                  }}>
+                  <span className="xw-avatar" aria-hidden="true">
+                    {peerPhoto ? <img src={peerPhoto} alt="" className="xw-avatar-img" /> : row.peerName.trim().charAt(0).toUpperCase() || '?'}
+                  </span>
+                  <span className="xw-notif-text">
+                    <span className="xw-notif-title">{row.peerName}</span>
+                    <span className="xw-notif-detail">{row.preview}</span>
+                    <span className="xw-notif-time">{row.time}</span>
+                  </span>
+                  {row.unread ? <span className="xw-sr">·</span> : null}
+                </button>
+              </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </PopoverButton>
   );
@@ -176,24 +244,32 @@ export function MessagesMenu({ t }: { t: HeaderT }) {
 export interface ProfileMenuProps {
   t: HeaderT;
   name: string;
+  photoUrl: string | null;
   roleLabel: string;
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
   onProfile: () => void;
   onLogout: () => void;
+  /** "Mi plan": ausente para un empleado (solo el dueño gestiona el plan). Acceso discreto, exista o no la tarjeta de la barra lateral. */
+  onPlan?: () => void;
   /** En pantallas estrechas solo se ve el avatar. */
   compact?: boolean;
 }
 
-export function ProfileMenu({ t, name, roleLabel, theme, onToggleTheme, onProfile, onLogout, compact }: ProfileMenuProps) {
+export function ProfileMenu({ t, name, photoUrl, roleLabel, theme, onToggleTheme, onProfile, onPlan, onLogout, compact }: ProfileMenuProps) {
   const { open, close, setRoot, setButton, toggle } = usePopover();
   const panelId = useId();
   const initial = name.trim().charAt(0).toUpperCase() || '?';
+  // resolveMedia: el servidor devuelve una ruta relativa ("/media/xxx.webp"); en el servidor de desarrollo de Expo
+  // (puerto 8081) el navegador la resolvería contra SU PROPIO origen en vez del de la API (puerto 3000) y la foto
+  // nunca cargaría — mismo motivo por el que el logo del negocio (Brand.tsx) y las fotos del catálogo ya la usan.
+  const resolvedPhoto = resolveMedia(photoUrl);
+  const avatar = resolvedPhoto ? <img src={resolvedPhoto} alt="" className="xw-avatar-img" /> : initial;
   return (
     <div className="xw-pop" ref={setRoot}>
       <button ref={setButton} type="button" className="xw-profile-btn" aria-label={`${t('hdr_profile_menu')}: ${name}`} aria-expanded={open} aria-controls={open ? panelId : undefined} aria-haspopup="true" onClick={toggle}>
         <span className="xw-avatar" aria-hidden="true">
-          {initial}
+          {avatar}
         </span>
         {compact ? null : (
           <span className="xw-profile-text">
@@ -207,7 +283,7 @@ export function ProfileMenu({ t, name, roleLabel, theme, onToggleTheme, onProfil
         <div id={panelId} className="xw-pop-panel xw-pop-panel--menu" role="region" aria-label={t('hdr_profile_menu')}>
           <div className="xw-menu-id">
             <span className="xw-avatar xw-avatar--lg" aria-hidden="true">
-              {initial}
+              {avatar}
             </span>
             <span className="xw-profile-text">
               <span className="xw-profile-name">{name}</span>
@@ -224,6 +300,18 @@ export function ProfileMenu({ t, name, roleLabel, theme, onToggleTheme, onProfil
             <Ico name="user" size={20} />
             {t('hdr_my_profile')}
           </button>
+          {onPlan ? (
+            <button
+              type="button"
+              className="xw-menu-item"
+              onClick={() => {
+                close();
+                onPlan();
+              }}>
+              <Ico name="crown" size={20} />
+              {t('hdr_my_plan')}
+            </button>
+          ) : null}
           <button type="button" className="xw-menu-item" role="switch" aria-checked={theme === 'light'} onClick={onToggleTheme}>
             <Ico name={theme === 'dark' ? 'moon' : 'sun'} size={20} />
             <span className="xw-menu-grow">{t('hdr_theme')}</span>

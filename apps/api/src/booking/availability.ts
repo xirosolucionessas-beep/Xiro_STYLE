@@ -34,6 +34,7 @@ export async function loadContext(tx: Tx, businessId: string): Promise<BookingCo
         maxPendingPerPhone: row.maxPendingPerPhone,
         hoursBlocks: row.hoursBlocks ?? null,
         customFields: row.customFields,
+        hideOutOfStockInCatalog: row.hideOutOfStockInCatalog,
       }
     : bookingSettingsInputSchema.parse({});
   const parsedHours = businessHoursSchema.safeParse(business.hours);

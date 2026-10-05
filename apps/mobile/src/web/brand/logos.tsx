@@ -7,9 +7,9 @@
  * para que se lean con nitidez sobre el fondo oscuro. Las demás rutas son las geometrías públicas de cada marca;
  * contrástalas con los recursos oficiales si tu equipo legal lo exige.
  */
-import { BANCOLOMBIA_LOGO_DATA_URI } from './bancolombiaLogoData';
-import { NEQUI_LOGO_DATA_URI } from './nequiLogoData';
-import { PAYPAL_LOGO_DATA_URI } from './paypalLogoData';
+import { BANCOLOMBIA_LOGO_DATA_URI } from '../../brand/bancolombiaLogoData';
+import { NEQUI_LOGO_DATA_URI } from '../../brand/nequiLogoData';
+import { PAYPAL_LOGO_DATA_URI } from '../../brand/paypalLogoData';
 
 interface LogoProps {
   size?: number;

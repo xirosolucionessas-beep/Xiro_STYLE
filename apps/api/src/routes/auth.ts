@@ -16,6 +16,7 @@ import type { Ctx } from '../context';
 import { isUniqueViolation } from '../db/errors';
 import { businesses, categories, otpCodes, refreshTokens, resetTokens, users } from '../db/schema';
 import { AppError, parse } from '../errors';
+import { notifyUser } from '../push';
 import { toBusiness, toUser, type UserRow } from '../serializers';
 import { DUMMY_HASH, hashPassword, hmac, randomToken, safeEqualHex, sixDigitCode, slugify, verifyPassword } from '../security';
 
@@ -228,7 +229,7 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
     const input = parse(recoverResetSchema, request.body);
     const passwordHash = await hashPassword(input.newPassword);
 
-    await db.transaction(async (tx) => {
+    const changed = await db.transaction(async (tx) => {
       // DELETE ... RETURNING: el token de restablecimiento sirve una sola vez incluso bajo concurrencia.
       const [token] = await tx
         .delete(resetTokens)
@@ -236,9 +237,14 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
         .returning();
       if (!token) throw new AppError(400, 'reset_token_invalid');
 
-      await tx.update(users).set({ passwordHash, passwordChangedAt: new Date() }).where(eq(users.id, token.userId));
+      const [row] = await tx.update(users).set({ passwordHash, passwordChangedAt: new Date() }).where(eq(users.id, token.userId)).returning({ businessId: users.businessId });
       await tx.delete(refreshTokens).where(eq(refreshTokens.userId, token.userId)); // cierra todas las sesiones abiertas
+      return { userId: token.userId, businessId: row!.businessId };
     });
+    // Aviso de seguridad de mejor esfuerzo, fuera de la transacción: quien cambió su contraseña (o un token robado)
+    // debe poder notarlo. No tiene sesión en este punto (es la recuperación de acceso), pero SÍ puede tener push
+    // registrado de antes: la clave de deduplicación evita que un reintento del mismo cambio avise dos veces.
+    void notifyUser(ctx, changed.businessId, changed.userId, 'security', { titleKey: 'push_security_password_changed_title', bodyKey: 'push_security_password_changed_body', dedupeKey: `security_pwd:${tokenHash(input.resetToken)}`, href: '/profile' });
     return { ok: true };
   });
 }

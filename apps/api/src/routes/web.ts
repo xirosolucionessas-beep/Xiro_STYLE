@@ -21,8 +21,10 @@ const CATALOG_CSP =
 // challenges.cloudflare.com: solo entra en juego si se configura TURNSTILE_SITE_KEY (si no, la página nunca lo carga).
 // style-src 'unsafe-inline': la portada del negocio se pinta con un estilo en línea (imagen subida por el propio negocio,
 // nunca texto de un tercero); mismo trato que ya recibe el resto de la app (ver CSP de la app web en este archivo).
+// fonts.googleapis.com/fonts.gstatic.com: tipografías (Outfit/Inter) cargadas por su <link> en index.html — igual que
+// el resto del proyecto, nunca se autohospedan archivos binarios de fuentes en el repo.
 const RESERVAR_CSP =
-  "default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  "default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /**
  * Catálogo público (HTML), fotos subidas y —si existe— la app web exportada por Expo.
@@ -114,7 +116,13 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
         `<meta property="og:description" content="${escapeHtml(description.slice(0, 200))}">`,
         `<meta name="description" content="${escapeHtml(description.slice(0, 200))}">`,
       ];
-      if (resolved.business.logoFile) tags.push(`<meta property="og:image" content="${escapeHtml(`${origin}/media/${resolved.business.logoFile}`)}">`);
+      if (resolved.business.logoFile) {
+        const logoUrl = escapeHtml(`${origin}/media/${resolved.business.logoFile}`);
+        tags.push(`<meta property="og:image" content="${logoUrl}">`);
+        // Favicon dinámico (Tarea 4): el logo del negocio si lo tiene; si no, la etiqueta estática del propio HTML
+        // (favicon.png de Xiro, ver index.html) queda como único <link rel="icon">, sin nada que pisarla aquí.
+        tags.push(`<link rel="icon" sizes="16x16" href="${logoUrl}">`, `<link rel="icon" sizes="32x32" href="${logoUrl}">`, `<link rel="apple-touch-icon" sizes="180x180" href="${logoUrl}">`);
+      }
       return tags.join('\n  ');
     }
 

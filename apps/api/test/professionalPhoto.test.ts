@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp, type BuildOptions } from '../src/app';
 import { auth, createEmployee, setupBiz } from './helpers/booking';
 import { createTestDatabase, testAppConfig, type TestDatabase } from './helpers/db';
+import { photoForm, realJpeg } from './helpers/media';
 
 let testDb: TestDatabase;
 let cleanups: Array<() => void> = [];
@@ -28,20 +29,6 @@ afterAll(async () => {
   cleanups.forEach((fn) => fn());
   await testDb.drop();
 });
-
-/** Una imagen real (sharp la puede decodificar de verdad), para que el recorte/redimensionado del servidor no falle. */
-async function realJpeg(width = 900, height = 500): Promise<Buffer> {
-  return sharp({ create: { width, height, channels: 3, background: { r: 180, g: 90, b: 30 } } })
-    .jpeg()
-    .toBuffer();
-}
-
-async function photoForm(buffer: Buffer, filename = 'foto.jpg'): Promise<{ payload: Buffer; contentType: string }> {
-  const data = new FormData();
-  data.append('photo', new Blob([new Uint8Array(buffer)], { type: 'image/jpeg' }), filename);
-  const response = new Response(data);
-  return { payload: Buffer.from(await response.arrayBuffer()), contentType: response.headers.get('content-type')! };
-}
 
 async function upload(app: FastifyInstance, session: { accessToken: string }, id: string, buffer: Buffer) {
   const { payload, contentType } = await photoForm(buffer);

@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
 });
 
-const user: User = { id: '1', name: 'Ana Pérez', email: 'ana@correo.com', phone: '573001234567', language: 'es', theme: 'dark', businessId: 'b1', role: 'owner', permissions: [] };
+const user: User = { id: '1', name: 'Ana Pérez', email: 'ana@correo.com', phone: '573001234567', photoUrl: null, language: 'es', theme: 'dark', businessId: 'b1', role: 'owner', permissions: [] };
 
 function profile(overrides: Partial<ProfileViewProps> = {}) {
   const props: ProfileViewProps = {
@@ -26,6 +26,8 @@ function profile(overrides: Partial<ProfileViewProps> = {}) {
     user,
     businessName: 'Studio Ana',
     onSaveName: vi.fn(async () => ({ ok: true as const })),
+    onChangePhoto: vi.fn(async () => ({ ok: true as const })),
+    onRemovePhoto: vi.fn(async () => ({ ok: true as const })),
     onRequestPhoneChange: vi.fn(async () => ({ ok: true as const })),
     onConfirmPhoneChange: vi.fn(async () => ({ ok: true as const })),
     onLogout: vi.fn(),

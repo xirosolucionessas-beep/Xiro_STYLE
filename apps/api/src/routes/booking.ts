@@ -25,7 +25,7 @@ import { createAppointment, loadAppointmentDtos, rescheduleAppointment, transiti
 import { prepare, slotsForDays, toPublicSlot, loadContext } from '../booking/availability';
 import { applyCompletion } from '../booking/completion';
 import { withBusiness, withBusinessTrusted, type Tx } from '../booking/scope';
-import { formatPushMoment, notifyAppointment, notifyBusiness } from '../push';
+import { formatPushMoment, notifyAppointment, notifyBusiness, notifyLowStockIfNeeded } from '../push';
 import type { Ctx } from '../context';
 import { appointments, categories, items, servicePackageEntries, servicePackages, serviceVariants } from '../db/schema';
 import { AppError, notFound, parse, uuid } from '../errors';
@@ -116,6 +116,8 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       titleKey: 'push_appt_new_title',
       bodyKey: 'push_appt_new_body',
       params: { client: dto.client.name, time: formatPushMoment(dto.startsAt, timezone) },
+      dedupeKey: `appt_new:${dto.id}`,
+      href: '/agenda',
     });
     void scheduleReminder(ctx.boss, request.user.bid, dto.id, new Date(dto.startsAt));
     return reply.status(201).send(dto);
@@ -147,6 +149,8 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         titleKey: 'push_appt_rescheduled_title',
         bodyKey: 'push_appt_rescheduled_body',
         params: { time: formatPushMoment(dto.startsAt, timezone) },
+        dedupeKey: `appt_reschedule:${dto.id}:${dto.startsAt}`,
+        href: '/agenda',
       });
       void scheduleReminder(ctx.boss, request.user.bid, dto.id, new Date(dto.startsAt));
     }
@@ -169,6 +173,8 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx): void {
           titleKey: 'push_appt_cancelled_title',
           bodyKey: 'push_appt_cancelled_body',
           params: { time: formatPushMoment(dto.startsAt, timezone) },
+          dedupeKey: `appt_cancel:${dto.id}`,
+          href: '/agenda',
         });
       }
       if (input.status === 'cancelled' || input.status === 'no_show') void cancelReminder(ctx.boss, id);
@@ -181,10 +187,11 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       const [dto] = await loadAppointmentDtos(tx, businessId, eq(appointments.id, id));
       return { dto: dto!, effects: applied, clientName: dto!.client.name };
     });
-    // Aviso de mejor esfuerzo, fuera de la transacción (igual que al registrar un servicio a mano).
+    // Avisos de mejor esfuerzo, fuera de la transacción (igual que al registrar un servicio a mano).
     if (effects.rewardJustEarned) {
-      void notifyBusiness({ db, config: ctx.config }, businessId, 'loyalty', { titleKey: 'push_loyalty_reward_title', bodyKey: 'push_loyalty_reward_body', params: { client: clientName } });
+      void notifyBusiness({ db, config: ctx.config }, businessId, 'loyalty', { titleKey: 'push_loyalty_reward_title', bodyKey: 'push_loyalty_reward_body', params: { client: clientName }, dedupeKey: `loyalty:${id}`, href: `/client/${dto.client.id}` });
     }
+    for (const item of effects.stockMoved) void notifyLowStockIfNeeded({ db, config: ctx.config }, businessId, item);
     void cancelReminder(ctx.boss, id);
     return { ...dto, rewardJustEarned: effects.rewardJustEarned };
   });

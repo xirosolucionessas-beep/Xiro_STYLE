@@ -111,5 +111,15 @@ export function buildSubscriptionCss(): string {
 .xw-bank-note { box-sizing: border-box; padding: var(--xw-space-4); border: 1px solid var(--xw-border-subtle); border-radius: var(--xw-radius-md);
   background: var(--xw-surface-tint); color: var(--xw-text); white-space: pre-wrap; overflow-wrap: anywhere; margin-top: var(--xw-space-4);
   font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
+
+/* ---------- Historial de pagos ---------- */
+.xw-invoices { display: flex; flex-direction: column; gap: var(--xw-space-3); }
+.xw-invoice-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--xw-space-3); box-sizing: border-box; padding: var(--xw-space-4);
+  border: 1px solid var(--xw-border-subtle); border-radius: var(--xw-radius-lg); background: var(--xw-surface); }
+.xw-invoice-info { flex: 1 1 12rem; min-width: 0; }
+.xw-invoice-plan { display: block; font: ${font.weight.bold} var(--xw-text-md)/${font.lineHeight.tight} var(--xw-font); color: var(--xw-text); }
+.xw-invoice-meta { display: block; margin-top: 2px; color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
+.xw-invoice-amount { font: ${font.weight.extrabold} var(--xw-text-md)/1 var(--xw-font); color: var(--xw-accent); white-space: nowrap; }
+.xw-invoice-actions { display: flex; gap: var(--xw-space-2); flex: none; }
 `.trim();
 }

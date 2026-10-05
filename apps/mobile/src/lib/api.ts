@@ -8,6 +8,7 @@ import type {
   BookingSettingsInput,
   ClassificationEntry,
   ClosureDto,
+  ConversationDto,
   DaySummary,
   PackageDto,
   PackageInput,
@@ -26,7 +27,11 @@ import type {
   VariantInput,
   Business,
   BusinessUpdateInput,
+  CashClosingDto,
+  CashCloseInput,
+  CashDaySummary,
   CashOpening,
+  CashOpeningDto,
   Category,
   Client,
   ClientInput,
@@ -34,6 +39,8 @@ import type {
   Employee,
   EmployeeCreateInput,
   EmployeeUpdateInput,
+  ExpenseDto,
+  ExpenseInput,
   Item,
   ItemInput,
   Language,
@@ -42,14 +49,20 @@ import type {
   LoyaltyProgram,
   LoyaltyProgramUpdateInput,
   LoyaltyRedemption,
+  MessageDto,
+  MessagePerson,
+  NotificationDto,
   NotificationSettings,
   NotificationSettingsUpdateInput,
   PushRegisterInput,
   RecoveryChannel,
   RegisterInput,
+  SaleDto,
+  SaleInput,
   ServiceRecord,
   ServiceRecordInput,
   Subscription,
+  SubscriptionInvoiceDto,
   SubscriptionPlan,
   SubscriptionPlatform,
   User,
@@ -196,12 +209,34 @@ export const api = {
 
   me: () => request<{ user: User; business: Business }>('/api/me'),
   updateMe: (body: Partial<Pick<User, 'name' | 'language' | 'theme'>>) => request<User>('/api/me', { method: 'PATCH', body }),
+  uploadMyPhoto: (form: FormData) => request<User>('/api/me/photo', { method: 'PUT', form }),
+  deleteMyPhoto: () => request<User>('/api/me/photo', { method: 'DELETE' }),
+
+  /* ---------- Mensajes (chat interno del equipo) ---------- */
+  messagePeople: () => request<MessagePerson[]>('/api/messages/people'),
+  conversations: () => request<ConversationDto[]>('/api/messages/conversations'),
+  startConversation: (userId: string) => request<ConversationDto>('/api/messages/conversations', { method: 'POST', body: { userId } }),
+  conversationMessages: (id: string) => request<MessageDto[]>(`/api/messages/conversations/${id}/messages`),
+  sendMessage: (id: string, content: string) => request<MessageDto>(`/api/messages/conversations/${id}/messages`, { method: 'POST', body: { content } }),
+  markConversationRead: (id: string) => request<{ ok: true }>(`/api/messages/conversations/${id}/read`, { method: 'POST' }),
+
   requestPhoneChange: (phone: string) => request<{ ok: true; devCode?: string }>('/api/me/phone/request', { method: 'POST', body: { phone } }),
   confirmPhoneChange: (code: string) => request<User>('/api/me/phone/confirm', { method: 'POST', body: { code } }),
   updateBusiness: (body: BusinessUpdateInput) => request<Business>('/api/business', { method: 'PATCH', body }),
   uploadLogo: (form: FormData) => request<Business>('/api/business/logo', { method: 'PUT', form }),
   cashToday: () => request<{ opening: CashOpening | null }>('/api/cash/today'),
   openCash: (body: { amount: number; note?: string }) => request<{ opening: CashOpening }>('/api/cash/opening', { method: 'POST', body }),
+  /** Bases de caja registradas en un rango (Reportes: tarjeta "Base inicial"); un día sin apertura no aparece en la lista. */
+  cashOpenings: (range: { from: string; to: string }) => request<CashOpeningDto[]>(`/api/cash/openings?${new URLSearchParams(range).toString()}`),
+
+  /* ---------- Gastos y cierre de caja ---------- */
+  expenses: (from: string, to: string) => request<ExpenseDto[]>(`/api/expenses?${new URLSearchParams({ from, to }).toString()}`),
+  createExpense: (body: ExpenseInput) => request<ExpenseDto>('/api/expenses', { method: 'POST', body }),
+  cashCloseSummary: (day: string) => request<CashDaySummary>(`/api/cash/close-summary?day=${day}`),
+  cashClosings: (from: string, to: string) => request<CashClosingDto[]>(`/api/cash/closings?${new URLSearchParams({ from, to }).toString()}`),
+  cashClosing: (id: string) => request<CashClosingDto>(`/api/cash/closings/${id}`),
+  closeCash: (body: CashCloseInput) => request<CashClosingDto>('/api/cash/close', { method: 'POST', body }),
+  voidCashClosing: (id: string, reason: string) => request<CashClosingDto>(`/api/cash/closings/${id}/void`, { method: 'POST', body: { reason } }),
 
   categories: () => request<Category[]>('/api/categories'),
   addCategory: (name: string) => request<Category>('/api/categories', { method: 'POST', body: { name } }),
@@ -213,6 +248,7 @@ export const api = {
   createItem: (body: ItemInput) => request<Item>('/api/items', { method: 'POST', body }),
   updateItem: (id: string, body: ItemInput) => request<Item>(`/api/items/${id}`, { method: 'PUT', body }),
   deleteItem: (id: string) => request<void>(`/api/items/${id}`, { method: 'DELETE' }),
+  bulkPublish: (ids: string[], published: boolean) => request<{ updated: number }>('/api/items/bulk-publish', { method: 'POST', body: { ids, published } }),
   addPhoto: (id: string, form: FormData) => request<Item>(`/api/items/${id}/photos`, { method: 'POST', form }),
   deletePhoto: (id: string, photoId: string) => request<Item>(`/api/items/${id}/photos/${photoId}`, { method: 'DELETE' }),
   makePrimaryPhoto: (id: string, photoId: string) => request<Item>(`/api/items/${id}/photos/${photoId}/primary`, { method: 'POST' }),
@@ -224,6 +260,9 @@ export const api = {
   deleteClient: (id: string) => request<void>(`/api/clients/${id}`, { method: 'DELETE' }),
   /** Derecho de supresión (Ley 1581): borra los datos identificables del cliente; conserva sus citas y servicios como historial. */
   anonymizeClient: (id: string) => request<Client>(`/api/clients/${id}/anonymize`, { method: 'POST' }),
+  /** Foto opcional del cliente (100% opcional): sin ella, la UI muestra un avatar con sus iniciales. */
+  uploadClientPhoto: (id: string, form: FormData) => request<Client>(`/api/clients/${id}/photo`, { method: 'PUT', form }),
+  deleteClientPhoto: (id: string) => request<Client>(`/api/clients/${id}/photo`, { method: 'DELETE' }),
 
   loyaltyProgram: () => request<LoyaltyProgram>('/api/loyalty/program'),
   updateLoyaltyProgram: (body: LoyaltyProgramUpdateInput) => request<LoyaltyProgram>('/api/loyalty/program', { method: 'PUT', body }),
@@ -233,16 +272,28 @@ export const api = {
   serviceRecords: (clientId?: string) => request<ServiceRecord[]>(`/api/service-records${clientId ? `?clientId=${clientId}` : ''}`),
   createServiceRecord: (body: ServiceRecordInput) => request<ServiceRecord & { rewardJustEarned: boolean }>('/api/service-records', { method: 'POST', body }),
 
+  /* ---------- Ventas (POS) ---------- */
+  // limit=200 (el máximo que acepta el servidor): un rango largo (mes/año, para Reportes) no debe cortarse antes de tiempo.
+  sales: (query: { from: string; to: string }) => request<SaleDto[]>(`/api/sales?${new URLSearchParams({ from: query.from, to: query.to, limit: '200' }).toString()}`),
+  createSale: (body: SaleInput) => request<SaleDto & { rewardJustEarned: boolean }>('/api/sales', { method: 'POST', body }),
+  voidSale: (id: string, reason: string) => request<SaleDto>(`/api/sales/${id}/void`, { method: 'POST', body: { reason } }),
+
   notificationSettings: () => request<NotificationSettings>('/api/notifications/settings'),
   updateNotificationSettings: (body: NotificationSettingsUpdateInput) => request<NotificationSettings>('/api/notifications/settings', { method: 'PUT', body }),
   vapidPublicKey: () => request<{ publicKey: string | null }>('/api/notifications/vapid-public-key'),
   registerPush: (body: PushRegisterInput) => request<{ ok: true }>('/api/notifications/register', { method: 'POST', body }),
   unregisterPush: (token: string) => request<{ ok: true }>('/api/notifications/register', { method: 'DELETE', body: { token } }),
   sendTestNotification: () => request<{ sent: number; pruned: number }>('/api/notifications/test', { method: 'POST' }),
+  notifications: () => request<{ notifications: NotificationDto[]; unread: number }>('/api/notifications'),
+  markNotificationRead: (id: string) => request<NotificationDto>(`/api/notifications/${id}/read`, { method: 'POST' }),
+  markAllNotificationsRead: () => request<{ ok: true }>('/api/notifications/read-all', { method: 'POST' }),
 
   employees: () => request<Employee[]>('/api/employees'),
   createEmployee: (body: EmployeeCreateInput) => request<Employee>('/api/employees', { method: 'POST', body }),
   updateEmployee: (id: string, body: EmployeeUpdateInput) => request<Employee>(`/api/employees/${id}`, { method: 'PATCH', body }),
+  /** Foto de cuenta de un empleado, puesta por el dueño (misma columna que `/me/photo`: el propio empleado también puede cambiarla). */
+  uploadEmployeePhoto: (id: string, form: FormData) => request<Employee>(`/api/employees/${id}/photo`, { method: 'PUT', form }),
+  deleteEmployeePhoto: (id: string) => request<Employee>(`/api/employees/${id}/photo`, { method: 'DELETE' }),
   auditLogs: (userId?: string) => request<AuditLogEntry[]>(`/api/audit-logs${userId ? `?userId=${userId}` : ''}`),
 
   /* ---------- Citas (agenda del personal) ---------- */
@@ -307,6 +358,7 @@ export const api = {
   checkoutStripe: (plan: SubscriptionPlan) => request<{ url: string }>('/api/subscription/checkout/stripe', { method: 'POST', body: { plan } }),
   checkoutPaypal: (plan: SubscriptionPlan) => request<{ url: string }>('/api/subscription/checkout/paypal', { method: 'POST', body: { plan } }),
   checkoutBankTransfer: (plan: SubscriptionPlan) => request<{ instructions: string; plan: SubscriptionPlan }>('/api/subscription/checkout/bank-transfer', { method: 'POST', body: { plan } }),
+  subscriptionInvoices: () => request<{ invoices: SubscriptionInvoiceDto[] }>('/api/subscription/invoices').then((r) => r.invoices),
 };
 
 /** Lo elegido para reservar: servicios (con estilo), paquetes y el profesional; viaja como `services=id:estilo,id` y `packages=id,id`. */

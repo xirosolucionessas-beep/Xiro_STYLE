@@ -20,6 +20,8 @@ export const businesses = pgTable(
     address: text('address').notNull().default(''),
     city: text('city').notNull().default(''),
     country: text('country').notNull().default('Colombia'),
+    /** NIT o cédula del negocio, para la factura de suscripción; opcional — una factura sin él solo omite esa línea. */
+    taxId: text('tax_id').notNull().default(''),
     currency: text('currency').notNull().default('COP'),
     timezone: text('timezone').notNull().default('America/Bogota'),
     hours: jsonb('hours').$type<BusinessHours>().notNull(),
@@ -48,6 +50,8 @@ export const users = pgTable(
     passwordChangedAt: ts('password_changed_at').notNull().defaultNow(),
     language: text('language').notNull().default('es'),
     theme: text('theme').notNull().default('dark'),
+    /** Foto de la cuenta (opcional): igual que la de un profesional, cuadrada y en WebP. Nunca se expone si es de otro negocio. */
+    photoFile: text('photo_file'),
     role: text('role').notNull().default('owner'),
     /** Solo aplica a empleados (el dueño lo puede todo). Lista ya normalizada de EMPLOYEE_PERMISSIONS. */
     permissions: jsonb('permissions').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
@@ -228,6 +232,11 @@ export const clients = pgTable(
     phone: text('phone'),
     address: text('address').notNull().default(''),
     notes: text('notes').notNull().default(''),
+    /** Foto opcional del cliente (cuadrada, WebP — mismo procesamiento que la de un profesional/cuenta). */
+    photoFile: text('photo_file'),
+    /** Cliente compartido "de mostrador" para ventas sin ficha (ver ventas.clientLabel para el nombre de cada recibo).
+     * Nunca aparece en el directorio de clientes ni cuenta como cliente nuevo; una fila por negocio, creada bajo pedido. */
+    isOccasional: boolean('is_occasional').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [index('clients_business_name_idx').on(t.businessId, sql`lower(${t.name})`), unique('clients_id_business_uq').on(t.id, t.businessId)],
@@ -305,6 +314,37 @@ export const subscriptionEvents = pgTable(
   ],
 );
 
+/**
+ * Un comprobante por cada pago de suscripción CONFIRMADO (no por cada evento de webhook: ver dónde se inserta en
+ * subscriptions.ts/webhooks.ts). El monto y las fechas quedan CONGELADOS al momento del pago — si el precio del plan
+ * cambia después, los comprobantes ya emitidos no cambian. Nunca se borra ni se edita: es el historial de pagos.
+ */
+export const subscriptionInvoices = pgTable(
+  'subscription_invoices',
+  {
+    id: id(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id, { onDelete: 'cascade' }),
+    plan: text('plan').notNull(),
+    amount: integer('amount').notNull(),
+    currency: text('currency').notNull(),
+    paymentMethod: text('payment_method').notNull(),
+    /** Id de la transacción en el proveedor (factura de Stripe, venta de PayPal…) o "bank_transfer:<fecha>" para transferencia manual. */
+    externalPaymentId: text('external_payment_id'),
+    periodStart: ts('period_start').notNull(),
+    /** Fecha de vencimiento / próxima renovación que se muestra en el comprobante. */
+    periodEnd: ts('period_end').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('subscription_invoices_business_idx').on(t.businessId, t.createdAt.desc()),
+    check('subscription_invoices_plan_ck', sql`${t.plan} in ('monthly','yearly')`),
+    check('subscription_invoices_payment_method_ck', sql`${t.paymentMethod} in ('card','paypal','bank_transfer')`),
+    check('subscription_invoices_amount_ck', sql`${t.amount} >= 0 and ${t.amount} <= 1000000000`),
+  ],
+);
+
 export const cashOpenings = pgTable(
   'cash_openings',
   {
@@ -342,8 +382,15 @@ export const serviceRecords = pgTable(
     amount: integer('amount').notNull(),
     note: text('note').notNull().default(''),
     loyaltyCounted: boolean('loyalty_counted').notNull().default(false),
+    /** 'service' o 'product': de qué tipo era el artículo cobrado (Tarea 5), para separar el valor de los servicios
+     * del de los productos en Inicio/Reportes sin adivinarlo por `itemId` (una línea a mano sin guardar en catálogo no
+     * tiene item que consultar). Por defecto 'service': antes de esta columna, la única puerta para crear un registro
+     * manual era "Registrar servicio", siempre un servicio. */
+    kind: text('kind').notNull().default('service'),
     /** Cita de la que salió este cobro (al completarla). Sin cita = registro manual. */
     appointmentId: uuid('appointment_id').references(() => appointments.id, { onDelete: 'set null' }),
+    /** true si la venta que lo generó fue anulada: deja de contar en Inicio/Reportes/Fidelización sin borrar el historial. */
+    voided: boolean('voided').notNull().default(false),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -354,6 +401,7 @@ export const serviceRecords = pgTable(
     index('service_records_business_idx').on(t.businessId, t.createdAt.desc()),
     index('service_records_appointment_idx').on(t.appointmentId),
     check('service_records_amount_ck', sql`${t.amount} >= 0 and ${t.amount} <= 1000000000`),
+    check('service_records_kind_ck', sql`${t.kind} in ('service','product')`),
   ],
 );
 
@@ -437,6 +485,11 @@ export const notificationSettings = pgTable('notification_settings', {
   billingEnabled: boolean('billing_enabled').notNull().default(true),
   appointmentsEnabled: boolean('appointments_enabled').notNull().default(true),
   reviewsEnabled: boolean('reviews_enabled').notNull().default(true),
+  clientsEnabled: boolean('clients_enabled').notNull().default(true),
+  salesEnabled: boolean('sales_enabled').notNull().default(true),
+  inventoryEnabled: boolean('inventory_enabled').notNull().default(true),
+  employeesEnabled: boolean('employees_enabled').notNull().default(true),
+  securityEnabled: boolean('security_enabled').notNull().default(true),
   updatedAt: ts('updated_at').notNull().defaultNow(),
 });
 
@@ -464,6 +517,42 @@ export const pushTokens = pgTable(
     uniqueIndex('push_tokens_user_token_uq').on(t.userId, t.token),
     index('push_tokens_business_idx').on(t.businessId),
     check('push_tokens_platform_ck', sql`${t.platform} in ('expo','web')`),
+  ],
+);
+
+/**
+ * Historial de notificaciones EN LA APP, por destinatario (un dueño o un empleado): se guarda SIEMPRE que ocurre el
+ * evento (cita nueva, premio de fidelización, problema de facturación…), sin importar si esa persona tiene permiso de
+ * push o si desactivó la categoría — esos interruptores solo deciden si además se manda un aviso al dispositivo (ver
+ * `push.ts`). Antes de esta tabla, el centro de notificaciones de la app NO tenía relación con los avisos push: uno
+ * podía llegar al teléfono y nunca aparecer aquí, o aparecer aquí sin que nadie lo hubiera visto. `dedupeKey` es la
+ * clave de idempotencia (sección "notificaciones duplicadas"): el mismo evento real, para la misma persona, nunca
+ * crea una segunda fila, así el emisor pueda reintentar con total tranquilidad (p. ej. un webhook reenviado).
+ */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: id(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    category: text('category').notNull(),
+    titleKey: text('title_key').notNull(),
+    bodyKey: text('body_key').notNull(),
+    params: jsonb('params').$type<Record<string, string | number>>().notNull().default(sql`'{}'::jsonb`),
+    /** Ruta dentro de la app a la que lleva al tocarla ("/agenda", "/client/:id", "/subscription"…); null = sin destino específico. */
+    href: text('href'),
+    read: boolean('read').notNull().default(false),
+    dedupeKey: text('dedupe_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('notifications_user_dedupe_uq').on(t.userId, t.dedupeKey),
+    index('notifications_user_created_idx').on(t.userId, t.createdAt.desc()),
+    check('notifications_category_ck', sql`${t.category} in ('appointments','reviews','loyalty','billing','clients','sales','inventory','employees','security')`),
   ],
 );
 
@@ -551,6 +640,8 @@ export const businessSettings = pgTable(
     /** null = usar `businesses.hours`. Con valor, sustituye ese horario con varios bloques por día. */
     hoursBlocks: jsonb('hours_blocks').$type<BookingSettings['hoursBlocks']>(),
     customFields: jsonb('custom_fields').$type<CustomField[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Un producto publicado en 0 existencias: true = se oculta del catálogo público; false = sigue visible, marcado "Agotado". */
+    hideOutOfStockInCatalog: boolean('hide_out_of_stock_in_catalog').notNull().default(false),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -840,5 +931,205 @@ export const reviews = pgTable(
     index('reviews_business_status_idx').on(t.businessId, t.status, t.createdAt.desc()),
     check('reviews_rating_ck', sql`${t.rating} between 1 and 5`),
     check('reviews_status_ck', sql`${t.status} in ('pending','approved','hidden')`),
+  ],
+);
+
+/* =====================================================================================================================
+ * MENSAJERÍA INTERNA: chat 1 a 1 entre personas del MISMO negocio (dueño y empleados; nunca con un cliente, que no
+ * inicia sesión). `userAId`/`userBId` van siempre en orden (el menor primero): así el par tiene una sola fila, sin
+ * importar quién empezó la conversación. Con RLS (como las tablas de citas) desde que nace, no como una fase aparte.
+ * ===================================================================================================================== */
+
+export const conversations = pgTable(
+  'conversations',
+  {
+    id: id(),
+    businessId: businessRef(),
+    userAId: uuid('user_a_id').notNull(),
+    userBId: uuid('user_b_id').notNull(),
+    /** Se toca con cada mensaje nuevo: ordena la lista de chats por actividad reciente sin unir con `messages`. */
+    lastMessageAt: timestamp('last_message_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.userAId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'conversations_user_a_fk' }).onDelete('cascade'),
+    foreignKey({ columns: [t.userBId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'conversations_user_b_fk' }).onDelete('cascade'),
+    // Necesaria para que `messages` pueda referenciar (id, business_id) con una FK compuesta (igual que `users_id_business_uq`).
+    unique('conversations_id_business_uq').on(t.id, t.businessId),
+    unique('conversations_pair_uq').on(t.businessId, t.userAId, t.userBId),
+    index('conversations_business_idx').on(t.businessId, t.lastMessageAt.desc()),
+    check('conversations_order_ck', sql`${t.userAId} < ${t.userBId}`),
+  ],
+);
+
+export const messages = pgTable(
+  'messages',
+  {
+    id: id(),
+    businessId: businessRef(),
+    conversationId: uuid('conversation_id').notNull(),
+    senderId: uuid('sender_id').notNull(),
+    content: text('content').notNull(),
+    /** null = todavía sin leer por la otra persona. */
+    readAt: ts('read_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.conversationId, t.businessId], foreignColumns: [conversations.id, conversations.businessId], name: 'messages_conversation_fk' }).onDelete('cascade'),
+    foreignKey({ columns: [t.senderId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'messages_sender_fk' }),
+    index('messages_conversation_idx').on(t.conversationId, t.createdAt),
+    check('messages_content_ck', sql`length(${t.content}) > 0 and length(${t.content}) <= 4000`),
+  ],
+);
+
+/* =====================================================================================================================
+ * VENTAS: el punto de venta (servicios y productos, del catálogo o a mano, con pago). Cada línea de servicio o producto
+ * sigue alimentando `service_records` a través de `recordService` (misma función que usa cerrar una cita): así Inicio,
+ * Reportes, Fidelización e historial del cliente ven exactamente lo mismo que antes, vengan de una cita o de una venta.
+ * Los nombres y precios de cada línea quedan CONGELADOS al momento de la venta (no cambian si después se edita el
+ * catálogo). No se borra ninguna venta: se anula, con motivo, y queda registrada en la bitácora.
+ * ===================================================================================================================== */
+
+export const sales = pgTable(
+  'sales',
+  {
+    id: id(),
+    businessId: businessRef(),
+    /** null = cliente ocasional (no se creó una ficha). */
+    clientId: uuid('client_id'),
+    /** Nombre a mostrar cuando no hay `clientId` ("Cliente ocasional" u otro que se haya escrito). */
+    clientLabel: text('client_label').notNull().default(''),
+    subtotal: integer('subtotal').notNull(),
+    discount: integer('discount').notNull().default(0),
+    tip: integer('tip').notNull().default(0),
+    total: integer('total').notNull(),
+    status: text('status').notNull().default('completed'),
+    voidReason: text('void_reason').notNull().default(''),
+    voidedBy: uuid('voided_by'),
+    voidedAt: ts('voided_at'),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique('sales_id_business_uq').on(t.id, t.businessId),
+    foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'sales_client_fk' }).onDelete('set null'),
+    foreignKey({ columns: [t.createdBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'sales_created_by_fk' }),
+    foreignKey({ columns: [t.voidedBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'sales_voided_by_fk' }),
+    index('sales_business_idx').on(t.businessId, t.createdAt.desc()),
+    index('sales_client_idx').on(t.clientId),
+    check('sales_status_ck', sql`${t.status} in ('completed','voided')`),
+    check('sales_amounts_ck', sql`${t.subtotal} >= 0 and ${t.discount} >= 0 and ${t.tip} >= 0 and ${t.total} >= 0`),
+  ],
+);
+
+export const saleItems = pgTable(
+  'sale_items',
+  {
+    id: id(),
+    businessId: businessRef(),
+    saleId: uuid('sale_id').notNull(),
+    kind: text('kind').notNull(),
+    /** Artículo del catálogo; null = servicio o producto escrito a mano en esta venta. */
+    itemId: uuid('item_id'),
+    /** Nombre congelado al momento de la venta. */
+    name: text('name').notNull(),
+    unitPrice: integer('unit_price').notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    total: integer('total').notNull(),
+    /** Quién hizo el servicio (comisiones y reportes). Solo aplica a servicios. */
+    employeeId: uuid('employee_id'),
+    /** El cobro que representa esta línea en `service_records` (sello de fidelización si aplicaba). */
+    serviceRecordId: uuid('service_record_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.saleId, t.businessId], foreignColumns: [sales.id, sales.businessId], name: 'sale_items_sale_fk' }).onDelete('cascade'),
+    foreignKey({ columns: [t.itemId, t.businessId], foreignColumns: [items.id, items.businessId], name: 'sale_items_item_fk' }).onDelete('set null'),
+    foreignKey({ columns: [t.employeeId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'sale_items_employee_fk' }).onDelete('set null'),
+    index('sale_items_sale_idx').on(t.saleId),
+    index('sale_items_item_idx').on(t.itemId),
+    check('sale_items_kind_ck', sql`${t.kind} in ('service','product')`),
+    check('sale_items_amounts_ck', sql`${t.quantity} > 0 and ${t.unitPrice} >= 0 and ${t.total} >= 0`),
+  ],
+);
+
+export const salePayments = pgTable(
+  'sale_payments',
+  {
+    id: id(),
+    businessId: businessRef(),
+    saleId: uuid('sale_id').notNull(),
+    method: text('method').notNull(),
+    amount: integer('amount').notNull(),
+    /** Solo en efectivo: cuánto entregó la persona (para calcular el cambio). null = pagó el monto exacto. */
+    receivedAmount: integer('received_amount'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.saleId, t.businessId], foreignColumns: [sales.id, sales.businessId], name: 'sale_payments_sale_fk' }).onDelete('cascade'),
+    index('sale_payments_sale_idx').on(t.saleId),
+    check('sale_payments_method_ck', sql`${t.method} in ('cash','card','nequi','bank_transfer','other')`),
+    check('sale_payments_amount_ck', sql`${t.amount} > 0 and (${t.receivedAmount} is null or ${t.receivedAmount} >= ${t.amount})`),
+  ],
+);
+
+/* =====================================================================================================================
+ * GASTOS Y CIERRE DE CAJA (Tarea 8)
+ * `expenses` son salidas de caja (gastos, retiros) del día; solo las pagadas en efectivo afectan el conteo físico.
+ * `cash_closings` es la CONCILIACIÓN de un día: lo único que se congela es lo que no tiene otra fuente (la base con la
+ * que se abrió ese día y lo que la persona contó físicamente); el resto del resumen (ventas por método, top servicios,
+ * comisiones…) se recalcula al leerlo a partir de `sales`/`service_records`/`expenses`, que ya son inmutables por su
+ * cuenta. Un cierre guardado nunca se edita: solo se anula con motivo, y solo entonces se puede volver a cerrar ese día.
+ * ===================================================================================================================== */
+
+export const expenses = pgTable(
+  'expenses',
+  {
+    id: id(),
+    businessId: businessRef(),
+    amount: integer('amount').notNull(),
+    description: text('description').notNull(),
+    /** Solo 'cash' resta de la caja física; otros métodos no afectan el efectivo contado (pero sí el gasto del día). */
+    method: text('method').notNull().default('cash'),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.createdBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'expenses_created_by_fk' }),
+    index('expenses_business_idx').on(t.businessId, t.createdAt.desc()),
+    check('expenses_method_ck', sql`${t.method} in ('cash','card','nequi','bank_transfer','other')`),
+    check('expenses_amount_ck', sql`${t.amount} > 0 and ${t.amount} <= 1000000000`),
+  ],
+);
+
+export const cashClosings = pgTable(
+  'cash_closings',
+  {
+    id: id(),
+    businessId: businessRef(),
+    /** Día local del negocio que se cierra (AAAA-MM-DD). */
+    day: date('day', { mode: 'string' }).notNull(),
+    openingAmount: integer('opening_amount').notNull(),
+    countedAmount: integer('counted_amount').notNull(),
+    expectedAmount: integer('expected_amount').notNull(),
+    /** counted − expected: positivo = sobrante, negativo = faltante. */
+    difference: integer('difference').notNull(),
+    totalSales: integer('total_sales').notNull(),
+    totalTip: integer('total_tip').notNull(),
+    totalExpenses: integer('total_expenses').notNull(),
+    note: text('note').notNull().default(''),
+    status: text('status').notNull().default('completed'),
+    voidReason: text('void_reason').notNull().default(''),
+    voidedBy: uuid('voided_by'),
+    voidedAt: ts('voided_at'),
+    closedBy: uuid('closed_by').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    // Único ACTIVO por día (no total): tras anular un cierre, ese día se puede volver a cerrar.
+    uniqueIndex('cash_closings_business_day_active_uq').on(t.businessId, t.day).where(sql`${t.status} = 'completed'`),
+    foreignKey({ columns: [t.closedBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'cash_closings_closed_by_fk' }),
+    foreignKey({ columns: [t.voidedBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'cash_closings_voided_by_fk' }),
+    index('cash_closings_business_idx').on(t.businessId, t.day.desc()),
+    check('cash_closings_status_ck', sql`${t.status} in ('completed','voided')`),
   ],
 );

@@ -109,6 +109,8 @@ export const bookingSettingsInputSchema = z.object({
   /** null = usar el horario del negocio (`business.hours`); con valor, sustituye ese horario con varios bloques por día. */
   hoursBlocks: scheduleBlocksSchema.nullable().default(null),
   customFields: z.array(customFieldSchema).max(5).default([]),
+  /** Un producto publicado que llega a 0 existencias: true = se oculta del catálogo público; false (por defecto) = sigue visible, marcado "Agotado". */
+  hideOutOfStockInCatalog: z.boolean().default(false),
 });
 export type BookingSettingsInput = z.input<typeof bookingSettingsInputSchema>;
 export type BookingSettings = z.infer<typeof bookingSettingsInputSchema>;

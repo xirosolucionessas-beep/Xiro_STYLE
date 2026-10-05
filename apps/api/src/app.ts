@@ -22,15 +22,18 @@ import { accountRoutes } from './routes/account';
 import { authRoutes } from './routes/auth';
 import { bookingRoutes } from './routes/booking';
 import { bookingConfigRoutes } from './routes/bookingConfig';
+import { cashRoutes } from './routes/cash';
 import { catalogRoutes } from './routes/catalog';
 import { clientRoutes } from './routes/clients';
 import { employeeRoutes } from './routes/employees';
 import { loyaltyRoutes } from './routes/loyalty';
+import { messagesRoutes } from './routes/messages';
 import { notificationRoutes } from './routes/notifications';
 import { placesRoutes } from './routes/places';
 import { publicRoutes } from './routes/public';
 import { publicBookingRoutes } from './routes/publicBooking';
 import { realtimeRoutes } from './routes/realtime';
+import { salesRoutes } from './routes/sales';
 import { serviceRecordRoutes } from './routes/serviceRecords';
 import type { RealtimeBus } from './realtime';
 import { adminSubscriptionRoutes, subscriptionRoutes } from './routes/subscriptions';
@@ -301,6 +304,8 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
       catalogRoutes(scope, ctx);
       clientRoutes(scope, ctx);
       subscriptionRoutes(scope, ctx);
+      salesRoutes(scope, ctx);
+      cashRoutes(scope, ctx);
       serviceRecordRoutes(scope, ctx);
       loyaltyRoutes(scope, ctx);
       notificationRoutes(scope, ctx);
@@ -308,6 +313,7 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
       bookingRoutes(scope, ctx);
       bookingConfigRoutes(scope, ctx);
       placesRoutes(scope, ctx);
+      messagesRoutes(scope, ctx);
     },
     { prefix: '/api' },
   );

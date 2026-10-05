@@ -73,7 +73,10 @@ a.xw-nav-item:active { background: var(--xw-accent-tint); }
 /* .xw-page imita el contenedor en columna de React Native: sus hijos (Text en línea incluidos) se apilan como bloques. */
 .xw-screen { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; height: 100%; }
 .xw-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.xw-page { display: flex; flex-direction: column; box-sizing: border-box; width: 100%; max-width: var(--xw-page-max, ${remOf(layout.maxContent)}); margin: 0 auto; padding: 0 var(--xw-space-6) var(--xw-space-8); }
+/* min-height: 100% (no auto): con poco contenido la página llena el alto visible, y una pantalla cuyo pie use "margin-top: auto"
+   (el tablero de Inicio) queda pegado abajo del todo en vez de flotar a la mitad. Con contenido normal no cambia nada: solo
+   entra en juego cuando hay espacio de sobra. */
+.xw-page { display: flex; flex-direction: column; box-sizing: border-box; width: 100%; min-height: 100%; max-width: var(--xw-page-max, ${remOf(layout.maxContent)}); margin: 0 auto; padding: 0 var(--xw-space-6) var(--xw-space-8); }
 [data-mode='mobile'] .xw-page { padding-inline: var(--xw-space-4); }
 .xw-head { display: flex; align-items: center; gap: var(--xw-space-3); box-sizing: border-box; width: 100%; max-width: var(--xw-page-max, ${remOf(layout.maxContent)}); margin: 0 auto; padding: var(--xw-space-4) var(--xw-space-6); }
 [data-mode='mobile'] .xw-head { padding-inline: var(--xw-space-4); }

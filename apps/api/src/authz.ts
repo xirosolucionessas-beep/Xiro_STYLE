@@ -16,15 +16,33 @@ export const POLICY: Record<string, PolicyRule> = {
   // Cuenta propia
   'GET /me': 'any',
   'PATCH /me': 'any',
+  'PUT /me/photo': 'any',
+  'DELETE /me/photo': 'any',
   'POST /me/phone/request': 'any',
   'POST /me/phone/confirm': 'any',
+
+  // Mensajes: chat interno entre personas del mismo negocio, cada quien ve y escribe solo lo suyo.
+  'GET /messages/people': 'any',
+  'GET /messages/conversations': 'any',
+  'POST /messages/conversations': 'any',
+  'GET /messages/conversations/:id/messages': 'any',
+  'POST /messages/conversations/:id/messages': 'any',
+  'POST /messages/conversations/:id/read': 'any',
 
   // Negocio (leer lo básico es necesario para mostrar la app; cambiarlo, caja y equipo son del dueño)
   'GET /business': 'any',
   'PATCH /business': 'owner',
   'PUT /business/logo': 'owner',
   'GET /cash/today': 'owner',
+  'GET /cash/openings': 'owner',
   'POST /cash/opening': 'owner',
+  'GET /expenses': 'owner',
+  'POST /expenses': 'owner',
+  'GET /cash/close-summary': 'owner',
+  'GET /cash/closings': 'owner',
+  'GET /cash/closings/:id': 'owner',
+  'POST /cash/close': 'owner',
+  'POST /cash/closings/:id/void': 'owner',
 
   // Catálogo e inventario
   'GET /categories': ['catalog_view'],
@@ -35,6 +53,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'GET /items/:id': ['catalog_view'],
   'POST /items': ['catalog_manage'],
   'PUT /items/:id': ['catalog_manage'],
+  'POST /items/bulk-publish': ['catalog_manage'],
   'POST /items/:id/stock-adjustments': ['catalog_manage'],
   'DELETE /items/:id': ['catalog_manage'],
   'POST /items/:id/photos': ['catalog_manage'],
@@ -47,7 +66,15 @@ export const POLICY: Record<string, PolicyRule> = {
   'POST /clients': ['clients_manage'],
   'PUT /clients/:id': ['clients_manage'],
   'DELETE /clients/:id': ['clients_manage'],
+  'PUT /clients/:id/photo': ['clients_manage'],
+  'DELETE /clients/:id/photo': ['clients_manage'],
   'POST /clients/:id/anonymize': ['clients_manage'],
+
+  // Ventas (POS): registrar y consultar piden el mismo permiso que registrar un servicio; anular es solo del dueño.
+  'GET /sales': ['services_record'],
+  'GET /sales/:id': ['services_record'],
+  'POST /sales': ['services_record'],
+  'POST /sales/:id/void': 'owner',
 
   // Servicios realizados y fidelización (la configuración del programa es del dueño)
   'GET /service-records': ['services_record'],
@@ -65,6 +92,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'POST /subscription/checkout/paypal': 'owner',
   'POST /subscription/checkout/bank-transfer': 'owner',
   'POST /subscription/cancel': 'owner',
+  'GET /subscription/invoices': 'owner',
 
   // Notificaciones push: las preferencias del negocio son del dueño, pero cada persona (también los empleados, para recibir avisos de
   // sus citas) registra y da de baja SUS propios dispositivos. Los avisos de negocio (premios, facturación) siguen yendo solo al dueño.
@@ -74,6 +102,10 @@ export const POLICY: Record<string, PolicyRule> = {
   'POST /notifications/register': 'any',
   'DELETE /notifications/register': 'any',
   'POST /notifications/test': 'any',
+  // Centro de notificaciones: cada quien lee/marca solo LAS SUYAS (lo aplica la ruta, acotando siempre por request.user.sub).
+  'GET /notifications': 'any',
+  'POST /notifications/:id/read': 'any',
+  'POST /notifications/read-all': 'any',
 
   // Agenda: sin "ver todas las agendas" un empleado solo ve y toca las citas donde él es el profesional (lo aplica la ruta)
   'GET /appointments': ['agenda_own'],
@@ -131,6 +163,8 @@ export const POLICY: Record<string, PolicyRule> = {
   'GET /employees': 'owner',
   'POST /employees': 'owner',
   'PATCH /employees/:id': 'owner',
+  'PUT /employees/:id/photo': 'owner',
+  'DELETE /employees/:id/photo': 'owner',
   'GET /audit-logs': 'owner',
 };
 

@@ -6,12 +6,14 @@ import { formatMoney, type Currency } from '@xiro/shared';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
-import { errorKey, resolveMedia } from '@/lib/api';
+import { errorKey, publicBaseUrl, resolveMedia } from '@/lib/api';
 import { catalogStats } from '@/lib/sections';
-import { useCategories, useItems } from '@/lib/queries';
+import { useBookingSettings, useCategories, useItems } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { Header, Screen } from '@/ui/Screen';
 import { Ico } from '@/web/icons';
+import { businessAddressLine, toDataUrl } from '@/web/services/invoicePdf';
+import { downloadCatalogPdf, toQrDataUrl, type CatalogPdfItem } from '@/web/services/catalogPdf';
 import { CatalogView, type CatalogCardView } from '@/web/screens/Catalog';
 import { useWebText } from '@/web/services/useWebText';
 import { Button } from '@/web/ui/Button';
@@ -24,7 +26,9 @@ export default function CatalogWeb() {
   const canManage = meets(actorOf(user), ['catalog_manage']);
   const items = useItems();
   const categories = useCategories();
+  const bookingSettings = useBookingSettings();
   const [category, setCategory] = useState<string | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const currency = business.currency as Currency;
 
   const cards = useMemo<CatalogCardView[]>(
@@ -44,6 +48,53 @@ export default function CatalogWeb() {
   ];
 
   const add = () => router.push('/item/form');
+
+  /**
+   * Catálogo PDF (sección 2): usa EXACTAMENTE el mismo filtro de categoría que la pantalla (`category`) y solo
+   * artículos publicados — igual límite que ya respeta la página pública del catálogo, nunca se filtra algo distinto
+   * de lo que el dueño ya decidió mostrar afuera.
+   */
+  async function exportCatalogPdf() {
+    setExportingPdf(true);
+    try {
+      const categoryLabel = category ? (categories.data ?? []).find((c) => c.id === category)?.name : undefined;
+      const published = (items.data ?? []).filter((item) => item.published && (!category || item.categoryId === category));
+      const profile = bookingSettings.data?.profile;
+      const bookingUrl = profile?.published ? `${publicBaseUrl()}/catalog/${business.slug}` : null;
+
+      const [logoDataUrl, qrDataUrl, itemImages] = await Promise.all([
+        toDataUrl(resolveMedia(business.logoUrl)),
+        toQrDataUrl(bookingUrl),
+        Promise.all(published.map((item) => toDataUrl(resolveMedia(item.photos[0]?.url)))),
+      ]);
+
+      const pdfItems: CatalogPdfItem[] = published.map((item, index) => ({
+        name: item.name,
+        categoryLabel: item.categoryName,
+        description: item.shortDescription,
+        priceLabel: formatMoney(item.price, currency),
+        imageDataUrl: itemImages[index] ?? null,
+      }));
+
+      const social = [profile?.instagram ? `Instagram: ${profile.instagram}` : null, profile?.facebook ? `Facebook: ${profile.facebook}` : null, profile?.tiktok ? `TikTok: ${profile.tiktok}` : null, profile?.website || null].filter((line): line is string => Boolean(line));
+
+      downloadCatalogPdf({
+        businessName: business.name,
+        tagline: profile?.tagline ?? '',
+        logoDataUrl,
+        whatsapp: business.whatsapp,
+        phone: profile?.phone || null,
+        address: businessAddressLine(business.address, business.city, business.country),
+        social,
+        filterLabel: categoryLabel ? t('catalog_pdf_filter', { category: categoryLabel }) : null,
+        items: pdfItems,
+        bookingUrl,
+        qrDataUrl,
+      });
+    } finally {
+      setExportingPdf(false);
+    }
+  }
   return (
     <Screen
       header={
@@ -60,6 +111,9 @@ export default function CatalogWeb() {
               ) : null}
               <Button variant="secondary" icon={<Ico name="send" size={18} />} onPress={() => router.push({ pathname: '/share', params: { mode: 'catalog' } })}>
                 {t('send_catalog')}
+              </Button>
+              <Button variant="secondary" icon={<Ico name="download" size={18} />} loading={exportingPdf} loadingLabel={t('loading')} onPress={() => void exportCatalogPdf()}>
+                {t('catalog_export_pdf')}
               </Button>
               {canManage ? (
                 <Button icon={<Ico name="plus" size={18} />} onPress={add}>

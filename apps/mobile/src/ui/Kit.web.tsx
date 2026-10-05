@@ -19,14 +19,15 @@ import { radius } from './theme';
 
 /* ---------- Chip ---------- */
 
-export function Chip({ label, selected, onPress }: { label: string; selected?: boolean; onPress: () => void }) {
+export function Chip({ label, selected, onPress, icon }: { label: string; selected?: boolean; onPress: () => void; /** Ícono o logo opcional antes del texto (p. ej. la forma de pago). */ icon?: ReactNode }) {
   const { colors } = useSettings();
   return (
     <Pressable
       role="radio"
       aria-checked={!!selected}
       onPress={onPress}
-      style={[styles.chip, { borderColor: selected ? colors.gold : colors.border, backgroundColor: selected ? colors.goldTint : 'transparent' }]}>
+      style={[styles.chip, { borderColor: selected ? colors.gold : colors.border, backgroundColor: selected ? colors.goldTint : 'transparent' }, icon ? styles.chipWithIcon : null]}>
+      {icon}
       <AppText variant="small" tone={selected ? 'gold' : 'muted'} style={{ fontWeight: selected ? '800' : '500' }}>
         {label}
       </AppText>
@@ -152,6 +153,7 @@ export function EmptyState({ icon, message }: { icon: keyof typeof Ionicons.glyp
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   chip: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
+  chipWithIcon: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 4 },
   card: { borderWidth: 1, borderRadius: radius.lg, padding: 16 },
   section: { marginTop: 22, marginBottom: 8 },

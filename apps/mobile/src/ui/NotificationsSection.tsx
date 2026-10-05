@@ -9,7 +9,20 @@ import { useSettings } from '@/lib/settings';
 import { useDialogs } from '@/ui/Dialogs';
 import { Card, Row, SectionTitle, ToggleRow } from '@/ui/Kit';
 
-const DEFAULTS: NotificationSettings = { enabled: false, loyaltyEnabled: true, billingEnabled: true, appointmentsEnabled: true, reviewsEnabled: true };
+const DEFAULTS: NotificationSettings = {
+  enabled: false,
+  loyaltyEnabled: true,
+  billingEnabled: true,
+  appointmentsEnabled: true,
+  reviewsEnabled: true,
+  clientsEnabled: true,
+  salesEnabled: true,
+  inventoryEnabled: true,
+  employeesEnabled: true,
+  securityEnabled: true,
+};
+
+type CategoryField = 'loyaltyEnabled' | 'billingEnabled' | 'appointmentsEnabled' | 'reviewsEnabled' | 'clientsEnabled' | 'salesEnabled' | 'inventoryEnabled' | 'employeesEnabled' | 'securityEnabled';
 
 /** Sección "Notificaciones" de Ajustes. Mismo componente en web y nativo: lo específico de cada plataforma vive en lib/push(.web).ts. */
 export function NotificationsSection() {
@@ -47,7 +60,7 @@ export function NotificationsSection() {
       if (!result.ok && result.messageKey) toast(t(result.messageKey));
     });
 
-  const toggleCategory = (field: 'loyaltyEnabled' | 'billingEnabled' | 'appointmentsEnabled' | 'reviewsEnabled') => (next: boolean) => run(async () => void (await save({ ...settings, [field]: next })));
+  const toggleCategory = (field: CategoryField) => (next: boolean) => run(async () => void (await save({ ...settings, [field]: next })));
 
   const sendTest = () =>
     run(async () => {
@@ -66,6 +79,11 @@ export function NotificationsSection() {
             <ToggleRow icon="chatbubble-ellipses-outline" label={t('notifications_category_reviews')} value={settings.reviewsEnabled} onChange={(next) => void toggleCategory('reviewsEnabled')(next)} />
             <ToggleRow icon="star-outline" label={t('notifications_category_loyalty')} value={settings.loyaltyEnabled} onChange={(next) => void toggleCategory('loyaltyEnabled')(next)} />
             <ToggleRow icon="card-outline" label={t('notifications_category_billing')} value={settings.billingEnabled} onChange={(next) => void toggleCategory('billingEnabled')(next)} />
+            <ToggleRow icon="people-outline" label={t('notifications_category_clients')} value={settings.clientsEnabled} onChange={(next) => void toggleCategory('clientsEnabled')(next)} />
+            <ToggleRow icon="cash-outline" label={t('notifications_category_sales')} value={settings.salesEnabled} onChange={(next) => void toggleCategory('salesEnabled')(next)} />
+            <ToggleRow icon="cube-outline" label={t('notifications_category_inventory')} value={settings.inventoryEnabled} onChange={(next) => void toggleCategory('inventoryEnabled')(next)} />
+            <ToggleRow icon="briefcase-outline" label={t('notifications_category_employees')} value={settings.employeesEnabled} onChange={(next) => void toggleCategory('employeesEnabled')(next)} />
+            <ToggleRow icon="shield-checkmark-outline" label={t('notifications_category_security')} value={settings.securityEnabled} onChange={(next) => void toggleCategory('securityEnabled')(next)} />
             <Row icon="paper-plane-outline" label={t('notifications_test_cta')} onPress={() => void sendTest()} />
           </>
         ) : null}

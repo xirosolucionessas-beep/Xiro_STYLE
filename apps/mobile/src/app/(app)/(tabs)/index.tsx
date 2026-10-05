@@ -108,7 +108,7 @@ export default function Home() {
       value: canSales && records.data ? formatCompactMoney(salesToday(records.data, business.timezone), business.currency as Currency) : '—',
       label: t('metric_sales'),
       loading: canSales && records.isLoading,
-      onPress: canSales ? () => go('/loyalty') : undefined,
+      onPress: canSales ? () => go('/sales-today') : undefined,
     },
     { id: 'clients', icon: 'people-outline', value: canClients && clients.data ? String(clients.data.length) : '—', label: t('metric_clients'), loading: canClients && clients.isLoading, onPress: canClients ? () => go('/clients') : undefined },
     { id: 'team', icon: 'cut-outline', value: activeEmployees !== undefined ? String(activeEmployees) : '—', label: t(TEAM_LABEL_KEYS[business.type]), loading: isOwner && employees.isLoading, onPress: isOwner ? () => go('/employees') : undefined },
@@ -116,11 +116,11 @@ export default function Home() {
 
   /* ---------- Accesos rápidos: los de siempre (mismo destino) + Equipo y Fidelización ---------- */
   const shortcuts: Array<{ id: string; icon: IconName; label: string; onPress: () => void; requires?: Requirement }> = [
-    { id: 'new_service', icon: 'add-circle-outline', label: t('new_service'), onPress: () => router.push('/item/form'), requires: ['catalog_manage'] },
+    { id: 'new_sale', icon: 'cash-outline', label: t('new_sale'), onPress: () => router.push('/sale/new'), requires: ['services_record'] },
     { id: 'appointments', icon: 'calendar-outline', label: t('appointments'), onPress: () => router.push('/agenda'), requires: ['agenda_own'] },
     { id: 'catalog', icon: 'book-outline', label: t('catalog'), onPress: () => router.navigate('/catalog'), requires: ['catalog_view'] },
     { id: 'inventory', icon: 'cube-outline', label: t('inventory'), onPress: () => router.navigate('/inventory'), requires: ['catalog_view'] },
-    { id: 'cash_close', icon: 'cash-outline', label: t('cash_close'), onPress: soon, requires: 'owner' },
+    { id: 'cash_close', icon: 'wallet-outline', label: t('cash_close'), onPress: () => router.push('/cash-close'), requires: 'owner' },
     { id: 'clients', icon: 'people-outline', label: t('clients'), onPress: () => router.navigate('/clients'), requires: ['clients_view'] },
     { id: 'team', icon: 'people-circle-outline', label: t('team'), onPress: () => router.push('/employees'), requires: 'owner' },
     { id: 'loyalty', icon: 'gift-outline', label: t('loyalty_title'), onPress: () => router.push('/loyalty'), requires: ['loyalty_redeem', 'services_record'] },

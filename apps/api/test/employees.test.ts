@@ -340,6 +340,8 @@ describe('política de acceso (por defecto, denegar)', () => {
       { method: 'GET' as const, url: '/api/employees' },
       { method: 'POST' as const, url: '/api/employees' },
       { method: 'PATCH' as const, url: '/api/employees/00000000-0000-0000-0000-000000000000' },
+      { method: 'PUT' as const, url: '/api/employees/00000000-0000-0000-0000-000000000000/photo' },
+      { method: 'DELETE' as const, url: '/api/employees/00000000-0000-0000-0000-000000000000/photo' },
       { method: 'GET' as const, url: '/api/audit-logs' },
     ]) {
       expect((await app.inject(req)).statusCode).toBe(401);

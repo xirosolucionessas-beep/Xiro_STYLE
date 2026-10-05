@@ -33,6 +33,7 @@ export function toBusiness(row: BusinessRow): Business {
     address: row.address,
     city: row.city,
     country: row.country,
+    taxId: row.taxId,
     currency: row.currency as Business['currency'],
     timezone: row.timezone,
     hours: parsedHours.success ? parsedHours.data : defaultBusinessHours(),
@@ -47,6 +48,7 @@ export function toUser(row: UserRow): User {
     name: row.name,
     email: row.email,
     phone: row.phone,
+    photoUrl: row.photoFile ? mediaUrl(row.photoFile) : null,
     language: row.language as User['language'],
     theme: row.theme as User['theme'],
     businessId: row.businessId,
@@ -56,7 +58,7 @@ export function toUser(row: UserRow): User {
 }
 
 export function toEmployee(row: UserRow): Employee {
-  return { id: row.id, name: row.name, email: row.email, phone: row.phone, permissions: normalizePermissions(row.permissions), active: row.active, createdAt: row.createdAt.toISOString() };
+  return { id: row.id, name: row.name, email: row.email, phone: row.phone, photoUrl: row.photoFile ? mediaUrl(row.photoFile) : null, permissions: normalizePermissions(row.permissions), active: row.active, createdAt: row.createdAt.toISOString() };
 }
 
 /** Sin `catalog_manage` no se ve el costo ni las notas internas (datos del negocio, no de quien atiende). */
@@ -72,6 +74,7 @@ export function toClient(row: ClientRow): Client {
     phone: row.phone,
     address: row.address,
     notes: row.notes,
+    photoUrl: row.photoFile ? mediaUrl(row.photoFile) : null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -125,7 +128,7 @@ export async function loadItems(db: DbExecutor, businessId: string, options: { i
 
 /**
  * Lista blanca explícita: aquí se decide qué sale al catálogo público.
- * Nunca añadir costo, stock, notas internas, referencia, usuarios ni clientes.
+ * Nunca añadir costo, stock exacto, notas internas, referencia, usuarios ni clientes.
  */
 export function toPublicItem(item: Item): PublicItem {
   const [first, ...rest] = item.photos;
@@ -139,5 +142,7 @@ export function toPublicItem(item: Item): PublicItem {
     price: item.price,
     image: first?.url ?? null,
     gallery: rest.slice(0, 3).map((p) => p.url),
+    // Solo un sí/no (nunca la cantidad): un producto agotado; un servicio nunca lo está (no lleva existencias).
+    soldOut: item.kind === 'product' && item.stockStatus === 'out_of_stock',
   };
 }

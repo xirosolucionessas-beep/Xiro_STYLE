@@ -58,6 +58,23 @@ describe('página pública: contenido y lista blanca', () => {
     expect(catalog.json<{ services: unknown[] }>().services).toHaveLength(1);
   });
 
+  it('un producto agotado sigue visible marcado, salvo que el negocio pida ocultarlo del todo', async () => {
+    const biz = await setupBiz(app, 'Agotados');
+    await createService(app, biz.session, { name: 'Shampoo', price: 20000, kind: 'product', stock: 0 });
+    await createService(app, biz.session, { name: 'Acondicionador', price: 22000, kind: 'product', stock: 3 });
+
+    const before = await app.inject({ method: 'GET', url: `${biz.base}/catalog` });
+    const beforeProducts = before.json<{ products: Array<{ name: string; inStock: boolean }> }>().products;
+    expect(beforeProducts.map((p) => p.name).sort()).toEqual(['Acondicionador', 'Shampoo']);
+    expect(beforeProducts.find((p) => p.name === 'Shampoo')).toMatchObject({ inStock: false });
+
+    expect((await staffPatch(biz, '/api/booking/settings', { hideOutOfStockInCatalog: true })).statusCode).toBe(200);
+
+    const after = await app.inject({ method: 'GET', url: `${biz.base}/catalog` });
+    const afterProducts = after.json<{ products: Array<{ name: string }> }>().products;
+    expect(afterProducts.map((p) => p.name)).toEqual(['Acondicionador']);
+  });
+
   it('el dueño decide si aparece como profesional ("Yo también atiendo citas")', async () => {
     const biz = await setupBiz(app, 'Yo atiendo');
     expect((await app.inject({ method: 'GET', url: `${biz.base}/team` })).json()).toHaveLength(1);
@@ -104,7 +121,7 @@ describe('disponibilidad', () => {
     const days = await app.inject({ method: 'GET', url: `${biz.base}/days?from=${holiday}&days=1&services=${biz.serviceId}` });
     expect(days.json()).toEqual([{ date: holiday, open: false, hasAvailability: false }]);
 
-    const off = workday(6);
+    const off = workday(6); // distinto del festivo de arriba: workday() ya no puede hacer coincidir dos offsets
     await staffPatch(biz, `/api/professionals/${biz.ownerId}/time-off`, { startsAt: at(off, '09:00'), endsAt: at(off, '12:00'), reason: 'Cita médica' }, 'POST');
     const offSlots = (await availability(app, biz, off)).body.slots;
     expect(stateAt(offSlots, '10:00')).toBe('unavailable');

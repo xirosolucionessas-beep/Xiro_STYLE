@@ -8,9 +8,13 @@ describe('describeRoute', () => {
     const cases: Array<[string, string | null]> = [
       ['/', 'home'],
       ['/cash-opening', 'home'],
+      ['/sales-today', 'home'],
+      ['/sale/new', 'home'],
+      ['/cash-close', 'home'],
       ['/agenda', 'agenda'],
       ['/reports', 'reports'],
       ['/notifications', 'notifications'],
+      ['/messages', 'messages'],
       ['/employees', 'employees'],
       ['/loyalty', 'loyalty'],
       ['/clients', 'clients'],

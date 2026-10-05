@@ -31,6 +31,7 @@ export default function BusinessScreen() {
   const [address, setAddress] = useState(business.address);
   const [city, setCity] = useState(business.city);
   const [country, setCountry] = useState(business.country);
+  const [taxId, setTaxId] = useState(business.taxId);
   const [currency, setCurrency] = useState<Currency>(business.currency);
   const [hours, setHours] = useState<BusinessHours>(business.hours);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -63,7 +64,7 @@ export default function BusinessScreen() {
 
   async function save() {
     setGeneral(undefined);
-    const body = { name, type, whatsapp, address, city, country, currency, hours };
+    const body = { name, type, whatsapp, address, city, country, taxId, currency, hours };
     const parsed = businessUpdateSchema.safeParse(body);
     if (!parsed.success) return setErrors(issuesToErrors(parsed.error.issues, t));
     setErrors({});
@@ -104,6 +105,7 @@ export default function BusinessScreen() {
       <Field label={t('address')} value={address} onChangeText={setAddress} maxLength={160} />
       <Field label={t('city')} value={city} onChangeText={setCity} maxLength={80} />
       <Field label={t('country')} value={country} onChangeText={setCountry} maxLength={80} />
+      <Field label={t('business_tax_id')} value={taxId} onChangeText={setTaxId} error={errors.taxId} maxLength={40} hint={t('business_tax_id_hint')} />
 
       <AppText variant="label" tone="gold" style={{ marginBottom: 6 }}>
         {t('currency')}

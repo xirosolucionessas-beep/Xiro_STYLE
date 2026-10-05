@@ -151,6 +151,14 @@ export function RulesTab({ data }: { data: BookingAdminSettings }) {
         <ToggleRow label={t('rules_require_email')} value={settings.requireEmail ?? true} onChange={(v) => patch({ requireEmail: v })} />
       </Card>
 
+      <SectionTitle>{t('rules_catalog_title')}</SectionTitle>
+      <Card>
+        <ToggleRow label={t('rules_hide_out_of_stock')} value={settings.hideOutOfStockInCatalog ?? false} onChange={(v) => patch({ hideOutOfStockInCatalog: v })} />
+        <AppText variant="small" tone="muted">
+          {settings.hideOutOfStockInCatalog ? t('rules_hide_out_of_stock_on') : t('rules_hide_out_of_stock_off')}
+        </AppText>
+      </Card>
+
       <SectionTitle>{t('rules_custom_title')}</SectionTitle>
       <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>
         {t('rules_custom_hint')}

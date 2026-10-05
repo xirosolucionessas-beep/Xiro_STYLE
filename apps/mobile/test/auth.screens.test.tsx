@@ -590,25 +590,26 @@ describe('RecoverView', () => {
     await noViolations(container);
   });
 
-  it('masks only what the person typed and switches the channel to match', async () => {
+  it('el canal lo elige la persona (no se adivina por lo escrito): cambiarlo limpia el campo, y cada canal enmascara lo propio', async () => {
     setup();
     const user = userEvent.setup();
+    // Canal por defecto: WhatsApp — solo admite dígitos, letras y símbolos se descartan al escribir.
+    await user.type(screen.getByLabelText('Correo electrónico o teléfono'), 'abc300-123 4542xyz');
+    expect(screen.getAllByText('3•• ••• ••42').length).toBe(2); // WhatsApp y SMS comparten la pista
+    // Cambiar a Correo limpia el campo (y con él, la máscara de teléfono).
+    await user.click(screen.getByRole('radio', { name: /Correo/ }));
+    expect((screen.getByLabelText('Correo electrónico o teléfono') as HTMLInputElement).value).toBe('');
     await user.type(screen.getByLabelText('Correo electrónico o teléfono'), 'santiago@correo.com');
-    expect((screen.getByRole('radio', { name: /Correo/ }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText('sa••••@correo.com')).toBeTruthy();
-    await user.clear(screen.getByLabelText('Correo electrónico o teléfono'));
-    await user.type(screen.getByLabelText('Correo electrónico o teléfono'), '3001234542');
-    expect((screen.getByRole('radio', { name: /WhatsApp/ }) as HTMLInputElement).checked).toBe(true);
-    expect(screen.getAllByText('3•• ••• ••42').length).toBe(2); // WhatsApp y SMS
   });
 
-  it('validates the identifier, sends the chosen channel, and links to support and back to login', async () => {
+  it('valida el identificador según el canal elegido, envía el canal correcto, y enlaza a soporte y volver a iniciar sesión', async () => {
     const { onSubmit, onBack } = setup();
     const user = userEvent.setup();
+    // WhatsApp (por defecto): sin dígitos suficientes, el botón permanece deshabilitado — ni se intenta enviar.
     await user.type(screen.getByLabelText('Correo electrónico o teléfono'), 'no-valido');
-    await user.click(screen.getByRole('button', { name: 'Enviar código' }));
-    expect(onSubmit).not.toHaveBeenCalled();
-    await user.clear(screen.getByLabelText('Correo electrónico o teléfono'));
+    expect((screen.getByRole('button', { name: 'Enviar código' }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole('radio', { name: /Correo/ }));
     await user.type(screen.getByLabelText('Correo electrónico o teléfono'), 'ana@correo.com');
     await user.click(screen.getByRole('button', { name: 'Enviar código' }));
     expect(onSubmit).toHaveBeenCalledWith({ identifier: 'ana@correo.com', channel: 'email' });
@@ -617,6 +618,20 @@ describe('RecoverView', () => {
     expect(screen.getByText(/Si te registraste con Google o con tu cuenta de Apple/)).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Iniciar sesión' }));
     expect(onBack).toHaveBeenCalledOnce();
+  });
+
+  it('en WhatsApp/SMS solo admite un celular colombiano válido; en Correo, una sintaxis de correo válida', async () => {
+    setup();
+    const user = userEvent.setup();
+    const submit = screen.getByRole('button', { name: 'Enviar código' }) as HTMLButtonElement;
+    await user.type(screen.getByLabelText('Correo electrónico o teléfono'), '2001234567'); // no empieza en 3
+    expect(submit.disabled).toBe(true);
+    await user.clear(screen.getByLabelText('Correo electrónico o teléfono'));
+    await user.type(screen.getByLabelText('Correo electrónico o teléfono'), '3001234567');
+    expect(submit.disabled).toBe(false);
+    await user.click(screen.getByRole('radio', { name: /Correo/ }));
+    await user.type(screen.getByLabelText('Correo electrónico o teléfono'), 'correo-sin-arroba.com');
+    expect(submit.disabled).toBe(true);
   });
 });
 

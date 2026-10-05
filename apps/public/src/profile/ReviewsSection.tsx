@@ -7,6 +7,9 @@ export function ReviewsSection({ reviews, language }: { reviews: PublicReviewDto
   if (reviews.length === 0) return null;
   return (
     <section className="xp-section" id="resenas" aria-labelledby="xp-reviews-h">
+      <p className="xp-kicker" aria-hidden="true">
+        {t('pub_kicker_reviews')}
+      </p>
       <h2 id="xp-reviews-h">{t('pub_nav_reviews')}</h2>
       <ul className="xp-review-list">
         {reviews.map((review, i) => (

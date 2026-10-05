@@ -213,6 +213,8 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         titleKey: 'push_appt_new_title',
         bodyKey: 'push_appt_new_body',
         params: { client, time: formatPushMoment(created.startsAt.toISOString(), business.timezone) },
+        dedupeKey: `appt_new:${created.id}`,
+        href: '/agenda',
       });
       void scheduleReminder(ctx.boss, business.id, created.id, created.startsAt);
     }
@@ -265,6 +267,8 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         titleKey: 'push_appt_cancelled_title',
         bodyKey: 'push_appt_cancelled_body',
         params: { time: formatPushMoment(cancelled.startsAt.toISOString(), business.timezone) },
+        dedupeKey: `appt_cancel:${appointmentId}`,
+        href: '/agenda',
       });
       void cancelReminder(ctx.boss, appointmentId);
     }
@@ -304,6 +308,8 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         titleKey: 'push_review_new_title',
         bodyKey: 'push_review_new_body',
         params: { author: review.authorName, rating: review.rating },
+        dedupeKey: `review:${appointmentId}`,
+        href: '/booking?tab=reviews',
       });
     }
     return dto;
@@ -332,6 +338,8 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         titleKey: 'push_appt_rescheduled_title',
         bodyKey: 'push_appt_rescheduled_body',
         params: { time: formatPushMoment(moved.startsAt.toISOString(), business.timezone) },
+        dedupeKey: `appt_reschedule:${appointmentId}:${moved.startsAt.toISOString()}`,
+        href: '/agenda',
       });
       void scheduleReminder(ctx.boss, business.id, appointmentId, moved.startsAt);
     }

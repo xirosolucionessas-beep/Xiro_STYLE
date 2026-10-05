@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ApiError } from '@/lib/api';
+import { useNotificationNavigation } from '@/lib/push';
 import { SessionProvider, useSession } from '@/lib/session';
 import { SettingsProvider, useSettings } from '@/lib/settings';
 import { WebShell } from '@/shell/WebShell';
@@ -71,11 +72,18 @@ function Gate() {
   return (
     <>
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+      <NotificationNavigator />
       <WebShell>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
       </WebShell>
     </>
   );
+}
+
+/** Solo monta el listener de deep linking de push (ver push.ts) una vez el router ya está listo para navegar. */
+function NotificationNavigator() {
+  useNotificationNavigation();
+  return null;
 }
 
 const styles = StyleSheet.create({

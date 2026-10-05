@@ -13,8 +13,8 @@ async function noViolations(container: HTMLElement) {
   expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.html).join(' | ')}`)).toEqual([]);
 }
 
-const carlos: Employee = { id: 'e1', name: 'Carlos Ruiz', email: 'carlos@correo.com', phone: null, permissions: ['clients_view', 'clients_manage'], active: true, createdAt: '2026-01-01T00:00:00.000Z' };
-const laura: Employee = { id: 'e2', name: 'Laura Gómez', email: null, phone: '573001112233', permissions: [], active: false, createdAt: '2026-01-02T00:00:00.000Z' };
+const carlos: Employee = { id: 'e1', name: 'Carlos Ruiz', email: 'carlos@correo.com', phone: null, photoUrl: null, permissions: ['clients_view', 'clients_manage'], active: true, createdAt: '2026-01-01T00:00:00.000Z' };
+const laura: Employee = { id: 'e2', name: 'Laura Gómez', email: null, phone: '573001112233', photoUrl: null, permissions: [], active: false, createdAt: '2026-01-02T00:00:00.000Z' };
 const logs: AuditLogEntry[] = [
   { id: 'l1', userId: 'e1', userName: 'Carlos Ruiz', action: 'POST /clients', entityId: null, status: 201, createdAt: '2026-01-03T10:00:00.000Z' },
   { id: 'l2', userId: 'e1', userName: 'Carlos Ruiz', action: 'GET /cash/today', entityId: null, status: 403, createdAt: '2026-01-03T10:05:00.000Z' },
@@ -27,6 +27,8 @@ function view(overrides: Partial<EmployeesViewProps> = {}) {
     logs,
     onCreate: vi.fn(async () => ({ ok: true as const })),
     onUpdate: vi.fn(async () => ({ ok: true as const })),
+    onUploadPhoto: vi.fn(async () => ({ ok: true as const, photoUrl: '/media/employee.webp' })),
+    onRemovePhoto: vi.fn(async () => ({ ok: true as const, photoUrl: null })),
     ...overrides,
   };
   return { props, ...render(<EmployeesView {...props} />) };
@@ -105,6 +107,30 @@ describe('EmployeesView — equipo', () => {
     await u.click(within(dialog).getByRole('button', { name: 'Crear empleado' }));
     expect(await within(dialog).findByText('Ya existe una cuenta con ese correo o celular.')).toBeTruthy();
     expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('crear: el formulario de alta no ofrece foto todavía (no existe id al que subirla)', async () => {
+    view();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Nuevo empleado' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).queryByText('Agregar foto')).toBeNull();
+  });
+
+  it('editar: sin foto muestra la inicial; "Cambiar foto" sube el archivo elegido y "Eliminar" la quita (100% opcional)', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { props } = view();
+    const u = userEvent.setup();
+    await u.click(screen.getAllByRole('button', { name: 'Editar' })[0]!);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('C')).toBeTruthy(); // inicial de "Carlos Ruiz", sin foto todavía
+    const file = new File(['img'], 'foto.jpg', { type: 'image/jpeg' });
+    const input = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+    await u.upload(input, file);
+    await waitFor(() => expect(props.onUploadPhoto).toHaveBeenCalledWith('e1', file));
+    expect((await within(dialog).findByAltText('')).getAttribute('src')).toBe('http://localhost:3000/media/employee.webp');
+
+    await u.click(within(dialog).getByRole('button', { name: 'Eliminar' }));
+    await waitFor(() => expect(props.onRemovePhoto).toHaveBeenCalledWith('e1'));
   });
 
   it('editar: cambia nombre y permisos; sin contraseña no la envía, y no pide correo/celular', async () => {

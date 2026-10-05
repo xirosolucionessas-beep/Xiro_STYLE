@@ -77,11 +77,13 @@ describe('migración 0006_citas sobre una base con datos', () => {
     expect((await pool.query(`select 1 from pg_extension where extname = 'btree_gist'`)).rowCount).toBe(1);
     expect((await pool.query(`select 1 from pg_constraint where conname = 'appointments_no_overlap'`)).rowCount).toBe(1);
     expect((await pool.query(`select 1 from pg_roles where rolname = 'xiro_app' and not rolcanlogin and not rolsuper`)).rowCount).toBe(1);
-    // Todas las tablas nuevas con datos de negocio tienen RLS activado.
+    // Todas las tablas nuevas con datos de negocio tienen RLS activado (las de citas desde 0006; mensajería desde 0013,
+    // ventas desde 0014 y gastos/cierre de caja desde 0016: nacen protegidas en vez de esperar a una fase aparte).
     const rls = await pool.query(`select relname from pg_class where relrowsecurity and relkind = 'r' order by relname`);
     expect(rls.rows.map((r) => r.relname)).toEqual([
-      'appointment_events', 'appointment_items', 'appointments', 'business_closures', 'business_public_profiles', 'business_settings', 'employee_profiles',
-      'employee_schedules', 'employee_services', 'employee_time_off', 'reviews', 'service_package_entries', 'service_packages', 'service_variants',
+      'appointment_events', 'appointment_items', 'appointments', 'business_closures', 'business_public_profiles', 'business_settings', 'cash_closings', 'conversations',
+      'employee_profiles', 'employee_schedules', 'employee_services', 'employee_time_off', 'expenses', 'messages', 'reviews', 'sale_items', 'sale_payments', 'sales',
+      'service_package_entries', 'service_packages', 'service_variants',
     ]);
   });
 

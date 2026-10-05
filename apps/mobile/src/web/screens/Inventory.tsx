@@ -18,6 +18,7 @@ export interface InventoryRowView {
   cost: string;
   photo: string | null;
   href: string;
+  published: boolean;
 }
 
 export interface InventoryViewProps {
@@ -35,13 +36,45 @@ export interface InventoryViewProps {
   onRetry: () => void;
   emptyAction?: ReactNode;
   navigate: (href: string) => void;
+  /** Publicar/despublicar: ausente = sin permiso de catálogo (no se ofrece ni la casilla ni los botones). */
+  canPublish?: boolean;
+  selected: string[];
+  onToggleSelect: (id: string) => void;
+  onSelectAll: (ids: string[]) => void;
+  onQuickPublish: (id: string, published: boolean) => void;
+  onBulkPublish: (published: boolean) => void;
+  bulkBusy: boolean;
 }
 
 const TONE = { available: 'success', reorder: 'warning', out_of_stock: 'danger' } as const;
 
-/** Sección Inventario: indicadores por estado de stock, filtros y tabla con foto, stock, estado y costo. */
-export function InventoryView({ t, kpis, categories, category, onCategory, statuses, status, onStatus, rows, state, errorMessage, onRetry, emptyAction, navigate }: InventoryViewProps) {
+/** Sección Inventario: indicadores por estado de stock, filtros y tabla con foto, stock, estado, costo y publicación en catálogo. */
+export function InventoryView({
+  t,
+  kpis,
+  categories,
+  category,
+  onCategory,
+  statuses,
+  status,
+  onStatus,
+  rows,
+  state,
+  errorMessage,
+  onRetry,
+  emptyAction,
+  navigate,
+  canPublish,
+  selected,
+  onToggleSelect,
+  onSelectAll,
+  onQuickPublish,
+  onBulkPublish,
+  bulkBusy,
+}: InventoryViewProps) {
   useWebStyles();
+  const allIds = rows.map((r) => r.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.includes(id));
   return (
     <div className="xw-section">
       <KpiRow kpis={kpis} label={t('dash_kpis')} t={t} />
@@ -53,6 +86,18 @@ export function InventoryView({ t, kpis, categories, category, onCategory, statu
       <p className="xw-hint" style={{ margin: 0 }}>
         {t('inventory_sync_note')}
       </p>
+
+      {canPublish && selected.length > 0 ? (
+        <div className="xw-inv-bulkbar" role="toolbar" aria-label={t('sec_inv_bulk_toolbar')}>
+          <span>{t('sec_inv_bulk_selected', { n: selected.length })}</span>
+          <button type="button" className="xw-btn xw-btn--secondary xw-btn--sm" disabled={bulkBusy} onClick={() => onBulkPublish(true)}>
+            {t('sec_inv_bulk_publish')}
+          </button>
+          <button type="button" className="xw-btn xw-btn--secondary xw-btn--sm" disabled={bulkBusy} onClick={() => onBulkPublish(false)}>
+            {t('sec_inv_bulk_unpublish')}
+          </button>
+        </div>
+      ) : null}
 
       {state === 'loading' ? <LoadingRows label={t('dash_loading')} rows={5} /> : null}
       {state === 'error' ? <ErrorPanel message={errorMessage ?? t('unknown_error')} retryLabel={t('retry')} onRetry={onRetry} /> : null}
@@ -68,6 +113,11 @@ export function InventoryView({ t, kpis, categories, category, onCategory, statu
               <caption className="xw-sr">{t('sec_inventory_list')}</caption>
               <thead>
                 <tr>
+                  {canPublish ? (
+                    <th scope="col">
+                      <input type="checkbox" aria-label={t('sec_inv_select_all')} checked={allSelected} onChange={() => onSelectAll(allSelected ? [] : allIds)} />
+                    </th>
+                  ) : null}
                   <th scope="col">{t('sec_col_item')}</th>
                   <th scope="col">{t('sec_col_category')}</th>
                   <th scope="col" className="is-num">
@@ -77,6 +127,7 @@ export function InventoryView({ t, kpis, categories, category, onCategory, statu
                   <th scope="col" className="is-num">
                     {t('sec_col_cost')}
                   </th>
+                  {canPublish ? <th scope="col">{t('sec_inv_col_catalog')}</th> : null}
                   <th scope="col">
                     <span className="xw-sr">{t('sec_open')}</span>
                   </th>
@@ -85,6 +136,11 @@ export function InventoryView({ t, kpis, categories, category, onCategory, statu
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
+                    {canPublish ? (
+                      <td>
+                        <input type="checkbox" aria-label={t('sec_inv_select_one', { name: row.name })} checked={selected.includes(row.id)} onChange={() => onToggleSelect(row.id)} />
+                      </td>
+                    ) : null}
                     <td>
                       <div className="xw-cell-main">
                         <span className="xw-thumb" aria-hidden="true">
@@ -107,6 +163,16 @@ export function InventoryView({ t, kpis, categories, category, onCategory, statu
                     <td className="is-num is-muted" data-label={t('sec_col_cost')}>
                       {row.cost}
                     </td>
+                    {canPublish ? (
+                      <td data-label={t('sec_inv_col_catalog')}>
+                        <div className="xw-inv-publish">
+                          <Badge tone={row.published ? 'success' : 'muted'}>{t(row.published ? 'sec_inv_published' : 'sec_inv_unpublished')}</Badge>
+                          <button type="button" className="xw-btn xw-btn--secondary xw-btn--sm" onClick={() => onQuickPublish(row.id, !row.published)}>
+                            {t(row.published ? 'sec_inv_unpublish_action' : 'sec_inv_publish_action')}
+                          </button>
+                        </div>
+                      </td>
+                    ) : null}
                     <td className="xw-td-chev">
                       <span className="xw-row-chev">
                         <Ico name="chevron-right" size={18} />

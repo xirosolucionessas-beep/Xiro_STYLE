@@ -37,10 +37,25 @@
   --space-6: 32px;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 20px 48px -12px rgba(0, 0, 0, 0.6);
   --shadow-gold: 0 6px 22px rgba(217, 182, 54, 0.26);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* El contenido va centrado y a un ancho cómodo de lectura en celular; en pantallas más anchas crece con el viewport
+     (ver los breakpoints de --max-width más abajo) para que la cuadrícula de servicios/productos aproveche el espacio
+     en vez de quedar una columna angosta flotando en medio de una ventana de escritorio. */
   --max-width: 760px;
-  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Outfit', var(--font);
+}
+@media (min-width: 900px) {
+  :root {
+    --max-width: 960px;
+  }
+}
+@media (min-width: 1200px) {
+  :root {
+    --max-width: 1120px;
+  }
 }
 
 * {
@@ -80,6 +95,12 @@ p,
 dl,
 dd {
   margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
 }
 
 button,
@@ -153,7 +174,7 @@ textarea {
 /* La portada va SOLA: ningún texto se dibuja encima. El degradado oscuro de abajo la funde con el fondo y sirve de base al logo. */
 .xp-cover {
   position: relative;
-  height: clamp(170px, 36vw, 320px);
+  height: clamp(190px, 38vw, 420px);
   overflow: hidden;
   background: var(--surface-alt);
 }
@@ -179,6 +200,9 @@ textarea {
     var(--surface-alt);
 }
 
+/* Tarjeta "de vidrio" (glassmorphism ligero): vive SIEMPRE sobre el fondo sólido, nunca sobre la foto (ver nota
+   arriba) — el efecto de vidrio viene del leve desenfoque/transparencia contra ese fondo, no de superponerse a la
+   portada. Se monta sobre el degradado con un margen negativo para sentirse "conectada" a la portada sin taparla. */
 .xp-identity {
   position: relative;
   z-index: 1;
@@ -186,16 +210,26 @@ textarea {
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-2);
-  padding-bottom: var(--space-4);
+  margin-top: -28px;
+  padding: var(--space-5) var(--space-4) var(--space-5);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: linear-gradient(180deg, rgba(23, 23, 26, 0.7), rgba(23, 23, 26, 0.94) 60%);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+@media (min-width: 720px) {
+  .xp-identity {
+    border-radius: var(--radius-xl);
+  }
 }
 
 .xp-logo {
-  width: 96px;
-  height: 96px;
-  margin-top: -48px;
+  width: 124px;
+  height: 124px;
+  margin-top: -74px;
   border-radius: 50%;
   border: 4px solid var(--bg);
-  box-shadow: 0 0 0 2px var(--gold), var(--shadow-md);
+  box-shadow: 0 0 0 2px var(--gold), var(--shadow-lg);
   background: var(--surface);
   object-fit: cover;
   flex: none;
@@ -312,8 +346,26 @@ textarea {
 /* ---------- Secciones ---------- */
 
 .xp-section {
-  padding: var(--space-5) 0 var(--space-4);
+  padding: var(--space-6) 0 var(--space-4);
+  border-top: 1px solid var(--border);
   scroll-margin-top: 16px;
+}
+.xp-section:first-child {
+  border-top: 0;
+  padding-top: var(--space-4);
+}
+
+/* Etiqueta pequeña en dorado, en mayúsculas, encima del título de cada sección — le da un aire más editorial/premium
+   sin competir con el título (que sigue siendo lo primero que se lee). Opcional: las secciones que no la traen (el
+   "Sobre el negocio", sin encabezado propio) no se ven afectadas. */
+.xp-kicker {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--gold);
+  font-size: 12.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 .xp-about {
   padding-top: var(--space-2);
@@ -457,6 +509,11 @@ img {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+@media (min-width: 1040px) {
+  .xp-service-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 
 .xp-service {
   display: flex;
@@ -553,16 +610,34 @@ img {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: var(--space-4) var(--space-3);
+  width: 100%;
+  padding: var(--space-5) var(--space-3) var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
+  color: inherit;
+  font: inherit;
   text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.25s var(--ease),
+    transform 0.25s var(--ease),
+    box-shadow 0.25s var(--ease);
+}
+.xp-member:hover,
+.xp-member:focus-visible {
+  border-color: var(--gold);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+.xp-member:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
 }
 .xp-member-photo {
-  width: 96px;
-  height: 96px;
-  margin-bottom: var(--space-2);
+  width: 112px;
+  height: 112px;
+  margin-bottom: var(--space-3);
   border-radius: 50%;
   border: 2px solid var(--border-strong);
   object-fit: cover;
@@ -580,13 +655,80 @@ img {
   align-items: center;
   justify-content: center;
   color: var(--gold);
-  font-size: 34px;
+  font-size: 38px;
   font-weight: 800;
 }
 .xp-member-name {
-  font-size: 16px;
-  font-weight: 800;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
 }
+/* Pista de que la tarjeta se puede abrir: discreta hasta el hover/foco, para no competir con el nombre y la bio. */
+.xp-member-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  color: var(--gold-soft);
+  font-size: 12.5px;
+  font-weight: 700;
+  opacity: 0.75;
+  transition: opacity 0.2s var(--ease);
+}
+.xp-member:hover .xp-member-cta,
+.xp-member:focus-visible .xp-member-cta {
+  opacity: 1;
+}
+/* ---------- Modal del equipo: bio y servicios completos de la persona ---------- */
+.xp-member-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+.xp-member-detail-photo {
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  box-shadow: var(--shadow-md);
+  object-fit: cover;
+  background: var(--surface-alt);
+}
+.xp-member-detail-bio {
+  color: var(--text-muted);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+.xp-member-detail-services {
+  width: 100%;
+  text-align: left;
+}
+.xp-member-detail-services h3 {
+  margin-bottom: var(--space-2);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.xp-member-detail-services ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.xp-member-detail-services li {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-size: 14px;
+}
+
 .xp-member-bio {
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -701,6 +843,11 @@ img {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+@media (min-width: 1040px) {
+  .xp-product-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
 .xp-product {
   display: flex;
   flex-direction: column;
@@ -708,6 +855,15 @@ img {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
+  transition:
+    transform 0.2s var(--ease),
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.xp-product:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
 }
 .xp-product.is-out .xp-product-img,
 .xp-product.is-out .xp-product-name {

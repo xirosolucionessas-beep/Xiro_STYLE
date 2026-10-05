@@ -46,14 +46,11 @@ export interface DashboardViewProps {
   /** "Buenos días" ya resuelto con la hora del negocio. */
   greeting: string;
   businessName: string;
-  userName: string;
-  businessSlug: string;
   logo: ReactNode;
   /** Foto del negocio para el banner; sin ella, degradado dorado de marca. */
   heroUrl?: string | null;
   onChangeLogo: () => void;
   logoBusy: boolean;
-  onEditProfile: () => void;
   kpis: KpiView[];
   actions: HomeAction[];
   needsWhatsappSetup: boolean;
@@ -66,7 +63,6 @@ export interface DashboardViewProps {
   appointments: { loading: boolean; rows: AppointmentRowView[]; allHref: string } | null;
   /** Aviso "Revisa tus servicios y productos" (solo quien gestiona el catálogo y solo si hay pendientes). */
   reviewBanner: { count: number; href: string } | null;
-  onOpenAssistant: () => void;
   navigate: (href: string) => void;
   year: number;
   supportHref: string;
@@ -81,7 +77,6 @@ export function DashboardView(props: DashboardViewProps) {
   useWebStyles();
   const { t, kpis, actions, summary, stock, activity, appointments, reviewBanner, navigate } = props;
   const hero: CSSProperties | undefined = props.heroUrl ? { backgroundImage: `linear-gradient(100deg, rgba(8,8,10,.92) 8%, rgba(8,8,10,.55) 60%, rgba(8,8,10,.35)), url("${props.heroUrl}")` } : undefined;
-  const initial = props.userName.trim().charAt(0).toUpperCase() || '?';
 
   const link = (href: string) => linkProps(href, navigate);
 
@@ -98,15 +93,6 @@ export function DashboardView(props: DashboardViewProps) {
           <h2 className="xw-hero-title">{t('dash_welcome', { greeting: props.greeting, business: props.businessName })}</h2>
           <p className="xw-hero-sub">{t('dash_tagline')}</p>
         </div>
-        <button type="button" className="xw-hero-account" aria-label={t('edit_profile')} onClick={props.onEditProfile}>
-          <span className="xw-hero-account-text">
-            <span className="xw-home-name">{props.userName}</span>
-            <span className="xw-home-sub">{t('dash_account', { slug: props.businessSlug })}</span>
-          </span>
-          <span className="xw-home-avatar" aria-hidden="true">
-            {initial}
-          </span>
-        </button>
       </section>
 
       {props.needsWhatsappSetup ? (
@@ -263,21 +249,6 @@ export function DashboardView(props: DashboardViewProps) {
               ) : null}
             </Panel>
           ) : null}
-
-          <section className="xw-assistant xw-scope-dark" aria-labelledby="xw-assistant-title">
-            <span className="xw-assistant-ic" aria-hidden="true">
-              <Ico name="sparkles" size={24} />
-            </span>
-            <div className="xw-assistant-text">
-              <h2 id="xw-assistant-title" className="xw-assistant-title">
-                {t('dash_assistant_title')}
-              </h2>
-              <p>{t('dash_assistant_text')}</p>
-            </div>
-            <button type="button" className="xw-btn xw-btn--primary xw-btn--sm" onClick={props.onOpenAssistant}>
-              {t('dash_assistant_cta')}
-            </button>
-          </section>
         </div>
       </div>
 

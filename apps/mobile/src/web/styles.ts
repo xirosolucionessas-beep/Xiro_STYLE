@@ -1,12 +1,16 @@
 import { buildShellCss } from './shellCss';
 import { buildAssistantCss } from './assistantCss';
 import { buildAuthCss } from './authCss';
+import { buildCashCloseCss } from './cashCloseCss';
 import { buildDashboardCss } from './dashboardCss';
 import { buildPagesCss } from './pagesCss';
+import { buildPlanCelebrationCss } from './planCelebrationCss';
 import { buildHomeCss } from './homeCss';
 import { buildEmployeesCss } from './employeesCss';
 import { buildLoyaltyCss } from './loyaltyCss';
+import { buildMessagesCss } from './messagesCss';
 import { buildProfileCss } from './profileCss';
+import { buildSaleFormCss } from './saleFormCss';
 import { buildSubscriptionCss } from './subscriptionCss';
 import { buildWelcomeCss } from './welcomeCss';
 import { brand, colors, focusRing, font, layout, motion, radius, remOf, space, type ColorTokens, type ThemeName } from './tokens';
@@ -163,7 +167,15 @@ ${buildEmployeesCss()}
 
 ${buildDashboardCss()}
 
+${buildMessagesCss()}
+
 ${buildPagesCss()}
+
+${buildSaleFormCss()}
+
+${buildCashCloseCss()}
+
+${buildPlanCelebrationCss()}
 
 /* Movimiento reducido (WCAG 2.3.3). */
 @media (prefers-reduced-motion: reduce) {

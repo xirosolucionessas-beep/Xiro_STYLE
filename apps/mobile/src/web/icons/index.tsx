@@ -123,6 +123,7 @@ const paths = {
       <path d="M12 5v14" />
     </>
   ),
+  minus: <path d="M5 12h14" />,
   'chevron-down': <path d="m6 9 6 6 6-6" />,
   clock: (
     <>
@@ -148,6 +149,13 @@ const paths = {
       <path d="M12 3v12" />
       <path d="m17 8-5-5-5 5" />
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M12 15V3" />
     </>
   ),
   'chevron-left': <path d="m15 18-6-6 6-6" />,

@@ -29,21 +29,35 @@ export interface DayTotals {
   count: number;
 }
 
-/** Ventas y cantidad de servicios de hoy y de ayer, según el día del negocio (su zona horaria). */
-export function serviceDays(records: ReadonlyArray<{ amount: number; createdAt: string }>, timezone: string, now: Date = new Date()): { today: DayTotals; yesterday: DayTotals } {
+/**
+ * Ventas (servicios + productos) y, aparte, el valor y la cantidad SOLO de servicios, de hoy y de ayer, según el día
+ * del negocio (su zona horaria). "Ventas hoy" usa `today`/`yesterday` (el general); "Servicios hoy" usa
+ * `todayServices`/`yesterdayServices` — ambos vienen de la misma lista de registros, así que nunca pueden desalinearse.
+ */
+export function serviceDays(
+  records: ReadonlyArray<{ amount: number; createdAt: string; kind: 'service' | 'product' }>,
+  timezone: string,
+  now: Date = new Date(),
+): { today: DayTotals; yesterday: DayTotals; todayServices: DayTotals; yesterdayServices: DayTotals } {
   const todayKey = dayKey(timezone, now);
   const yesterdayKey = dayKey(timezone, new Date(now.getTime() - DAY_MS));
   const today: DayTotals = { total: 0, count: 0 };
   const yesterday: DayTotals = { total: 0, count: 0 };
+  const todayServices: DayTotals = { total: 0, count: 0 };
+  const yesterdayServices: DayTotals = { total: 0, count: 0 };
   for (const record of records) {
     const key = dayKey(timezone, new Date(record.createdAt));
     const bucket = key === todayKey ? today : key === yesterdayKey ? yesterday : null;
-    if (bucket) {
-      bucket.total += record.amount;
-      bucket.count += 1;
+    if (!bucket) continue;
+    bucket.total += record.amount;
+    bucket.count += 1;
+    if (record.kind === 'service') {
+      const serviceBucket = key === todayKey ? todayServices : yesterdayServices;
+      serviceBucket.total += record.amount;
+      serviceBucket.count += 1;
     }
   }
-  return { today, yesterday };
+  return { today, yesterday, todayServices, yesterdayServices };
 }
 
 /** Clientes nuevos hoy y ayer. */

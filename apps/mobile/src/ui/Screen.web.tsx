@@ -27,13 +27,16 @@ export function Screen({ children, footer, header }: ScreenProps) {
 }
 
 /** Icono de la sección a la que pertenece la pantalla (las sub-pantallas heredan el de su sección). */
-const SECTION_ICON: Record<SectionId, IconName> = { home: 'house', notifications: 'bell', agenda: 'calendar-days', booking: 'globe', reports: 'bar-chart', clients: 'users', services: 'book-open', inventory: 'package', loyalty: 'gift', employees: 'briefcase', settings: 'sliders' };
+const SECTION_ICON: Record<SectionId, IconName> = { home: 'house', notifications: 'bell', messages: 'message-square', agenda: 'calendar-days', booking: 'globe', reports: 'bar-chart', clients: 'users', services: 'book-open', inventory: 'package', loyalty: 'gift', employees: 'briefcase', settings: 'sliders' };
 
 export function Header({ title, subtitle, onBack, right, root }: HeaderProps) {
   useWebStyles();
   const { t } = useSettings();
   const router = useRouter();
-  const section = describeRoute(usePathname()).section;
+  const route = describeRoute(usePathname());
+  // El ícono es el de la propia pantalla si lo define (p. ej. Ventas de hoy no debe mostrar la casa solo porque su
+  // acceso vive en la sección "Inicio" de la barra lateral); si no, el de su sección.
+  const icon = route.icon ?? (route.section ? SECTION_ICON[route.section] : undefined);
   // Vuelve con el historial real del navegador; sin historial (entrada directa) va al inicio sin apilar otra entrada.
   const goBack = () => (onBack ? onBack() : router.canGoBack() ? router.back() : router.replace('/'));
 
@@ -44,9 +47,9 @@ export function Header({ title, subtitle, onBack, right, root }: HeaderProps) {
           <Icon name="arrow-left" size={22} />
         </button>
       ) : null}
-      {section ? (
+      {icon ? (
         <span className="xw-head-ic" aria-hidden="true">
-          <Ico name={SECTION_ICON[section]} size={26} />
+          <Ico name={icon} size={26} />
         </span>
       ) : null}
       <div className="xw-head-text">

@@ -1,20 +1,23 @@
 import { clientInputSchema } from '@xiro/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
+import { View } from 'react-native';
 import { api } from '@/lib/api';
 import { apiErrors, issuesToErrors } from '@/lib/forms';
+import { pickFromLibrary, uploadableImage } from '@/lib/images';
 import { useClient, useInvalidateClients } from '@/lib/queries';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
 import { useDialogs } from '@/ui/Dialogs';
 import { Field } from '@/ui/Field';
+import { Photo } from '@/ui/Kit';
 import { Header, Screen } from '@/ui/Screen';
 import { AppText } from '@/ui/Text';
 
 export default function ClientForm() {
   const router = useRouter();
   const { t } = useSettings();
-  const { toast } = useDialogs();
+  const { toast, confirm } = useDialogs();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const existing = useClient(id).data;
   const invalidate = useInvalidateClients();
@@ -22,15 +25,50 @@ export default function ClientForm() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string>();
   const hydrated = useRef(false);
 
   useEffect(() => {
     if (!existing || hydrated.current) return;
     hydrated.current = true;
     setForm({ name: existing.name, email: existing.email ?? '', phone: existing.phone ?? '', address: existing.address, notes: existing.notes });
+    setPhotoUrl(existing.photoUrl);
   }, [existing]);
 
   const set = (key: keyof typeof form) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
+
+  async function changePhoto() {
+    if (!id) return;
+    const [picked] = await pickFromLibrary(1);
+    if (!picked) return;
+    setPhotoBusy(true);
+    setPhotoError(undefined);
+    try {
+      setPhotoUrl((await api.uploadClientPhoto(id, await uploadableImage(picked))).photoUrl);
+      await invalidate();
+    } catch (e) {
+      setPhotoError(apiErrors(e, t).general ?? t('unknown_error'));
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function removePhoto() {
+    if (!id) return;
+    if (!(await confirm({ title: t('client_photo_remove_title'), message: t('client_photo_remove_text'), confirmLabel: t('delete'), destructive: true }))) return;
+    setPhotoBusy(true);
+    setPhotoError(undefined);
+    try {
+      setPhotoUrl((await api.deleteClientPhoto(id)).photoUrl);
+      await invalidate();
+    } catch (e) {
+      setPhotoError(apiErrors(e, t).general ?? t('unknown_error'));
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   async function submit() {
     setGeneral(undefined);
@@ -55,6 +93,25 @@ export default function ClientForm() {
 
   return (
     <Screen header={<Header title={id ? t('client_edit') : t('client_new')} />}>
+      {id ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+          <Photo url={photoUrl} size={72} initials={form.name} icon="person-outline" />
+          <View style={{ flex: 1, gap: 6 }}>
+            <AppText variant="small" tone="muted">
+              {t('client_photo_hint')}
+            </AppText>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <Button label={t(photoUrl ? 'account_photo_change' : 'account_photo_add')} icon="image-outline" variant="secondary" compact loading={photoBusy} onPress={() => void changePhoto()} style={{ alignSelf: 'flex-start' }} />
+              {photoUrl ? <Button label={t('delete')} icon="trash-outline" variant="ghost" compact loading={photoBusy} onPress={() => void removePhoto()} style={{ alignSelf: 'flex-start' }} /> : null}
+            </View>
+            {photoError ? (
+              <AppText tone="danger" variant="small">
+                {photoError}
+              </AppText>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
       <Field label={`${t('full_name')} *`} value={form.name} onChangeText={set('name')} error={errors.name} maxLength={80} />
       <Field label={t('phone')} value={form.phone} onChangeText={set('phone')} error={errors.phone} keyboardType="phone-pad" prefix="+57" />
       <Field label={t('email')} value={form.email} onChangeText={set('email')} error={errors.email} keyboardType="email-address" autoCapitalize="none" />

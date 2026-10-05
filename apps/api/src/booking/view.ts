@@ -15,6 +15,7 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DbExecutor } from '../db/client';
 import {
   businessPublicProfiles,
+  businessSettings,
   businessSlugHistory,
   businesses,
   categories,
@@ -231,9 +232,12 @@ export async function loadPublicCatalog(tx: Tx, businessId: string, sections: Re
       image: null,
     }));
 
-  const productRows = sections.products
+  const allProductRows = sections.products
     ? await tx.select().from(items).where(and(eq(items.businessId, businessId), eq(items.kind, 'product'), eq(items.bookable, true), eq(items.published, true))).orderBy(asc(items.sortOrder), asc(items.name))
     : [];
+  // El negocio puede pedir que un producto agotado desaparezca de aquí (y no solo quede marcado `inStock: false`).
+  const [settingsRow] = allProductRows.length > 0 ? await tx.select({ hide: businessSettings.hideOutOfStockInCatalog }).from(businessSettings).where(eq(businessSettings.businessId, businessId)).limit(1) : [];
+  const productRows = settingsRow?.hide ? allProductRows.filter((p) => p.stock > 0) : allProductRows;
   const productPhotos = await firstPhotos(tx, productRows.map((p) => p.id));
   const products = productRows.map((p) => ({ id: p.id, name: p.name, description: p.shortDescription || p.description, price: p.price, image: productPhotos.get(p.id) ?? null, inStock: p.stock > 0 }));
 

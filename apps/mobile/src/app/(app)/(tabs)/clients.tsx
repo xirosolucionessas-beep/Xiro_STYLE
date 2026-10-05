@@ -6,7 +6,7 @@ import { errorKey } from '@/lib/api';
 import { useClients } from '@/lib/queries';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
-import { Card, EmptyState } from '@/ui/Kit';
+import { Card, EmptyState, Photo } from '@/ui/Kit';
 import { Header, Screen } from '@/ui/Screen';
 import { AppText } from '@/ui/Text';
 import { radius } from '@/ui/theme';
@@ -52,11 +52,7 @@ export default function Clients() {
         <View style={{ gap: 10, marginTop: 14 }}>
           {clients.data.map((client) => (
             <Card key={client.id} onPress={() => router.push({ pathname: '/client/[id]', params: { id: client.id } })} style={styles.clientCard}>
-              <View style={[styles.avatar, { backgroundColor: colors.goldTint, borderColor: colors.gold }]}>
-                <AppText variant="heading" tone="gold">
-                  {client.name.trim().charAt(0).toUpperCase()}
-                </AppText>
-              </View>
+              <Photo url={client.photoUrl} size={44} style={[styles.avatar, { backgroundColor: colors.goldTint, borderColor: colors.gold }]} initials={client.name} icon="person-outline" />
               <View style={{ flex: 1 }}>
                 <AppText variant="bodyStrong" numberOfLines={1}>
                   {client.name}

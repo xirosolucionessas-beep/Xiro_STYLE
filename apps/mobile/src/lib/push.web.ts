@@ -56,3 +56,12 @@ export const push: PushAdapter = {
     await prefsStorage.remove(TOKEN_KEY);
   },
 };
+
+/**
+ * En Web el deep linking al tocar un push lo resuelve el propio Service Worker (sw.js: `notificationclick` navega la
+ * pestaña ya abierta, o abre una nueva en `data.url`), sin pasar por React — no hay nada que hacer aquí. Mismo
+ * patrón que `useRealtimeAppointments` en realtime.ts/realtime.web.ts: no-op a propósito en la variante que no aplica.
+ */
+export function useNotificationNavigation(): void {
+  // Nada que hacer en Web.
+}

@@ -74,7 +74,7 @@ const menu = () => within(screen.getByRole('navigation', { name: 'Navegación pr
 describe('menú lateral por rol', () => {
   it('el dueño ve todo, incluido Empleados', () => {
     render(<Shell actor={owner} />);
-    for (const name of ['Inicio', 'Clientes', 'Servicios', 'Inventario', 'Empleados', 'Fidelización', 'Ajustes']) expect(menu().getByRole('link', { name })).toBeTruthy();
+    for (const name of ['Inicio', 'Clientes', 'Catálogo', 'Inventario', 'Empleados', 'Fidelización', 'Ajustes']) expect(menu().getByRole('link', { name })).toBeTruthy();
   });
 
   it('un empleado sin permisos solo ve Inicio y Ajustes (nada de Próximamente del dueño)', () => {
@@ -86,7 +86,7 @@ describe('menú lateral por rol', () => {
   it('cada permiso abre su módulo y solo ese', () => {
     render(<Shell actor={employee('clients_view', 'catalog_view', 'services_record')} />); // como lo entrega el servidor: ya normalizado
     const names = menu().getAllByRole('link').map((l) => l.textContent);
-    expect(names).toEqual(expect.arrayContaining(['Clientes', 'Servicios', 'Inventario', 'Fidelización']));
+    expect(names).toEqual(expect.arrayContaining(['Clientes', 'Catálogo', 'Inventario', 'Fidelización']));
     expect(names).not.toContain('Empleados');
   });
 

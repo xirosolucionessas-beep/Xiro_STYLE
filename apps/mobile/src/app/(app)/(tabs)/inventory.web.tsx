@@ -6,11 +6,13 @@ import { formatMoney, STOCK_STATUSES, summarizeStock, type Currency, type StockS
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
-import { errorKey, resolveMedia } from '@/lib/api';
+import { api, errorKey, resolveMedia } from '@/lib/api';
+import { apiErrors } from '@/lib/forms';
 import { tracksStock } from '@/lib/homeMetrics';
 import { inventoryValue } from '@/lib/sections';
-import { useCategories, useItems } from '@/lib/queries';
+import { useCategories, useInvalidateCatalog, useItems } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
+import { useDialogs } from '@/ui/Dialogs';
 import { Header, Screen } from '@/ui/Screen';
 import { Ico } from '@/web/icons';
 import { InventoryView, type InventoryRowView } from '@/web/screens/Inventory';
@@ -26,10 +28,14 @@ export default function InventoryWeb() {
   const { t } = useWebText();
   const { user, business } = useAuthed();
   const canManage = meets(actorOf(user), ['catalog_manage']);
+  const { toast } = useDialogs();
+  const invalidateCatalog = useInvalidateCatalog();
   const items = useItems();
   const categories = useCategories();
   const currency = business.currency as Currency;
   const [category, setCategory] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const params = useLocalSearchParams<{ status?: string }>();
   const fromLink = (STOCK_STATUSES as readonly string[]).includes(params.status ?? '') ? (params.status as StockStatus) : null;
   // El filtro elegido a mano manda hasta que llega OTRO enlace de alerta (entonces vuelve a mandar el enlace).
@@ -54,9 +60,23 @@ export default function InventoryWeb() {
           cost: item.internalUnitCost ? formatMoney(item.internalUnitCost, currency) : '—',
           photo: resolveMedia(item.photos[0]?.url) ?? null,
           href: `/item/${item.id}`,
+          published: item.published,
         })),
     [all, category, status, currency, t],
   );
+
+  async function publish(ids: string[], published: boolean) {
+    setBulkBusy(true);
+    try {
+      await api.bulkPublish(ids, published);
+      await invalidateCatalog();
+      setSelected((prev) => prev.filter((id) => !ids.includes(id)));
+    } catch (error) {
+      toast(apiErrors(error, t).general ?? t('unknown_error'));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   const kpis: KpiView[] = [
     { id: 'total', icon: 'package', label: t('sec_kpi_inv_total'), value: items.data ? String(summary.total) : '—', loading: items.isLoading },
@@ -109,6 +129,13 @@ export default function InventoryWeb() {
           ) : undefined
         }
         navigate={(href) => router.push(href as never)}
+        canPublish={canManage}
+        selected={selected}
+        onToggleSelect={(id) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}
+        onSelectAll={setSelected}
+        onQuickPublish={(id, published) => void publish([id], published)}
+        onBulkPublish={(published) => void publish(selected, published)}
+        bulkBusy={bulkBusy}
       />
     </Screen>
   );

@@ -1,20 +1,24 @@
+import { eq } from 'drizzle-orm';
 import type { PaymentMethod, SubscriptionPlan, SubscriptionStatus } from '@xiro/shared';
 import { GRACE_PERIOD_DAYS } from '@xiro/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import Stripe from 'stripe';
 import type { Ctx } from '../context';
+import { subscriptions } from '../db/schema';
 import { AppError } from '../errors';
 import { verifyPayPalWebhook } from '../paypal';
 import { notifyBusiness } from '../push';
-import { addDays, applyProviderEvent, type ProviderPatch } from '../subscriptions';
+import { addDays, addPlanInterval, applyProviderEvent, recordProviderEventOnce, recordSubscriptionInvoice, type ProviderPatch } from '../subscriptions';
 
 /**
  * Avisa por push cuando un webhook deja la suscripción en problemas: mismos casos que ya muestra SubscriptionGate
  * en pantalla — 'expired' y 'canceled' bloquean el acceso igual (ver subscriptionHasAccess en packages/shared).
+ * `externalEventId` arma la clave de idempotencia del centro de notificaciones: un webhook reenviado (los tres
+ * proveedores lo hacen) nunca duplica el aviso, solo el envío real de push ya protegido por `applyProviderEvent`.
  */
-async function notifyBillingIfNeeded(ctx: Ctx, businessId: string, patch: ProviderPatch | null): Promise<void> {
-  if (patch?.status === 'past_due') void notifyBusiness(ctx, businessId, 'billing', { titleKey: 'push_billing_issue_title', bodyKey: 'push_billing_issue_body' });
-  else if (patch?.status === 'expired' || patch?.status === 'canceled') void notifyBusiness(ctx, businessId, 'billing', { titleKey: 'push_billing_expired_title', bodyKey: 'push_billing_expired_body' });
+async function notifyBillingIfNeeded(ctx: Ctx, businessId: string, patch: ProviderPatch | null, externalEventId: string): Promise<void> {
+  if (patch?.status === 'past_due') void notifyBusiness(ctx, businessId, 'billing', { titleKey: 'push_billing_issue_title', bodyKey: 'push_billing_issue_body', dedupeKey: `billing:${externalEventId}`, href: '/subscription' });
+  else if (patch?.status === 'expired' || patch?.status === 'canceled') void notifyBusiness(ctx, businessId, 'billing', { titleKey: 'push_billing_expired_title', bodyKey: 'push_billing_expired_body', dedupeKey: `billing:${externalEventId}`, href: '/subscription' });
 }
 
 /** `xiro_monthly` / `xiro_yearly`: nombres de producto a configurar igual en App Store Connect y Google Play Console. */
@@ -77,7 +81,13 @@ async function handleRevenueCat(request: FastifyRequest, ctx: Ctx) {
       return { ok: true, ignored: event.type }; // p. ej. TRANSFER, TEST — no cambian el estado de acceso
   }
   const result = await applyProviderEvent(db, businessId, 'revenuecat', event.type, patch, event.id, body);
-  void notifyBillingIfNeeded(ctx, businessId, patch);
+  if (result === 'applied') void notifyBillingIfNeeded(ctx, businessId, patch, event.id);
+  // Comprobante solo en los eventos que SÍ representan un cobro real — no al reactivar ni al cambiar de plan,
+  // que solo tomarán efecto (y cobrarán) en la próxima renovación.
+  if (result === 'applied' && plan && (event.type === 'INITIAL_PURCHASE' || event.type === 'RENEWAL')) {
+    const periodStart = event.purchased_at_ms ? new Date(event.purchased_at_ms) : new Date();
+    await recordSubscriptionInvoice(db, { businessId, plan, paymentMethod: 'card', periodStart, periodEnd: expiresAt, externalPaymentId: event.id });
+  }
   return { ok: true, result };
 }
 
@@ -133,8 +143,40 @@ async function handleStripe(request: FastifyRequest, ctx: Ctx) {
       externalSubscriptionId: sub.id,
       ...(plan ? { plan } : {}),
     };
-    await applyProviderEvent(db, businessId, 'stripe', event.type, patch, event.id, event);
-    void notifyBillingIfNeeded(ctx, businessId, patch);
+    const result = await applyProviderEvent(db, businessId, 'stripe', event.type, patch, event.id, event);
+    if (result === 'applied') void notifyBillingIfNeeded(ctx, businessId, patch, event.id);
+    return { ok: true };
+  }
+
+  /**
+   * El comprobante se genera aquí, no en `customer.subscription.*` arriba: ese evento puede llegar varias veces sin
+   * que haya un cobro nuevo de por medio (p. ej. al solo actualizar metadata). `invoice.payment_succeeded` SÍ es,
+   * uno a uno, "este pago se cobró" — y trae el monto real cobrado por Stripe (en pesos, COP es zero-decimal ahí).
+   */
+  if (event.type === 'invoice.payment_succeeded') {
+    const invoice = event.data.object as Stripe.Invoice;
+    // Desde la API 2025-03-31, Stripe mueve el id de la suscripción a `parent.subscription_details` (ya no hay `invoice.subscription`).
+    const subscriptionRef = invoice.parent?.subscription_details?.subscription;
+    const subscriptionId = typeof subscriptionRef === 'string' ? subscriptionRef : subscriptionRef?.id;
+    if (!subscriptionId) return { ok: true, ignored: 'no subscription on invoice' };
+    const [row] = await db.select().from(subscriptions).where(eq(subscriptions.externalSubscriptionId, subscriptionId)).limit(1);
+    if (!row?.plan) return { ok: true, ignored: 'unknown subscription' };
+    const result = await recordProviderEventOnce(db, row.businessId, 'stripe', event.type, event.id, event);
+    if (result === 'applied') {
+      const line = invoice.lines.data[0];
+      const periodStart = line ? new Date(line.period.start * 1000) : new Date();
+      const periodEnd = line ? new Date(line.period.end * 1000) : addPlanInterval(periodStart, row.plan as SubscriptionPlan);
+      await recordSubscriptionInvoice(db, {
+        businessId: row.businessId,
+        plan: row.plan as SubscriptionPlan,
+        paymentMethod: 'card',
+        periodStart,
+        periodEnd,
+        amount: invoice.amount_paid,
+        currency: invoice.currency.toUpperCase(),
+        externalPaymentId: invoice.id,
+      });
+    }
   }
   return { ok: true };
 }
@@ -142,7 +184,15 @@ async function handleStripe(request: FastifyRequest, ctx: Ctx) {
 interface PayPalEvent {
   id: string;
   event_type: string;
-  resource: { id: string; custom_id?: string; plan_id?: string; billing_info?: { next_billing_time?: string } };
+  resource: {
+    id: string;
+    custom_id?: string;
+    plan_id?: string;
+    billing_info?: { next_billing_time?: string };
+    /** Solo en PAYMENT.SALE.COMPLETED: el id de la suscripción que generó el cobro (no trae custom_id). */
+    billing_agreement_id?: string;
+    amount?: { total?: string; currency?: string };
+  };
 }
 
 /**
@@ -169,6 +219,35 @@ async function handlePayPal(request: FastifyRequest, ctx: Ctx) {
   });
   if (!verified) throw new AppError(400, 'invalid_signature');
 
+  /**
+   * El cobro real llega en PAYMENT.SALE.COMPLETED, no en BILLING.SUBSCRIPTION.ACTIVATED (ese solo marca "aprobada").
+   * Este evento no trae `custom_id`, así que la suscripción se busca por `billing_agreement_id` (= nuestro
+   * externalSubscriptionId, guardado cuando se activó la suscripción).
+   */
+  if (body.event_type === 'PAYMENT.SALE.COMPLETED') {
+    const subscriptionId = body.resource.billing_agreement_id;
+    if (!subscriptionId) return { ok: true, ignored: 'no billing_agreement_id' };
+    const [row] = await db.select().from(subscriptions).where(eq(subscriptions.externalSubscriptionId, subscriptionId)).limit(1);
+    if (!row?.plan) return { ok: true, ignored: 'unknown subscription' };
+    const result = await recordProviderEventOnce(db, row.businessId, 'paypal', body.event_type, body.id, body);
+    if (result === 'applied') {
+      const plan = row.plan as SubscriptionPlan;
+      const parsedTotal = body.resource.amount?.total ? Math.round(parseFloat(body.resource.amount.total)) : NaN;
+      const periodStart = new Date();
+      await recordSubscriptionInvoice(db, {
+        businessId: row.businessId,
+        plan,
+        paymentMethod: 'paypal',
+        periodStart,
+        periodEnd: addPlanInterval(periodStart, plan),
+        ...(Number.isFinite(parsedTotal) ? { amount: parsedTotal } : {}),
+        ...(body.resource.amount?.currency ? { currency: body.resource.amount.currency } : {}),
+        externalPaymentId: body.resource.id,
+      });
+    }
+    return { ok: true, result };
+  }
+
   const businessId = body.resource.custom_id;
   if (!businessId) return { ok: true, ignored: 'no businessId in custom_id' };
   const plan = body.resource.plan_id === config.subscriptions.paypalPlanYearly ? 'yearly' : body.resource.plan_id === config.subscriptions.paypalPlanMonthly ? 'monthly' : null;
@@ -191,7 +270,7 @@ async function handlePayPal(request: FastifyRequest, ctx: Ctx) {
       return { ok: true, ignored: body.event_type };
   }
   const result = await applyProviderEvent(db, businessId, 'paypal', body.event_type, patch, body.id, body);
-  void notifyBillingIfNeeded(ctx, businessId, patch);
+  if (result === 'applied') void notifyBillingIfNeeded(ctx, businessId, patch, body.id);
   return { ok: true, result };
 }
 

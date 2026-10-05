@@ -52,7 +52,8 @@ export function buildDashboardCss(): string {
 .xw-profile-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; text-align: left; }
 .xw-profile-name { max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--xw-text); font: ${font.weight.bold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
 .xw-profile-role { color: var(--xw-text-muted); font: var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
-.xw-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--xw-accent-tint); border: 1.5px solid var(--xw-accent); color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-sm)/1 var(--xw-font); }
+.xw-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; width: 36px; height: 36px; border-radius: 50%; background: var(--xw-accent-tint); border: 1.5px solid var(--xw-accent); color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-sm)/1 var(--xw-font); }
+.xw-avatar-img { width: 100%; height: 100%; object-fit: cover; }
 .xw-avatar--lg { width: 44px; height: 44px; font-size: var(--xw-text-lg); }
 .xw-pop-panel--menu { width: min(17rem, calc(100vw - 2rem)); padding: var(--xw-space-2); }
 .xw-menu-id { display: flex; align-items: center; gap: var(--xw-space-3); padding: var(--xw-space-3); border-bottom: 1px solid var(--xw-border-subtle); margin-bottom: var(--xw-space-1); }
@@ -93,7 +94,10 @@ export function buildDashboardCss(): string {
 .xw-plan-cta:hover { filter: brightness(1.08); }
 
 /* ================= Tablero de Inicio ================= */
-.xw-dash { container-type: inline-size; display: flex; flex-direction: column; gap: var(--xw-space-5); padding: var(--xw-space-4) 0 7rem; }
+/* flex: 1 llena el alto de .xw-page (ver shellCss.ts): con poco contenido el pie (margin-top: auto, abajo) queda pegado al
+   fondo real de la pantalla en vez de flotar a la mitad; con mucho contenido, .xw-dash simplemente crece y el pie va justo
+   después, como cualquier otro bloque. */
+.xw-dash { container-type: inline-size; display: flex; flex-direction: column; flex: 1; gap: var(--xw-space-5); padding: var(--xw-space-4) 0; }
 
 .xw-hero { position: relative; display: flex; align-items: center; gap: var(--xw-space-5); flex-wrap: wrap; box-sizing: border-box; padding: var(--xw-space-6); border-radius: var(--xw-radius-xl); color: var(--xw-text); overflow: hidden;
   background: radial-gradient(90% 140% at 100% 0%, rgba(217, 182, 54, .28), transparent 55%), linear-gradient(135deg, #17140a 0%, #0d0d0f 65%);
@@ -170,7 +174,11 @@ export function buildDashboardCss(): string {
 .xw-assistant-text p { margin: var(--xw-space-1) 0 0; color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
 .xw-assistant-title { margin: 0; font: ${font.weight.extrabold} var(--xw-text-lg)/${font.lineHeight.tight} var(--xw-font); }
 
-.xw-dash-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--xw-space-3); padding: var(--xw-space-4) 0 var(--xw-space-2); border-top: 1px solid var(--xw-border-subtle); color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
+/* margin-top: auto lo empuja al fondo de .xw-dash cuando sobra alto; 10rem de relleno abajo (en el pie, no en toda la página)
+   deja libre el hueco de los botones flotantes (WhatsApp + asistente, ~140px) sin que tapen sus enlaces. */
+/* Sin relleno propio para los flotantes: .xw-page ya reserva ese hueco en móvil (ver homeCss.ts) para TODAS las
+   pantallas, no solo esta; duplicarlo aquí es lo que dejaba la franja vacía enorme que se seguía viendo. */
+.xw-dash-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--xw-space-3); margin-top: auto; padding: var(--xw-space-4) 0; border-top: 1px solid var(--xw-border-subtle); color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
 .xw-dash-footer p { margin: 0; }
 .xw-dash-footer nav { display: flex; flex-wrap: wrap; gap: var(--xw-space-1) var(--xw-space-4); }
 .xw-dash-footer a { display: inline-flex; align-items: center; min-height: var(--xw-touch); color: var(--xw-accent); text-underline-offset: 3px; }

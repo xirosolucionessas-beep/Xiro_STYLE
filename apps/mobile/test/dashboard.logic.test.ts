@@ -36,6 +36,7 @@ describe('variación frente a ayer', () => {
     [50, 100, 'down', -50],
     [100, 100, 'flat', 0],
     [0, 0, 'flat', 0],
+    [0, 100, 'down', -100], // hoy en 0 frente a un ayer con datos: -100% exacto (la vista lo suaviza a "aún no hay datos de hoy")
   ] as const)('%i vs %i → %s (%i%%)', (current, previous, direction, percent) => {
     expect(variation(current, previous)).toMatchObject({ direction, percent });
   });
@@ -48,19 +49,34 @@ describe('variación frente a ayer', () => {
 describe('ventas y clientes de hoy y ayer (día del negocio)', () => {
   const now = new Date('2026-09-24T20:00:00Z'); // 15:00 del 24 en Bogotá
   const records = [
-    { amount: 30_000, createdAt: '2026-09-24T14:00:00Z' },
-    { amount: 20_000, createdAt: '2026-09-24T18:00:00Z' },
-    { amount: 40_000, createdAt: '2026-09-23T22:00:00Z' }, // 17:00 del 23: ayer
-    { amount: 99_000, createdAt: '2026-09-20T22:00:00Z' }, // otro día: no cuenta
+    { amount: 30_000, createdAt: '2026-09-24T14:00:00Z', kind: 'service' as const },
+    { amount: 20_000, createdAt: '2026-09-24T18:00:00Z', kind: 'service' as const },
+    { amount: 40_000, createdAt: '2026-09-23T22:00:00Z', kind: 'service' as const }, // 17:00 del 23: ayer
+    { amount: 99_000, createdAt: '2026-09-20T22:00:00Z', kind: 'service' as const }, // otro día: no cuenta
   ];
 
   it('separa hoy de ayer y cuenta los servicios', () => {
-    expect(serviceDays(records, TZ, now)).toEqual({ today: { total: 50_000, count: 2 }, yesterday: { total: 40_000, count: 1 } });
+    expect(serviceDays(records, TZ, now)).toEqual({
+      today: { total: 50_000, count: 2 },
+      yesterday: { total: 40_000, count: 1 },
+      todayServices: { total: 50_000, count: 2 },
+      yesterdayServices: { total: 40_000, count: 1 },
+    });
   });
 
   it('respeta el corte de medianoche del negocio', () => {
-    const lateNight = [{ amount: 10_000, createdAt: '2026-09-25T04:30:00Z' }]; // 23:30 del 24 en Bogotá
+    const lateNight = [{ amount: 10_000, createdAt: '2026-09-25T04:30:00Z', kind: 'service' as const }]; // 23:30 del 24 en Bogotá
     expect(serviceDays(lateNight, TZ, now).today.count).toBe(1);
+  });
+
+  it('"Servicios hoy" excluye productos: un corte de $25.000 y un producto de $40.000 dan Ventas hoy $65.000 y Servicios hoy $25.000 (1 servicio)', () => {
+    const mixed = [
+      { amount: 25_000, createdAt: '2026-09-24T14:00:00Z', kind: 'service' as const },
+      { amount: 40_000, createdAt: '2026-09-24T15:00:00Z', kind: 'product' as const },
+    ];
+    const days = serviceDays(mixed, TZ, now);
+    expect(days.today).toEqual({ total: 65_000, count: 2 });
+    expect(days.todayServices).toEqual({ total: 25_000, count: 1 });
   });
 
   it('cuenta los clientes nuevos de hoy y de ayer', () => {

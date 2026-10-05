@@ -54,7 +54,7 @@ describe('qué ve cada persona', () => {
 
   it('un empleado sin permisos solo ve Inicio y el asistente ("Próximamente"); las secciones vacías se ocultan', () => {
     const result = menuFor(employee());
-    expect(ids(result)).toEqual(['home', 'assistant']);
+    expect(ids(result)).toEqual(['home', 'messages', 'assistant']);
     expect(result.map((s) => s.id)).toEqual(['main', 'assistant']);
   });
 

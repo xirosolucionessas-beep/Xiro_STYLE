@@ -1,8 +1,9 @@
 import { identifierSchema, passwordSchema, type RecoveryChannel } from '@xiro/shared';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { filterPhoneInput, identifierErrorKeyForChannel, isValidIdentifierForChannel } from '@/lib/recovery';
 import { WhatsAppLogo } from '../brand/logos';
 import { Ico } from '../icons';
-import { looksLikeEmailInput, maskEmail, maskPhone } from '../mask';
+import { maskEmail, maskPhone } from '../mask';
 import { RESEND_SECONDS, formatCountdown } from '../otp';
 import { Button, Input } from '../ui';
 import { AuthPage, BackLink, FormMessage, OtpInput, PasswordChecklist, RadioGroup, SupportLinks } from '../ui/auth';
@@ -27,24 +28,37 @@ export function RecoverView({ t, language, logo, onSubmit, onBack }: RecoverView
   const [fields, setFields] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const isEmail = looksLikeEmailInput(identifier);
+  const isPhoneChannel = channel === 'whatsapp' || channel === 'sms';
   const hasInput = identifier.trim() !== '';
+  // Válido para habilitar "Enviar código" — el chequeo estricto (el mismo que aplica el servidor) va en el envío.
+  const isValid = isValidIdentifierForChannel(identifier, channel);
 
-  const onIdentifier = (value: string) => {
-    setIdentifier(value);
-    // El canal acompaña a lo que se escribe: un correo se envía por correo y un número por WhatsApp o SMS.
-    if (looksLikeEmailInput(value) && channel !== 'email') setChannel('email');
-    else if (!looksLikeEmailInput(value) && value.trim() !== '' && channel === 'email') setChannel('whatsapp');
+  // El canal lo elige la persona (no se adivina por lo que escribe): cambiarlo limpia el campo y cualquier error,
+  // porque un celular y un correo no comparten formato ni son intercambiables entre sí.
+  const onChannel = (next: RecoveryChannel) => {
+    setChannel(next);
+    setIdentifier('');
+    setFields({});
+    setGeneral(undefined);
   };
 
-  const phoneHint = !hasInput || isEmail ? t('channel_hint_phone') : maskPhone(identifier) || t('channel_hint_phone');
-  const emailHint = hasInput && isEmail ? maskEmail(identifier) || t('channel_hint_email') : t('channel_hint_email');
+  const onIdentifier = (value: string) => {
+    setIdentifier(isPhoneChannel ? filterPhoneInput(value) : value);
+    if (fields.identifier) setFields({});
+  };
+
+  const phoneHint = !hasInput ? t('channel_hint_phone') : maskPhone(identifier) || t('channel_hint_phone');
+  const emailHint = !hasInput ? t('channel_hint_email') : maskEmail(identifier) || t('channel_hint_email');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy) return;
     setGeneral(undefined);
-    if (!identifierSchema.safeParse(identifier).success) return setFields({ identifier: t('identifier_invalid') });
+    if (!isValidIdentifierForChannel(identifier, channel)) return setFields({ identifier: t(identifierErrorKeyForChannel(channel)) });
+    // Segunda pasada con el esquema completo (correo o celular, formato final que espera el servidor): así el envío
+    // nunca depende solo del chequeo del cliente, aunque ambos coincidan en el caso normal.
+    const parsed = identifierSchema.safeParse(identifier);
+    if (!parsed.success) return setFields({ identifier: t(identifierErrorKeyForChannel(channel)) });
     setFields({});
     setBusy(true);
     try {
@@ -66,20 +80,24 @@ export function RecoverView({ t, language, logo, onSubmit, onBack }: RecoverView
           name="channel"
           variant="card"
           value={channel}
-          onChange={setChannel}
+          onChange={onChannel}
           options={[
             { value: 'whatsapp', label: t('channel_whatsapp'), description: phoneHint, icon: <WhatsAppLogo size={26} />, tone: 'success' },
             { value: 'email', label: t('channel_email'), description: emailHint, icon: <Ico name="mail" size={24} /> },
             { value: 'sms', label: t('channel_sms'), description: phoneHint, icon: <Ico name="message-square" size={24} /> },
           ]}
         />
-        <Input label={t('identifier_label')} value={identifier} onChange={onIdentifier} error={fields.identifier} type="text" inputMode="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} name="identifier" />
+        {isPhoneChannel ? (
+          <Input label={t('identifier_label')} value={identifier} onChange={onIdentifier} error={fields.identifier} type="tel" inputMode="tel" maxLength={13} autoComplete="tel" name="identifier" />
+        ) : (
+          <Input label={t('identifier_label')} value={identifier} onChange={onIdentifier} error={fields.identifier} type="email" inputMode="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} name="identifier" />
+        )}
         <p className="xw-note">
           <Ico name="circle-check" size={18} />
           <span>{t('recover_social_note')}</span>
         </p>
         {general ? <FormMessage>{general}</FormMessage> : null}
-        <Button type="submit" fullWidth loading={busy} loadingLabel={t('loading')} disabled={!hasInput}>
+        <Button type="submit" fullWidth loading={busy} loadingLabel={t('loading')} disabled={!isValid}>
           {t('send_code')}
         </Button>
         <BackLink onPress={onBack}>{t('back_to_login')}</BackLink>

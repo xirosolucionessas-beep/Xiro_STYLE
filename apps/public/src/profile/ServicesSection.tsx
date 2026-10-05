@@ -33,6 +33,9 @@ export function ServicesSection({
 
   return (
     <section className="xp-section" id="servicios" aria-labelledby="xp-services-h">
+      <p className="xp-kicker" aria-hidden="true">
+        {t('pub_kicker_services')}
+      </p>
       <h2 id="xp-services-h">{t('pub_nav_services')}</h2>
 
       {loading ? <ListSkeleton rows={3} /> : null}

@@ -32,9 +32,32 @@ export default function EmployeesWeb() {
     }
   }
 
+  async function runPhoto(action: () => Promise<{ photoUrl: string | null }>) {
+    try {
+      const { photoUrl } = await action();
+      await refresh();
+      return { ok: true as const, photoUrl };
+    } catch (error) {
+      const result = apiErrors(error, t);
+      return { ok: false as const, error: result.general ?? Object.values(result.fields)[0] ?? t('unknown_error') };
+    }
+  }
+
   return (
     <Screen header={<Header root title={t('nav_employees')} subtitle={t('emp_subtitle')} />}>
-      <EmployeesView t={t} employees={employees.data} logs={logs.data ?? []} onCreate={(input) => run(() => api.createEmployee(input))} onUpdate={(id, input) => run(() => api.updateEmployee(id, input))} />
+      <EmployeesView
+        t={t}
+        employees={employees.data}
+        logs={logs.data ?? []}
+        onCreate={(input) => run(() => api.createEmployee(input))}
+        onUpdate={(id, input) => run(() => api.updateEmployee(id, input))}
+        onUploadPhoto={(id, file) => {
+          const form = new FormData();
+          form.append('photo', file);
+          return runPhoto(() => api.uploadEmployeePhoto(id, form));
+        }}
+        onRemovePhoto={(id) => runPhoto(() => api.deleteEmployeePhoto(id))}
+      />
     </Screen>
   );
 }

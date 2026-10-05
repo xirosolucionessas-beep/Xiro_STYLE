@@ -1,16 +1,18 @@
-import { and, eq, lte } from 'drizzle-orm';
+import { and, desc, eq, lte } from 'drizzle-orm';
 import {
   deriveEffectiveStatus,
   subscriptionHasAccess,
   GRACE_PERIOD_DAYS,
+  SUBSCRIPTION_PRICING,
   type PaymentMethod,
   type Subscription,
+  type SubscriptionInvoiceDto,
   type SubscriptionPlan,
   type SubscriptionPlatform,
   type SubscriptionStatus,
 } from '@xiro/shared';
 import type { DbExecutor } from './db/client';
-import { subscriptionEvents, subscriptions } from './db/schema';
+import { subscriptionEvents, subscriptionInvoices, subscriptions } from './db/schema';
 
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
 
@@ -116,6 +118,91 @@ export async function applyProviderEvent(
     await db.update(subscriptions).set({ ...patch, updatedAt: new Date() }).where(eq(subscriptions.businessId, businessId));
   }
   return 'applied';
+}
+
+export interface RecordInvoiceInput {
+  businessId: string;
+  plan: SubscriptionPlan;
+  paymentMethod: PaymentMethod;
+  periodStart: Date;
+  /** Si no se da (proveedor externo que ya trae su propio corte), se calcula sumando 1 mes o 1 año a `periodStart`. */
+  periodEnd?: Date;
+  /** Monto real reportado por el proveedor (p.ej. la factura de Stripe); si falta, se usa el precio de tabla del plan. */
+  amount?: number;
+  currency?: string;
+  externalPaymentId?: string | null;
+}
+
+/** +1 mes o +1 año calendario exacto (no "30 días"): el día 31 de un mes corto cae en el último día del mes siguiente. */
+export function addPlanInterval(date: Date, plan: SubscriptionPlan): Date {
+  const next = new Date(date);
+  if (plan === 'monthly') next.setMonth(next.getMonth() + 1);
+  else next.setFullYear(next.getFullYear() + 1);
+  return next;
+}
+
+/**
+ * Un comprobante por cada pago CONFIRMADO. El monto y las fechas quedan congelados aquí mismo — nunca se recalculan
+ * después, aunque cambie el precio del plan. Llamar una sola vez por pago real (ver cada sitio que la invoca para
+ * la garantía de no-duplicado: el índice único de subscriptionEvents ya filtra reintentos del mismo webhook).
+ */
+export async function recordSubscriptionInvoice(db: DbExecutor, input: RecordInvoiceInput): Promise<string> {
+  const pricing = SUBSCRIPTION_PRICING[input.plan];
+  const periodEnd = input.periodEnd ?? addPlanInterval(input.periodStart, input.plan);
+  const [row] = await db
+    .insert(subscriptionInvoices)
+    .values({
+      businessId: input.businessId,
+      plan: input.plan,
+      amount: input.amount ?? pricing.amount,
+      currency: input.currency ?? pricing.currency,
+      paymentMethod: input.paymentMethod,
+      externalPaymentId: input.externalPaymentId ?? null,
+      periodStart: input.periodStart,
+      periodEnd,
+    })
+    .returning({ id: subscriptionInvoices.id });
+  return row!.id;
+}
+
+export async function listSubscriptionInvoices(db: DbExecutor, businessId: string): Promise<SubscriptionInvoiceDto[]> {
+  const rows = await db
+    .select()
+    .from(subscriptionInvoices)
+    .where(eq(subscriptionInvoices.businessId, businessId))
+    .orderBy(desc(subscriptionInvoices.createdAt));
+  return rows.map((row) => ({
+    id: row.id,
+    plan: row.plan as SubscriptionPlan,
+    amount: row.amount,
+    currency: row.currency,
+    paymentMethod: row.paymentMethod as PaymentMethod,
+    periodStart: row.periodStart.toISOString(),
+    periodEnd: row.periodEnd.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+/**
+ * Igual que `applyProviderEvent` pero sin tocar la fila de `subscriptions` — para eventos de "este pago ya se
+ * cobró" (invoice.payment_succeeded de Stripe, PAYMENT.SALE.COMPLETED de PayPal) que NO cambian el estado de acceso
+ * por sí mismos (eso ya lo hace el webhook de cambio de suscripción) pero sí deben generar un comprobante, una sola
+ * vez, aunque el proveedor reenvíe el mismo evento.
+ */
+export async function recordProviderEventOnce(
+  db: DbExecutor,
+  businessId: string,
+  source: 'revenuecat' | 'stripe' | 'paypal',
+  type: string,
+  externalEventId: string | null,
+  payload: unknown,
+): Promise<'applied' | 'duplicate'> {
+  const inserted = await db
+    .insert(subscriptionEvents)
+    .values({ businessId, type, source, externalEventId, payload: payload as object })
+    .onConflictDoNothing({ target: [subscriptionEvents.source, subscriptionEvents.externalEventId] })
+    .returning();
+  return externalEventId && inserted.length === 0 ? 'duplicate' : 'applied';
 }
 
 /** Negocios cuyo trial o período pagado vence dentro de `withinDays` (para el recordatorio preventivo del job diario). */

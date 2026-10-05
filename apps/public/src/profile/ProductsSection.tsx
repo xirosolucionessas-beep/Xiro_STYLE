@@ -7,6 +7,9 @@ export function ProductsSection({ profile, products, language }: { profile: Publ
   if (products.length === 0) return null;
   return (
     <section className="xp-section" id="productos" aria-labelledby="xp-products-h">
+      <p className="xp-kicker" aria-hidden="true">
+        {t('pub_kicker_products')}
+      </p>
       <h2 id="xp-products-h">{t('pub_nav_products')}</h2>
       <ul className="xp-product-grid">
         {products.map((product) => {

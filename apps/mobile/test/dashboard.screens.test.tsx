@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
 import { DashboardView, type DashboardViewProps } from '../src/web/screens/Dashboard';
-import { HeaderSearch, MessagesMenu, NotificationsMenu, ProfileMenu, type HeaderSearchProps, type NotificationRow } from '../src/web/shell/HeaderTools';
+import { HeaderSearch, MessagesMenu, NotificationsMenu, ProfileMenu, type HeaderSearchProps, type MessageRow, type NotificationRow } from '../src/web/shell/HeaderTools';
 import { tw } from '../src/web/shell/strings';
 
 const t = (key: string, params?: Record<string, string | number>) => tw('es', key, params);
@@ -20,13 +20,10 @@ function dashboard(overrides: Partial<DashboardViewProps> = {}) {
     t,
     greeting: 'Buenos días',
     businessName: 'Studio Ana',
-    userName: 'Ana Pérez',
-    businessSlug: 'studio-ana',
     logo: <span data-testid="logo" />,
     heroUrl: null,
     onChangeLogo: vi.fn(),
     logoBusy: false,
-    onEditProfile: vi.fn(),
     kpis: [
       { id: 'sales', icon: 'coins', label: 'Ventas hoy', value: '$ 120.000', trend: { direction: 'up', text: 'Subió 20% frente a ayer' } },
       { id: 'services', icon: 'scissors', label: 'Servicios hoy', value: '4', trend: { direction: 'down', text: 'Bajó 10% frente a ayer' } },
@@ -43,7 +40,6 @@ function dashboard(overrides: Partial<DashboardViewProps> = {}) {
     activity: { loading: false, rows: [{ id: 'a1', icon: 'scissors', title: 'Servicio a Juan', detail: 'Corte', time: 'hace 5 min', amount: '$ 25.000' }] },
     appointments: { loading: false, allHref: '/agenda', rows: [{ id: 'p1', day: 'mar 6', time: '10:00 a. m.', client: 'Laura Gómez', detail: 'Corte, Barba', status: 'Confirmada', tone: 'accent' as const, href: '/agenda' }] },
     reviewBanner: null,
-    onOpenAssistant: vi.fn(),
     navigate: vi.fn(),
     year: 2026,
     supportHref: 'https://wa.me/573000000000',
@@ -121,21 +117,22 @@ describe('DashboardView', () => {
     expect(screen.getByText(/aparecerán aquí/)).toBeTruthy();
   });
 
-  it('el asistente abre el panel existente y el pie enlaza a lo legal y al soporte', async () => {
-    const { props } = dashboard();
-    await userEvent.click(screen.getByRole('button', { name: 'Abrir asistente' }));
-    expect(props.onOpenAssistant).toHaveBeenCalled();
+  it('el pie de página enlaza a lo legal y al soporte, sin colisionar con los botones flotantes', async () => {
+    const { props, container } = dashboard();
     expect(screen.getByText('© 2026 Xiro Style. Todos los derechos reservados.')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Soporte' }).getAttribute('href')).toBe('https://wa.me/573000000000');
     await userEvent.click(screen.getByRole('link', { name: 'Términos y condiciones' }));
     expect(props.navigate).toHaveBeenCalledWith('/terms');
+    // El asistente en tarjeta ya no existe aquí (solo queda el flotante, fuera de esta vista); no debe quedar rastro.
+    expect(screen.queryByRole('button', { name: 'Abrir asistente' })).toBeNull();
+    expect(container.querySelector('.xw-assistant')).toBeNull();
   });
 
-  it('conserva el acceso al perfil desde la cuenta y el cambio de logo, con su estado de carga', async () => {
+  it('el cambio de logo funciona, con su estado de carga (el acceso al perfil ya solo vive en el menú del encabezado)', async () => {
     const idle = dashboard();
-    expect(screen.getByText('Cuenta · @studio-ana')).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: 'Editar perfil' }));
-    expect(idle.props.onEditProfile).toHaveBeenCalledOnce();
+    // La tarjeta de cuenta duplicaba el menú de perfil del encabezado: se quitó de aquí.
+    expect(screen.queryByText(/Cuenta ·/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Editar perfil' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Cambiar logo' }));
     expect(idle.props.onChangeLogo).toHaveBeenCalledOnce();
     idle.unmount();
@@ -229,17 +226,54 @@ describe('NotificationsMenu', () => {
   });
 });
 
+const messageRows: MessageRow[] = [
+  { id: 'c1', peerName: 'Luis Empleado', peerPhotoUrl: null, preview: 'Tú: ¿Ya llegó el pedido?', time: 'hace 5 min', unread: true },
+  { id: 'c2', peerName: 'Ana Dueña', peerPhotoUrl: 'https://cdn.test/ana.jpg', preview: 'Perfecto, gracias', time: 'ayer', unread: false },
+];
+
 describe('MessagesMenu', () => {
-  it('no inventa conversaciones: dice que aún no hay mensajes', async () => {
-    render(<MessagesMenu t={t} />);
+  const menu = (overrides: Partial<Parameters<typeof MessagesMenu>[0]> = {}) => {
+    const props = { t, rows: messageRows, unreadCount: 1, badge: '1', onOpenRow: vi.fn(), onViewAll: vi.fn(), ...overrides };
+    return { props, ...render(<MessagesMenu {...props} />) };
+  };
+
+  it('el ícono anuncia cuántos sin leer y no abre sola', () => {
+    menu();
+    expect(screen.getByRole('button', { name: '1 mensajes sin leer' }).getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('Luis Empleado')).toBeNull();
+  });
+
+  it('sin mensajes sin leer, el nombre simple', () => {
+    menu({ unreadCount: 0, badge: '' });
+    expect(screen.getByRole('button', { name: 'Mensajes' })).toBeTruthy();
+  });
+
+  it('abre el panel con la vista previa (incluido "Tú: …") y navega al tocar una fila', async () => {
+    const { props } = menu();
+    await userEvent.click(screen.getByRole('button', { name: /mensajes sin leer/ }));
+    expect(screen.getByText('Tú: ¿Ya llegó el pedido?')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: /Luis Empleado/ }));
+    expect(props.onOpenRow).toHaveBeenCalledWith('c1');
+    expect(screen.queryByText('Ana Dueña')).toBeNull(); // el panel se cerró al elegir una conversación
+  });
+
+  it('"Ver todos" lleva a la pantalla completa', async () => {
+    const { props } = menu();
+    await userEvent.click(screen.getByRole('button', { name: /mensajes sin leer/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Ver todos' }));
+    expect(props.onViewAll).toHaveBeenCalled();
+  });
+
+  it('sin conversaciones, un estado vacío honesto en vez de un panel en blanco', async () => {
+    menu({ rows: [], unreadCount: 0, badge: '' });
     await userEvent.click(screen.getByRole('button', { name: 'Mensajes' }));
-    expect(screen.getByText('Aún no tienes mensajes.')).toBeTruthy();
+    expect(screen.getByText('Aún no tienes conversaciones')).toBeTruthy();
   });
 });
 
 describe('ProfileMenu', () => {
   const menu = (theme: 'dark' | 'light' = 'dark') => {
-    const props = { t, name: 'Ana Pérez', roleLabel: 'Propietario', theme, onToggleTheme: vi.fn(), onProfile: vi.fn(), onLogout: vi.fn() };
+    const props = { t, name: 'Ana Pérez', photoUrl: null, roleLabel: 'Propietario', theme, onToggleTheme: vi.fn(), onProfile: vi.fn(), onLogout: vi.fn() };
     return { props, ...render(<ProfileMenu {...props} />) };
   };
 
