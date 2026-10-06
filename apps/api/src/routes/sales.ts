@@ -39,7 +39,7 @@ async function adjustStock(tx: Tx, businessId: string, itemId: string, delta: nu
   return updated;
 }
 
-async function loadSaleDtos(db: Ctx['db'], businessId: string, saleRows: SaleRow[]): Promise<SaleDto[]> {
+export async function loadSaleDtos(db: Ctx['db'], businessId: string, saleRows: SaleRow[]): Promise<SaleDto[]> {
   if (saleRows.length === 0) return [];
   const saleIds = saleRows.map((s) => s.id);
 
