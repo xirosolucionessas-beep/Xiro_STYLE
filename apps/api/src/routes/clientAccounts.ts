@@ -7,15 +7,16 @@ import {
   clientRecoverVerifySchema,
   clientRegisterSchema,
   clientUpdateProfileSchema,
+  publicCancelInputSchema,
   type ClientAccountDto,
+  type ClientAppointmentDto,
   type ClientSessionDeviceDto,
   type Language,
-  type PublicAppointmentDto,
 } from '@xiro/shared';
 import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { toPublicAppointment } from '../booking/appointments';
+import { assertClientMayChange, toPublicAppointment, transitionAppointment } from '../booking/appointments';
 import { loadContext } from '../booking/availability';
 import { withBusiness, type Tx } from '../booking/scope';
 import { loadProfileRow, resolveSlug } from '../booking/view';
@@ -25,7 +26,9 @@ import { expiredSessionCookie, parseCookies, serializeSessionCookie } from '../c
 import { isUniqueViolation } from '../db/errors';
 import { appointments, clientAccounts, clientRecoveryCodes, clientResetTokens, clientSessions, clients, loyaltyPrograms, loyaltyProgress } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
+import { cancelReminder } from '../jobs/reminders';
 import { mediaUrl, removeMedia, saveAvatarImage } from '../media';
+import { formatPushMoment, notifyAppointment } from '../push';
 import { DUMMY_HASH, hashPassword, hmac, randomToken, safeEqualHex, sixDigitCode, verifyPassword } from '../security';
 import type { BusinessRow } from '../serializers';
 
@@ -117,10 +120,15 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     try {
       account = await db.transaction(async (tx) => {
         // Se vincula a un `clients` existente con ese teléfono (lo creó el negocio antes) o se crea uno nuevo —
-        // así el cliente queda en el directorio del negocio igual que si lo hubiera registrado un empleado. Nunca
-        // al cliente "de mostrador" (isOccasional): es una fila compartida para ventas sin ficha, no una persona.
+        // así el cliente queda en el directorio del negocio igual que si lo hubiera registrado un empleado, con la
+        // fecha y hora de este momento como "Cliente desde" (createdAt, de serie). Nunca al cliente "de mostrador"
+        // (isOccasional): es una fila compartida para ventas sin ficha, no una persona.
         const [existingClient] = await tx.select().from(clients).where(and(eq(clients.businessId, business.id), eq(clients.phone, input.phone), eq(clients.isOccasional, false))).limit(1);
-        const client = existingClient ?? (await tx.insert(clients).values({ businessId: business.id, name: input.name, phone: input.phone, email: input.email ?? null }).returning())[0]!;
+        // Si ya existía (lo creó el negocio antes de que el cliente se registrara), se refresca con sus propios datos
+        // — nombre y correo que acaba de escribir él mismo —, sin perder lo que el negocio ya tuviera si no mandó correo.
+        const client = existingClient
+          ? (await tx.update(clients).set({ name: input.name, email: input.email ?? existingClient.email }).where(eq(clients.id, existingClient.id)).returning())[0]!
+          : (await tx.insert(clients).values({ businessId: business.id, name: input.name, phone: input.phone, email: input.email ?? null }).returning())[0]!;
         const [created] = await tx
           .insert(clientAccounts)
           .values({ businessId: business.id, clientId: client.id, phoneE164: input.phone, passwordHash, name: input.name, email: input.email ?? null })
@@ -180,15 +188,19 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     const account = await requireAccount(request, business);
     const input = parse(clientUpdateProfileSchema, request.body);
-    const [updated] = await db
-      .update(clientAccounts)
-      .set({ ...(input.name !== undefined ? { name: input.name } : {}), ...(input.email !== undefined ? { email: input.email } : {}) })
-      .where(eq(clientAccounts.id, account.id))
-      .returning();
+    const changes = { ...(input.name !== undefined ? { name: input.name } : {}), ...(input.email !== undefined ? { email: input.email } : {}) };
+    const [updated] = await db.update(clientAccounts).set(changes).where(eq(clientAccounts.id, account.id)).returning();
+    // Mismo cambio en su ficha del directorio del negocio ("Clientes"): el panel nunca debe quedarse con un nombre o
+    // correo desactualizado después de que la persona lo corrige ella misma en "Mi perfil".
+    if (Object.keys(changes).length > 0) await db.update(clients).set(changes).where(eq(clients.id, account.clientId));
     return toAccountDto(updated!);
   });
 
-  /** Foto de perfil del cliente (opcional): mismo procesamiento que la del dueño/empleado (cuadrada, 400×400, WebP). */
+  /**
+   * Foto de perfil del cliente (opcional): mismo procesamiento que la del dueño/empleado (cuadrada, 400×400, WebP).
+   * Se guarda también en su ficha del directorio ("Clientes"), así el negocio ve la misma foto que puso la persona
+   * — sin tocar una que el negocio ya le hubiera puesto por su cuenta desde el panel, si no coincide con la que tenía.
+   */
   app.put('/:slug/account/photo', async (request): Promise<ClientAccountDto> => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
@@ -197,8 +209,11 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (!part) throw new AppError(400, 'photo_invalid');
     const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
+    const [clientRow] = await db.select({ photoFile: clients.photoFile }).from(clients).where(eq(clients.id, account.clientId)).limit(1);
     const [updated] = await db.update(clientAccounts).set({ photoFile: file }).where(eq(clientAccounts.id, account.id)).returning();
+    await db.update(clients).set({ photoFile: file }).where(eq(clients.id, account.clientId));
     await removeMedia(config.mediaDir, account.photoFile);
+    await removeMedia(config.mediaDir, clientRow?.photoFile ?? null);
     return toAccountDto(updated!);
   });
 
@@ -221,6 +236,10 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (!(await verifyPassword(input.password, account.passwordHash))) throw new AppError(401, 'invalid_credentials');
     // Se borran las credenciales y la foto; el registro de `clients` del negocio se conserva (su historial de citas sigue siendo del negocio).
     await db.delete(clientAccounts).where(eq(clientAccounts.id, account.id));
+    // Si la ficha del directorio tiene ESTA MISMA foto (la sincronización la puso ahí), se limpia también — si no,
+    // el archivo que se borra abajo dejaría una imagen rota en "Clientes". Una foto distinta que el negocio haya
+    // puesto por su cuenta no se toca.
+    if (account.photoFile) await db.update(clients).set({ photoFile: null }).where(and(eq(clients.id, account.clientId), eq(clients.photoFile, account.photoFile)));
     await removeMedia(config.mediaDir, account.photoFile);
     reply.header('Set-Cookie', expiredSessionCookie(COOKIE_NAME, accountPath(business.slug), config.production));
     return reply.status(204).send();
@@ -334,7 +353,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   /* ---------- Mis citas y fidelización (solo lectura) ---------- */
 
-  app.get('/:slug/account/appointments', async (request): Promise<PublicAppointmentDto[]> => {
+  app.get('/:slug/account/appointments', async (request): Promise<ClientAppointmentDto[]> => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
     const account = await requireAccount(request, business);
@@ -343,8 +362,43 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       const bookingContext = await loadContext(tx, business.id);
       const profile = await loadProfileRow(tx, business.id);
       const now = new Date();
-      return Promise.all(rows.map((row) => toPublicAppointment(tx, bookingContext, business.id, row, now, profile)));
+      return Promise.all(rows.map(async (row) => ({ id: row.id, ...(await toPublicAppointment(tx, bookingContext, business.id, row, now, profile)) })));
     });
+  });
+
+  /**
+   * Cancelar UNA de las propias citas desde "Mi cuenta" (sin enlace de gestión: la sesión ya autenticada es la
+   * autorización). Mismas reglas que el flujo del enlace (`assertClientMayChange`: plazo mínimo, límite de cambios) —
+   * ninguna lógica de negocio se duplica, el mismo `transitionAppointment` central.
+   */
+  app.post('/:slug/account/appointments/:id/cancel', async (request): Promise<ClientAppointmentDto> => {
+    const { slug, id } = parse(slugParams.extend({ id: z.string().uuid() }), request.params);
+    const business = await publishedBusiness(slug);
+    const account = await requireAccount(request, business);
+    const { reason } = parse(publicCancelInputSchema, request.body ?? {});
+    const [owned] = await db.select({ id: appointments.id }).from(appointments).where(and(eq(appointments.id, id), eq(appointments.businessId, business.id), eq(appointments.clientAccountId, account.id))).limit(1);
+    if (!owned) throw notFound();
+
+    let cancelled: { professionalId: string; startsAt: Date } | undefined;
+    const dto = await withBusiness(db, business.id, async (tx: Tx) => {
+      const now = new Date();
+      const bookingContext = await loadContext(tx, business.id);
+      const updatedRow = await transitionAppointment(tx, business.id, id, 'cancelled', reason, { kind: 'client' }, now, undefined, (row) => assertClientMayChange(bookingContext, row, now, 'cancel'));
+      cancelled = { professionalId: updatedRow.professionalId, startsAt: updatedRow.startsAt };
+      const profile = await loadProfileRow(tx, business.id);
+      return { id, ...(await toPublicAppointment(tx, bookingContext, business.id, updatedRow, now, profile)) };
+    });
+    if (cancelled) {
+      void notifyAppointment(ctx, business.id, cancelled.professionalId, null, 'appointments', {
+        titleKey: 'push_appt_cancelled_title',
+        bodyKey: 'push_appt_cancelled_body',
+        params: { time: formatPushMoment(cancelled.startsAt.toISOString(), business.timezone) },
+        dedupeKey: `appt_cancel:${id}`,
+        href: '/agenda',
+      });
+      void cancelReminder(ctx.boss, id);
+    }
+    return dto;
   });
 
   app.get('/:slug/account/loyalty', async (request) => {

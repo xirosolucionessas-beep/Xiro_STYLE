@@ -198,6 +198,26 @@ textarea {
   padding-bottom: var(--space-6);
 }
 
+/* "Volver al negocio" en las pantallas de cuenta: sin esto, salir de "Mi cuenta" solo era posible con el botón
+   atrás del navegador — pedido explícito tras probarlo en un negocio real. */
+.xp-back-to-business {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-3);
+  padding: 8px 4px;
+  border: none;
+  background: none;
+  color: var(--gold);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.xp-back-to-business:hover {
+  color: var(--gold-soft);
+  text-decoration: underline;
+}
+
 /* ---------- Barra superior (tema, idioma) ---------- */
 
 .xp-topbar {
@@ -307,7 +327,10 @@ textarea {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* `contain`, no `cover`: una portada alta o con texto cerca del borde (un negocio real lo reportó) quedaba
+     recortada por arriba y por abajo. Con `contain` nunca se pierde nada de la imagen — el fondo de `.xp-cover`
+     (`--surface-alt`) rellena el espacio sobrante en vez de cortar. */
+  object-fit: contain;
 }
 .xp-cover-fallback {
   width: 100%;
@@ -2547,6 +2570,143 @@ img {
   background: var(--gold);
   border-radius: inherit;
   transition: width 0.3s var(--ease);
+}
+
+/* ---------- "Mis citas" (Mi cuenta) ---------- */
+
+.xp-appt-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* Una cita vigente (pendiente/confirmada) se distingue con un borde dorado; una pasada u anulada queda atenuada. */
+.xp-appt-card.is-pending,
+.xp-appt-card.is-confirmed {
+  border-color: var(--gold);
+}
+.xp-appt-card.is-cancelled,
+.xp-appt-card.is-no_show {
+  opacity: 0.72;
+}
+
+.xp-appt-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.xp-appt-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.xp-appt-badge .xp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.xp-appt-badge.is-pending {
+  background: var(--gold-tint);
+  color: var(--gold);
+}
+.xp-appt-badge.is-confirmed {
+  background: var(--success-tint);
+  color: var(--success);
+}
+.xp-appt-badge.is-in_progress {
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+.xp-appt-badge.is-completed {
+  background: var(--surface-alt);
+  color: var(--text-soft);
+}
+.xp-appt-badge.is-cancelled,
+.xp-appt-badge.is-no_show {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.xp-appt-price {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.xp-appt-date {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.xp-appt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.xp-appt-meta-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-soft);
+  font-size: 14px;
+}
+
+.xp-appt-items {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.xp-appt-details {
+  margin-top: 2px;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xp-appt-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 13.5px;
+  color: var(--text-soft);
+}
+.xp-appt-item-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xp-appt-confirm {
+  margin-top: 2px;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--danger);
+}
+
+.xp-appt-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: 2px;
 }
 
 /* ---------- Pie ---------- */

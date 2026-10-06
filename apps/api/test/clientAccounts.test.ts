@@ -296,3 +296,57 @@ describe('cuentas de cliente: el negocio restablece la contraseña (8.10)', () =
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('cuentas de cliente: cancelar una cita propia desde "Mi cuenta" (sin enlace de gestión)', () => {
+  it('cancela su propia cita; deja de ocupar la agenda y el estado queda en "cancelled"', async () => {
+    const biz = await setupBiz(app, 'CancelarCuenta');
+    const regRes = await register(biz);
+    const cookie = sessionCookie(regRes);
+    const booked = await bookWithSession(biz, cookie, workday(5), '10:00');
+    expect(booked.statusCode).toBe(201);
+
+    const mineBefore = await app.inject({ method: 'GET', url: `${biz.base}/account/appointments`, headers: { cookie } });
+    const [appt] = mineBefore.json<Array<{ id: string; status: string; canCancel: boolean }>>();
+    expect(appt).toMatchObject({ status: 'confirmed', canCancel: true });
+
+    const cancelled = await app.inject({ method: 'POST', url: `${biz.base}/account/appointments/${appt!.id}/cancel`, headers: { cookie }, payload: { reason: 'Cambio de planes' } });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json()).toMatchObject({ id: appt!.id, status: 'cancelled', canCancel: false });
+
+    const mineAfter = await app.inject({ method: 'GET', url: `${biz.base}/account/appointments`, headers: { cookie } });
+    expect(mineAfter.json<Array<{ status: string }>>()[0]).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('no puede cancelar una cita de OTRA cuenta (ni de otro negocio): 404, no revienta ni revela que existe', async () => {
+    const bizA = await setupBiz(app, 'CancelarAjenaA');
+    const bizB = await setupBiz(app, 'CancelarAjenaB');
+    const cookieA = sessionCookie(await register(bizA));
+    const cookieB = sessionCookie(await register(bizB));
+    const bookedA = await bookWithSession(bizA, cookieA, workday(5), '10:00');
+    const [apptA] = (await app.inject({ method: 'GET', url: `${bizA.base}/account/appointments`, headers: { cookie: cookieA } })).json<Array<{ id: string }>>();
+    void bookedA;
+
+    // Otra cuenta del MISMO negocio.
+    const otherInBizA = await app.inject({ method: 'POST', url: `${bizA.base}/account/appointments/${apptA!.id}/cancel`, headers: { cookie: sessionCookie(await register(bizA)) }, payload: {} });
+    expect(otherInBizA.statusCode).toBe(404);
+
+    // Una cuenta de OTRO negocio, probando el id directamente contra la ruta de B.
+    const crossBusiness = await app.inject({ method: 'POST', url: `${bizB.base}/account/appointments/${apptA!.id}/cancel`, headers: { cookie: cookieB }, payload: {} });
+    expect(crossBusiness.statusCode).toBe(404);
+
+    // La cita de A sigue intacta.
+    const stillThere = await app.inject({ method: 'GET', url: `${bizA.base}/account/appointments`, headers: { cookie: cookieA } });
+    expect(stillThere.json<Array<{ status: string }>>()[0]).toMatchObject({ status: 'confirmed' });
+  });
+
+  it('sin sesión, cancelar se rechaza (401)', async () => {
+    const biz = await setupBiz(app, 'CancelarSinSesion');
+    const cookie = sessionCookie(await register(biz));
+    const booked = await bookWithSession(biz, cookie, workday(5), '10:00');
+    void booked;
+    const [appt] = (await app.inject({ method: 'GET', url: `${biz.base}/account/appointments`, headers: { cookie } })).json<Array<{ id: string }>>();
+
+    const res = await app.inject({ method: 'POST', url: `${biz.base}/account/appointments/${appt!.id}/cancel`, payload: {} });
+    expect(res.statusCode).toBe(401);
+  });
+});
