@@ -6,6 +6,13 @@
 
 export const publicEs = {
   pub_skip_to_content: 'Saltar al contenido',
+  pub_topbar_theme: 'Tema',
+  pub_topbar_theme_system: 'Sistema',
+  pub_topbar_theme_light: 'Claro',
+  pub_topbar_theme_dark: 'Oscuro',
+  pub_topbar_lang: 'Idioma',
+  pub_topbar_lang_es: 'Español',
+  pub_topbar_lang_en: 'Inglés',
   pub_book_cta: 'Reservar cita',
   pub_open_now: 'Abierto ahora',
   pub_closed_now: 'Cerrado ahora',
@@ -172,6 +179,13 @@ export const publicEs = {
 
 export const publicEn = {
   pub_skip_to_content: 'Skip to content',
+  pub_topbar_theme: 'Theme',
+  pub_topbar_theme_system: 'System',
+  pub_topbar_theme_light: 'Light',
+  pub_topbar_theme_dark: 'Dark',
+  pub_topbar_lang: 'Language',
+  pub_topbar_lang_es: 'Spanish',
+  pub_topbar_lang_en: 'English',
   pub_book_cta: 'Book appointment',
   pub_open_now: 'Open now',
   pub_closed_now: 'Closed now',

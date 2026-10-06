@@ -35,6 +35,25 @@ const PATHS: Record<string, ReactNode> = {
   navigate: <path d="M4 11.5 20 4l-7.5 16-2-6.5L4 11.5Z" />,
   download: <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />,
   star: <path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 17l-5.2 2.7 1-5.9L3.5 9.7l5.9-.8L12 3.5Z" />,
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
+    </>
+  ),
+  moon: <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a6.8 6.8 0 1 0 10.2 10.2Z" />,
+  monitor: (
+    <>
+      <rect x="3" y="4.5" width="18" height="12" rx="2" />
+      <path d="M8 20h8M12 16.5V20" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c2.6 2.6 4 5.8 4 9s-1.4 6.4-4 9c-2.6-2.6-4-5.8-4-9s1.4-6.4 4-9Z" />
+    </>
+  ),
 };
 
 /** Íconos de trazo (24×24) del mismo grosor y esquinas redondeadas: decorativos, siempre acompañados de texto. */

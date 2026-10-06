@@ -1,9 +1,11 @@
 /*
- * Página pública de reservas — estilo Xiro (oscuro, dorado). Siempre en modo oscuro (es una página de cara al público,
- * pensada para verse igual en cualquier dispositivo); sin librería de UI, solo CSS con variables, mobile-first.
+ * Página pública de reservas — estilo Xiro (dorado sobre neutro). Claro u oscuro según la elección de quien visita
+ * (por defecto, el tema de su sistema) — ver `lib/theme.ts` y el script inline en index.html que aplica el tema
+ * guardado antes del primer pintado, para que no haya parpadeo. Sin librería de UI, solo CSS con variables, mobile-first.
  */
 
-:root {
+:root,
+:root[data-theme='dark'] {
   --bg: #15130f;
   --surface: #1c1914;
   --surface-2: #211c16;
@@ -19,11 +21,41 @@
   --on-gold: #1a1510;
   --danger: #e2766a;
   --danger-tint: rgba(226, 118, 106, 0.14);
+  --danger-text: #ffb4b4;
   --success: #5fb37e;
   --success-tint: rgba(95, 179, 126, 0.14);
+  --success-text: #a9f0c0;
   --warning: #e08a4e;
   --warning-tint: rgba(224, 138, 78, 0.14);
   --overlay: rgba(0, 0, 0, 0.66);
+  --shadow-gold: 0 3px 12px rgba(205, 166, 104, 0.18);
+}
+:root[data-theme='light'] {
+  --bg: #f6f2e9;
+  --surface: #ffffff;
+  --surface-2: #faf6ee;
+  --surface-alt: #f0e9db;
+  --border: #e3dbc8;
+  --border-strong: #8a8370;
+  --text: #201b14;
+  --text-soft: #4a4233;
+  --text-muted: #685f4f;
+  --gold: #7a5c12;
+  --gold-soft: #5c4710;
+  --gold-tint: rgba(122, 92, 18, 0.12);
+  --on-gold: #ffffff;
+  --danger: #ad3527;
+  --danger-tint: rgba(173, 53, 39, 0.1);
+  --danger-text: #8a2a1f;
+  --success: #176b3a;
+  --success-tint: rgba(23, 107, 58, 0.1);
+  --success-text: #11512c;
+  --warning: #954b10;
+  --warning-tint: rgba(149, 75, 16, 0.1);
+  --overlay: rgba(0, 0, 0, 0.4);
+  --shadow-gold: 0 3px 12px rgba(122, 92, 18, 0.16);
+}
+:root {
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 18px;
@@ -38,7 +70,6 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 20px 48px -12px rgba(0, 0, 0, 0.6);
-  --shadow-gold: 0 3px 12px rgba(205, 166, 104, 0.18);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   /* El contenido va centrado y a un ancho cómodo de lectura en celular; en pantallas más anchas crece con el viewport
      (ver los breakpoints de --max-width más abajo) para que la cuadrícula de servicios/productos aproveche el espacio
@@ -163,6 +194,59 @@ textarea {
 .xp-main {
   flex: 1;
   padding-bottom: var(--space-6);
+}
+
+/* ---------- Barra superior (tema, idioma) ---------- */
+
+.xp-topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.xp-topbar-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+.xp-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+.xp-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  transition:
+    background-color 0.15s var(--ease),
+    color 0.15s var(--ease);
+}
+.xp-seg-btn--text {
+  width: auto;
+  padding: 0 10px;
+}
+.xp-seg-btn:hover {
+  color: var(--text);
+}
+.xp-seg-btn[aria-checked='true'] {
+  background: var(--surface-alt);
+  color: var(--text);
 }
 
 /* ---------- Cabecera del negocio ---------- */
@@ -1993,12 +2077,12 @@ img {
 }
 .xp-alert--danger {
   background: var(--danger-tint);
-  color: #ffb4b4;
+  color: var(--danger-text);
   border: 1px solid var(--danger);
 }
 .xp-alert--success {
   background: var(--success-tint);
-  color: #a9f0c0;
+  color: var(--success-text);
   border: 1px solid var(--success);
 }
 .xp-alert--info {
