@@ -1,6 +1,7 @@
-import { translate, type ClientAccountDto, type Language } from '@xiro/shared';
+import { isValidPhone, translate, type ClientAccountDto, type Language } from '@xiro/shared';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { ApiError, publicApi } from '../api';
+import { publicApi } from '../api';
+import { accountErrorMessage as errorMessage } from '../lib/accountErrors';
 import { useAsync } from '../lib/useAsync';
 import { accountPath, navigate, profilePath, type AccountView } from '../lib/route';
 import { Button } from '../ui/Button';
@@ -15,18 +16,6 @@ async function offerToSaveCredential(phone: string, password: string): Promise<v
   } catch {
     /* mejor esfuerzo: sin soporte, o la persona lo rechazó */
   }
-}
-
-function errorMessage(t: (key: string) => string, error: unknown): string {
-  if (error instanceof ApiError) {
-    if (error.code === 'invalid_credentials') return t('pub_account_err_invalid_credentials');
-    if (error.code === 'account_exists') return t('pub_account_err_account_exists');
-    if (error.code === 'otp_invalid') return t('pub_account_err_otp_invalid');
-    if (error.code === 'reset_token_invalid') return t('pub_account_err_reset_token_invalid');
-    if (error.code === 'too_many_requests') return t('too_many_requests');
-    if (error.isNetwork) return t('offline_error');
-  }
-  return t('unknown_error');
 }
 
 interface AccountPageProps {
@@ -69,6 +58,10 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
   async function submitLogin(e: FormEvent) {
     e.preventDefault();
     setError('');
+    if (!isValidPhone(phone)) {
+      setError(t('phone_invalid'));
+      return;
+    }
     setBusy(true);
     try {
       const result = await publicApi.accountLogin(slug, { phone, password, remember });
@@ -85,6 +78,10 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
   async function submitRegister(e: FormEvent) {
     e.preventDefault();
     setError('');
+    if (!isValidPhone(phone)) {
+      setError(t('phone_invalid'));
+      return;
+    }
     if (!acceptTerms) {
       setError(t('terms_required'));
       return;
@@ -105,6 +102,10 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
   async function submitRecoverPhone(e: FormEvent) {
     e.preventDefault();
     setError('');
+    if (!isValidPhone(recoverPhone)) {
+      setError(t('phone_invalid'));
+      return;
+    }
     setBusy(true);
     try {
       const result = await publicApi.accountRecoverRequest(slug, recoverPhone);
