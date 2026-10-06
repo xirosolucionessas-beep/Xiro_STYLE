@@ -1,7 +1,7 @@
 import { formatClock, formatDay, localDate, localTime, translate, upperFirst, type ClientAccountDto, type Language, type PublicAppointmentDto } from '@xiro/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, publicApi, type LoyaltyAccountView } from '../api';
-import { useAsync } from '../lib/useAsync';
+import { useAsync, type AsyncState } from '../lib/useAsync';
 import { profilePath, navigate, accountPath } from '../lib/route';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
@@ -16,6 +16,12 @@ export function MyAccountPage({ slug, language, account, onAccountChange, onLogo
   useEffect(() => {
     if (account === null) navigate(accountPath(slug, 'ingresar'));
   }, [account, slug]);
+
+  const loyalty = useAsync(() => (account ? publicApi.accountLoyalty(slug) : Promise.resolve({ active: false as const })), [slug, Boolean(account)]);
+  // Con el programa apagado, la pestaña desaparece del todo (no solo su contenido): si quedó elegida de antes
+  // (otro negocio sí lo tenía activo), se corrige al vuelo durante el render, sin un efecto aparte.
+  const loyaltyActive = !loyalty.loading && Boolean(loyalty.data?.active);
+  const effectiveTab: Tab = tab === 'loyalty' && !loyaltyActive ? 'appointments' : tab;
 
   if (!account) return null; // undefined: aún resolviendo; null: ya se redirige arriba
 
@@ -34,20 +40,22 @@ export function MyAccountPage({ slug, language, account, onAccountChange, onLogo
   return (
     <div className="xp-container">
       <div className="xp-seg" role="radiogroup" aria-label={t('pub_my_account_title')} style={{ margin: '20px 0' }}>
-        <button type="button" role="radio" aria-checked={tab === 'appointments'} className="xp-seg-btn xp-seg-btn--text" onClick={() => setTab('appointments')}>
+        <button type="button" role="radio" aria-checked={effectiveTab === 'appointments'} className="xp-seg-btn xp-seg-btn--text" onClick={() => setTab('appointments')}>
           {t('pub_my_account_nav_appointments')}
         </button>
-        <button type="button" role="radio" aria-checked={tab === 'loyalty'} className="xp-seg-btn xp-seg-btn--text" onClick={() => setTab('loyalty')}>
-          {t('pub_my_account_nav_loyalty')}
-        </button>
-        <button type="button" role="radio" aria-checked={tab === 'profile'} className="xp-seg-btn xp-seg-btn--text" onClick={() => setTab('profile')}>
+        {loyaltyActive ? (
+          <button type="button" role="radio" aria-checked={effectiveTab === 'loyalty'} className="xp-seg-btn xp-seg-btn--text" onClick={() => setTab('loyalty')}>
+            {t('pub_my_account_nav_loyalty')}
+          </button>
+        ) : null}
+        <button type="button" role="radio" aria-checked={effectiveTab === 'profile'} className="xp-seg-btn xp-seg-btn--text" onClick={() => setTab('profile')}>
           {t('pub_my_account_nav_profile')}
         </button>
       </div>
 
-      {tab === 'appointments' ? <AppointmentsTab slug={slug} language={language} t={t} /> : null}
-      {tab === 'loyalty' ? <LoyaltyTab slug={slug} t={t} /> : null}
-      {tab === 'profile' ? <ProfileTab slug={slug} account={account} t={t} onAccountChange={onAccountChange} onLogout={onLogout} /> : null}
+      {effectiveTab === 'appointments' ? <AppointmentsTab slug={slug} language={language} t={t} /> : null}
+      {effectiveTab === 'loyalty' ? <LoyaltyTab loyalty={loyalty} t={t} /> : null}
+      {effectiveTab === 'profile' ? <ProfileTab slug={slug} account={account} t={t} onAccountChange={onAccountChange} onLogout={onLogout} /> : null}
     </div>
   );
 }
@@ -79,10 +87,9 @@ function AppointmentsTab({ slug, language, t }: { slug: string; language: Langua
   );
 }
 
-function LoyaltyTab({ slug, t }: { slug: string; t: (k: string, p?: Record<string, string | number>) => string }) {
-  const state = useAsync(() => publicApi.accountLoyalty(slug), [slug]);
+function LoyaltyTab({ loyalty: state, t }: { loyalty: AsyncState<LoyaltyAccountView | { active: false }>; t: (k: string, p?: Record<string, string | number>) => string }) {
   if (state.loading) return <p className="xp-muted">{t('loading')}</p>;
-  const loyalty: LoyaltyAccountView | null = state.data ?? null;
+  const loyalty = state.data ?? null;
   if (!loyalty?.active) return <p className="xp-muted">{t('pub_my_account_loyalty_inactive')}</p>;
   const pct = Math.min(100, Math.round(((loyalty.count ?? 0) / (loyalty.goal || 1)) * 100));
   return (
