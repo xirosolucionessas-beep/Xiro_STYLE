@@ -21,6 +21,7 @@ describe('accountErrorMessage: nunca el genérico cuando el servidor ya dijo qu�
     expect(accountErrorMessage(t, new ApiError(400, 'otp_invalid', [], {}))).toBe('[pub_account_err_otp_invalid]');
     expect(accountErrorMessage(t, new ApiError(400, 'reset_token_invalid', [], {}))).toBe('[pub_account_err_reset_token_invalid]');
     expect(accountErrorMessage(t, new ApiError(429, 'too_many_requests', [], {}))).toBe('[too_many_requests]');
+    expect(accountErrorMessage(t, new ApiError(400, 'photo_invalid', [], {}))).toBe('[photo_invalid]');
   });
 
   it('un error de red usa el mensaje de "sin conexión", no el genérico', () => {

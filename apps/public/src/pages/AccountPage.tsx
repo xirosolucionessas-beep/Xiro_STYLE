@@ -4,6 +4,7 @@ import { publicApi } from '../api';
 import { accountErrorMessage as errorMessage } from '../lib/accountErrors';
 import { useAsync } from '../lib/useAsync';
 import { accountPath, navigate, profilePath, type AccountView } from '../lib/route';
+import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
 
@@ -32,9 +33,9 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
   const profileState = useAsync(() => publicApi.profile(slug), [slug]);
   const profile = profileState.data;
 
-  // Con sesión ya iniciada, no tiene sentido mostrar el formulario de ingreso/registro.
+  // Con sesión ya iniciada, no tiene sentido mostrar el formulario de ingreso/registro: directo al negocio.
   useEffect(() => {
-    if (account && (view === 'ingresar' || view === 'registro')) navigate(accountPath(slug, 'cuenta'));
+    if (account && (view === 'ingresar' || view === 'registro')) navigate(profilePath(slug));
   }, [account, slug, view]);
 
   const [name, setName] = useState('');
@@ -46,6 +47,18 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  // Foto de perfil (opcional) elegida en el registro: se sube DESPUÉS de crear la cuenta (ya con sesión), igual que
+  // el logo del negocio en el registro del dueño — una subida multipart no se mezcla con el cuerpo JSON del alta.
+  // Vista previa como data: URL (no blob:): la CSP de esta página solo permite img-src 'self' data:.
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const pickPhoto = (file: File) => {
+    setPhoto(file);
+    const reader = new FileReader();
+    reader.onload = () => setPhotoPreview(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(file);
+  };
 
   // Recuperación: pasos locales (teléfono → código → nueva contraseña), todo bajo la ruta "recuperar".
   const [recoverStep, setRecoverStep] = useState<'phone' | 'code' | 'password' | 'done'>('phone');
@@ -67,7 +80,8 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
       const result = await publicApi.accountLogin(slug, { phone, password, remember });
       void offerToSaveCredential(phone, password);
       onAuthenticated(result);
-      navigate(accountPath(slug, 'cuenta'));
+      // De vuelta al negocio (no a "Mi cuenta"): con la sesión ya activa, puede agendar sin perder el contexto.
+      navigate(profilePath(slug));
     } catch (err) {
       setError(errorMessage(t, err));
     } finally {
@@ -88,10 +102,14 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
     }
     setBusy(true);
     try {
-      const result = await publicApi.accountRegister(slug, { name, phone, password, email: email || undefined, acceptTerms: true, remember });
+      let result = await publicApi.accountRegister(slug, { name, phone, password, email: email || undefined, acceptTerms: true, remember });
+      if (photo) {
+        // Mejor esfuerzo: si la foto falla (red, formato raro), la cuenta ya quedó creada — no se bloquea el registro por esto.
+        result = await publicApi.accountUploadPhoto(slug, photo).catch(() => result);
+      }
       void offerToSaveCredential(phone, password);
       onAuthenticated(result);
-      navigate(accountPath(slug, 'cuenta'));
+      navigate(profilePath(slug));
     } catch (err) {
       setError(errorMessage(t, err));
     } finally {
@@ -221,6 +239,9 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
 
         {view === 'registro' ? (
           <form className="xp-stack" onSubmit={(e) => void submitRegister(e)} autoComplete="on">
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'var(--space-2)' }}>
+              <Avatar src={photoPreview} name={name} size={88} pickLabel={t('pub_account_photo_add')} onPick={pickPhoto} />
+            </div>
             {field('xp-reg-name', t('pub_account_name_label'), <input id="xp-reg-name" className="xp-input" type="text" autoComplete="name" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />)}
             {field('xp-reg-phone', t('pub_account_phone_label'), <input id="xp-reg-phone" className="xp-input" type="tel" inputMode="tel" autoComplete="username" required value={phone} onChange={(e) => setPhone(e.target.value)} />, t('pub_account_phone_hint'))}
             {field('xp-reg-email', t('pub_account_email_label'), <input id="xp-reg-email" className="xp-input" type="email" autoComplete="email" maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />)}

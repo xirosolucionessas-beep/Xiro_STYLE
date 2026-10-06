@@ -277,8 +277,8 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-alt);
-  color: var(--gold);
+  background: linear-gradient(135deg, var(--gold), var(--gold-soft));
+  color: var(--on-gold);
   font-size: 13px;
   font-weight: 700;
 }
@@ -518,6 +518,16 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
+}
+
+/* Zona de peligro ("Eliminar mi cuenta"): borde y fondo apenas teñidos de rojo — NUNCA un rojo saturado ni una
+   alarma — para que se distinga de las demás tarjetas sin invitar a un clic accidental. */
+.xp-card--danger {
+  border-color: var(--danger);
+  background: var(--danger-tint);
+}
+.xp-subtitle--danger {
+  color: var(--danger-text);
 }
 
 .xp-notice {
@@ -1213,10 +1223,11 @@ img {
   padding: 0 22px;
   border-radius: var(--radius-lg);
   border: 1.5px solid var(--gold);
-  background: var(--gold);
+  background: linear-gradient(135deg, var(--gold), var(--gold-soft));
   color: var(--on-gold);
   font-size: 16px;
   font-weight: 700;
+  letter-spacing: 0.1px;
   line-height: 1.2;
   text-align: center;
   text-decoration: none;
@@ -1224,13 +1235,13 @@ img {
   width: 100%;
   transition:
     transform 0.15s var(--ease),
-    background-color 0.2s,
+    background-position 0.3s var(--ease),
     border-color 0.2s,
     box-shadow 0.2s,
     color 0.2s;
 }
 .xp-btn:hover:not(:disabled) {
-  background: var(--gold-soft);
+  background: linear-gradient(135deg, var(--gold-soft), var(--gold));
   border-color: var(--gold-soft);
   box-shadow: var(--shadow-gold);
 }
@@ -1309,6 +1320,65 @@ img {
 }
 .xp-icon-btn:hover {
   background: var(--surface-2);
+}
+
+/* ---------- Avatar de cliente (foto de perfil opcional) ---------- */
+
+.xp-avatar {
+  position: relative;
+  flex: none;
+  border-radius: 50%;
+}
+.xp-avatar-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--bg);
+  box-shadow: 0 0 0 1.5px var(--gold);
+}
+/* Iniciales sobre un degradado dorado — nunca un color plano, para que el avatar se vea cuidado aun sin foto. */
+.xp-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold), var(--gold-soft));
+  color: var(--on-gold);
+  font-weight: 700;
+  border: 3px solid var(--bg);
+  box-shadow: 0 0 0 1.5px var(--gold);
+}
+.xp-avatar-edit {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  background: var(--gold);
+  color: var(--on-gold);
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    transform 0.15s var(--ease);
+}
+.xp-avatar-edit:hover:not(:disabled) {
+  background: var(--gold-soft);
+}
+.xp-avatar-edit:active:not(:disabled) {
+  transform: scale(0.92);
+}
+.xp-avatar-edit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* ---------- Formularios ---------- */

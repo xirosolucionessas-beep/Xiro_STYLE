@@ -37,8 +37,10 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
+  // Cuerpo FormData (subida de foto): el navegador pone su propio Content-Type con el boundary — fijarlo a mano lo rompe.
+  const isFormData = init.body instanceof FormData;
   try {
-    response = await fetch(`/api/public/booking${path}`, { ...init, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers } });
+    response = await fetch(`/api/public/booking${path}`, { ...init, headers: { Accept: 'application/json', ...(init.body && !isFormData ? { 'Content-Type': 'application/json' } : {}), ...init.headers } });
   } catch {
     throw new ApiError(0, 'offline_error');
   }
@@ -84,6 +86,11 @@ export const publicApi = {
   accountLogin: (slug: string, body: { phone: string; password: string; remember: boolean }) => request<ClientAccountDto>(`/${slug}/account/login`, { method: 'POST', body: JSON.stringify(body) }),
   accountLogout: (slug: string) => request<void>(`/${slug}/account/logout`, { method: 'POST' }),
   accountUpdate: (slug: string, body: { name?: string; email?: string | null }) => request<ClientAccountDto>(`/${slug}/account/me`, { method: 'PUT', body: JSON.stringify(body) }),
+  accountUploadPhoto: (slug: string, file: File) => {
+    const form = new FormData();
+    form.append('photo', file);
+    return request<ClientAccountDto>(`/${slug}/account/photo`, { method: 'PUT', body: form });
+  },
   accountChangePassword: (slug: string, body: { currentPassword: string; newPassword: string }) => request<{ ok: true }>(`/${slug}/account/change-password`, { method: 'POST', body: JSON.stringify(body) }),
   accountDelete: (slug: string, password: string) => request<void>(`/${slug}/account`, { method: 'DELETE', body: JSON.stringify({ password }) }),
   accountSessions: (slug: string) => request<ClientSessionDeviceDto[]>(`/${slug}/account/sessions`),

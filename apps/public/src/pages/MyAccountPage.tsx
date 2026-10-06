@@ -4,6 +4,7 @@ import { publicApi, type LoyaltyAccountView } from '../api';
 import { accountErrorMessage } from '../lib/accountErrors';
 import { useAsync, type AsyncState } from '../lib/useAsync';
 import { profilePath, navigate, accountPath } from '../lib/route';
+import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
 
@@ -169,6 +170,22 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteError, setDeleteError] = useState('');
 
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+
+  async function uploadPhoto(file: File) {
+    setPhotoBusy(true);
+    setPhotoError('');
+    try {
+      const updated = await publicApi.accountUploadPhoto(slug, file);
+      onAccountChange(updated);
+    } catch (err) {
+      setPhotoError(accountErrorMessage(t, err));
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
   async function saveProfile(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -218,29 +235,39 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
 
   return (
     <div className="xp-stack">
-      <form className="xp-stack" onSubmit={(e) => void saveProfile(e)}>
-        {saveError ? (
-          <p className="xp-error" role="alert">
-            {saveError}
+      <div className="xp-card xp-stack">
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <Avatar src={account.photoUrl} name={account.name} size={96} busy={photoBusy} pickLabel={t(account.photoUrl ? 'pub_account_photo_change' : 'pub_account_photo_add')} onPick={(file) => void uploadPhoto(file)} />
+        </div>
+        {photoError ? (
+          <p className="xp-error" role="alert" style={{ textAlign: 'center' }}>
+            {photoError}
           </p>
         ) : null}
-        <div className="xp-field">
-          <label className="xp-label" htmlFor="xp-prof-name">
-            {t('pub_account_name_label')}
-          </label>
-          <input id="xp-prof-name" className="xp-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
-        </div>
-        <div className="xp-field">
-          <label className="xp-label" htmlFor="xp-prof-email">
-            {t('pub_account_email_label')}
-          </label>
-          <input id="xp-prof-email" className="xp-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} />
-        </div>
-        <Button loading={saving} full={false} type="submit">
-          {t('pub_my_account_save')}
-        </Button>
-        {saved ? <span className="xp-hint">{t('pub_my_account_saved')}</span> : null}
-      </form>
+        <form className="xp-stack" onSubmit={(e) => void saveProfile(e)}>
+          {saveError ? (
+            <p className="xp-error" role="alert">
+              {saveError}
+            </p>
+          ) : null}
+          <div className="xp-field">
+            <label className="xp-label" htmlFor="xp-prof-name">
+              {t('pub_account_name_label')}
+            </label>
+            <input id="xp-prof-name" className="xp-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+          </div>
+          <div className="xp-field">
+            <label className="xp-label" htmlFor="xp-prof-email">
+              {t('pub_account_email_label')}
+            </label>
+            <input id="xp-prof-email" className="xp-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} />
+          </div>
+          <Button loading={saving} full={false} type="submit">
+            {t('pub_my_account_save')}
+          </Button>
+          {saved ? <span className="xp-hint">{t('pub_my_account_saved')}</span> : null}
+        </form>
+      </div>
 
       <div className="xp-card xp-stack">
         <h3 className="xp-subtitle">{t('pub_my_account_change_password_cta')}</h3>
@@ -263,30 +290,36 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
         <Icon name="back" size={16} /> {t('pub_my_account_logout_cta')}
       </Button>
 
-      {!confirmDelete ? (
-        <Button variant="danger" onClick={() => setConfirmDelete(true)}>
-          {t('pub_my_account_delete_cta')}
-        </Button>
-      ) : (
-        <div className="xp-card xp-stack">
-          <h3 className="xp-subtitle">{t('pub_my_account_delete_confirm_title')}</h3>
-          <p className="xp-hint">{t('pub_my_account_delete_confirm_text')}</p>
-          {deleteError ? (
-            <p className="xp-error" role="alert">
-              {deleteError}
-            </p>
-          ) : null}
-          <input className="xp-input" type="password" placeholder={t('pub_account_password_label')} value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} />
-          <div className="xp-btn-row">
-            <Button variant="ghost" full={false} onClick={() => setConfirmDelete(false)}>
-              {t('cancel')}
-            </Button>
-            <Button variant="danger" full={false} loading={deleting} onClick={() => void doDelete()}>
+      <div className="xp-card xp-card--danger xp-stack">
+        <h3 className="xp-subtitle xp-subtitle--danger">{t('pub_my_account_delete_cta')}</h3>
+        {!confirmDelete ? (
+          <>
+            <p className="xp-hint">{t('pub_my_account_delete_confirm_text')}</p>
+            <Button variant="danger" full={false} onClick={() => setConfirmDelete(true)}>
               {t('pub_my_account_delete_cta')}
             </Button>
-          </div>
-        </div>
-      )}
+          </>
+        ) : (
+          <>
+            <h4 className="xp-subtitle">{t('pub_my_account_delete_confirm_title')}</h4>
+            <p className="xp-hint">{t('pub_my_account_delete_confirm_text')}</p>
+            {deleteError ? (
+              <p className="xp-error" role="alert">
+                {deleteError}
+              </p>
+            ) : null}
+            <input className="xp-input" type="password" placeholder={t('pub_account_password_label')} value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} />
+            <div className="xp-btn-row">
+              <Button variant="ghost" full={false} onClick={() => setConfirmDelete(false)}>
+                {t('cancel')}
+              </Button>
+              <Button variant="danger" full={false} loading={deleting} onClick={() => void doDelete()}>
+                {t('pub_my_account_delete_cta')}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

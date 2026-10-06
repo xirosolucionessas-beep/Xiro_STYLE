@@ -25,7 +25,7 @@ import { expiredSessionCookie, parseCookies, serializeSessionCookie } from '../c
 import { isUniqueViolation } from '../db/errors';
 import { appointments, clientAccounts, clientRecoveryCodes, clientResetTokens, clientSessions, clients, loyaltyPrograms, loyaltyProgress } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
-import { mediaUrl } from '../media';
+import { mediaUrl, removeMedia, saveAvatarImage } from '../media';
 import { DUMMY_HASH, hashPassword, hmac, randomToken, safeEqualHex, sixDigitCode, verifyPassword } from '../security';
 import type { BusinessRow } from '../serializers';
 
@@ -188,6 +188,20 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     return toAccountDto(updated!);
   });
 
+  /** Foto de perfil del cliente (opcional): mismo procesamiento que la del dueño/empleado (cuadrada, 400×400, WebP). */
+  app.put('/:slug/account/photo', async (request): Promise<ClientAccountDto> => {
+    const { slug } = parse(slugParams, request.params);
+    const business = await publishedBusiness(slug);
+    const account = await requireAccount(request, business);
+    const part = await request.file();
+    if (!part) throw new AppError(400, 'photo_invalid');
+    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    if (!file) throw new AppError(400, 'photo_invalid');
+    const [updated] = await db.update(clientAccounts).set({ photoFile: file }).where(eq(clientAccounts.id, account.id)).returning();
+    await removeMedia(config.mediaDir, account.photoFile);
+    return toAccountDto(updated!);
+  });
+
   app.post('/:slug/account/change-password', async (request) => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
@@ -207,6 +221,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (!(await verifyPassword(input.password, account.passwordHash))) throw new AppError(401, 'invalid_credentials');
     // Se borran las credenciales y la foto; el registro de `clients` del negocio se conserva (su historial de citas sigue siendo del negocio).
     await db.delete(clientAccounts).where(eq(clientAccounts.id, account.id));
+    await removeMedia(config.mediaDir, account.photoFile);
     reply.header('Set-Cookie', expiredSessionCookie(COOKIE_NAME, accountPath(business.slug), config.production));
     return reply.status(204).send();
   });
