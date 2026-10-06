@@ -1,7 +1,9 @@
 import { phoneHref, translate, whatsappLink, type Language, type PublicBookingCatalog, type PublicBookingProfile } from '@xiro/shared';
+import { useState } from 'react';
 import { money } from '../lib/format';
 import { Icon } from '../ui/Icon';
 import { ListSkeleton } from '../ui/Skeleton';
+import { ItemDetailModal, type DetailItem } from './ItemDetailModal';
 
 type Service = PublicBookingCatalog['services'][number];
 
@@ -30,6 +32,8 @@ export function ServicesSection({
   const services = catalog?.services ?? [];
   const packages = catalog?.packages ?? [];
   const groups = groupByCategory(services);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const openService = openId ? services.find((s) => s.id === openId) : null;
 
   return (
     <section className="xp-section" id="servicios" aria-labelledby="xp-services-h">
@@ -70,24 +74,26 @@ export function ServicesSection({
               const description = service.description && service.description !== service.name ? service.description : '';
               return (
                 <li key={service.id} className="xp-price-row">
-                  {service.image ? <img className="xp-price-thumb" src={service.image} alt="" width={56} height={56} loading="lazy" decoding="async" /> : null}
-                  <div className="xp-price-main">
-                    <div className="xp-price-top">
-                      <h3 className="xp-price-name">{service.name}</h3>
-                      <span className="xp-price">{service.variants.length > 0 ? t('pub_from', { price: money(from, profile.currency) }) : money(service.price, profile.currency)}</span>
-                    </div>
-                    <div className="xp-price-sub">
-                      <span className="xp-meta">
-                        <Icon name="clock" size={16} /> {t('pub_minutes', { minutes: service.durationMinutes })}
+                  <button type="button" className="xp-price-open" aria-label={t('pub_detail_open', { name: service.name })} onClick={() => setOpenId(service.id)}>
+                    {service.image ? <img className="xp-price-thumb" src={service.image} alt="" width={56} height={56} loading="lazy" decoding="async" /> : null}
+                    <span className="xp-price-main">
+                      <span className="xp-price-top">
+                        <h3 className="xp-price-name">{service.name}</h3>
+                        <span className="xp-price">{service.variants.length > 0 ? t('pub_from', { price: money(from, profile.currency) }) : money(service.price, profile.currency)}</span>
                       </span>
-                      {description ? <span className="xp-price-desc">{description}</span> : null}
-                    </div>
-                    {canBook ? (
-                      <button type="button" className="xp-btn xp-btn--secondary xp-btn--auto xp-price-book" aria-label={t('pub_service_book_aria', { name: service.name })} onClick={() => onBook({ serviceId: service.id })}>
-                        {t('pub_service_book')}
-                      </button>
-                    ) : null}
-                  </div>
+                      <span className="xp-price-sub">
+                        <span className="xp-meta">
+                          <Icon name="clock" size={16} /> {t('pub_minutes', { minutes: service.durationMinutes })}
+                        </span>
+                        {description ? <span className="xp-price-desc">{description}</span> : null}
+                      </span>
+                    </span>
+                  </button>
+                  {canBook ? (
+                    <button type="button" className="xp-btn xp-btn--secondary xp-btn--auto xp-price-book" aria-label={t('pub_service_book_aria', { name: service.name })} onClick={() => onBook({ serviceId: service.id })}>
+                      {t('pub_service_book')}
+                    </button>
+                  ) : null}
                 </li>
               );
             })}
@@ -124,6 +130,34 @@ export function ServicesSection({
           </ul>
         </div>
       ) : null}
+
+      {openService ? (
+        <ItemDetailModal
+          item={detailFromService(openService)}
+          currency={profile.currency}
+          language={language}
+          canBook={canBook}
+          onClose={() => setOpenId(null)}
+          onBook={() => {
+            setOpenId(null);
+            onBook({ serviceId: openService.id });
+          }}
+        />
+      ) : null}
     </section>
   );
+}
+
+function detailFromService(service: Service): DetailItem {
+  const from = service.variants.length > 0 ? Math.min(service.price, ...service.variants.map((v) => v.price)) : service.price;
+  return {
+    id: service.id,
+    name: service.name,
+    category: service.category,
+    description: service.description && service.description !== service.name ? service.description : '',
+    images: service.images,
+    durationMinutes: service.durationMinutes,
+    price: from,
+    fromPrice: service.variants.length > 0,
+  };
 }

@@ -46,7 +46,7 @@ export function TeamSection({ team, services, language }: { team: PublicTeamMemb
       </ul>
 
       {open ? (
-        <Modal title={open.name} onClose={() => setOpenId(null)} footer={<Button variant="secondary" full={false} onClick={() => setOpenId(null)}>{t('close')}</Button>}>
+        <Modal title={open.name} closeLabel={t('close')} onClose={() => setOpenId(null)} footer={<Button variant="secondary" full={false} onClick={() => setOpenId(null)}>{t('close')}</Button>}>
           <div className="xp-member-detail">
             {open.photoUrl ? (
               <img className="xp-member-detail-photo" src={open.photoUrl} alt="" width={96} height={96} />

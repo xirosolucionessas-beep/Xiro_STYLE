@@ -34,10 +34,11 @@ export interface Chosen {
   products: Array<{ itemId: string; quantity: number }>;
 }
 
-/** Lo que se eligió en la página antes de abrir el flujo (el botón "Reservar" de una tarjeta de servicio o de paquete). */
+/** Lo que se eligió en la página antes de abrir el flujo (el botón "Reservar" de un servicio, paquete o producto). */
 export interface InitialChoice {
   serviceId?: string;
   packageId?: string;
+  productId?: string;
 }
 
 const selectionOf = (chosen: Chosen): Pick<BookingSelection, 'services' | 'packages'> => ({ services: chosen.services, packages: chosen.packages });
@@ -74,7 +75,7 @@ export function BookingFlow({
   const [chosen, setChosen] = useState<Chosen>(() => ({
     services: initial.serviceId ? [{ itemId: initial.serviceId, variantId: null }] : [],
     packages: initial.packageId ? [initial.packageId] : [],
-    products: [],
+    products: initial.productId ? [{ itemId: initial.productId, quantity: 1 }] : [],
   }));
   const [professionalId, setProfessionalId] = useState('any');
   const [date, setDate] = useState(() => todayIn(profile.timezone));

@@ -448,7 +448,10 @@ export interface PublicServiceDto {
   description: string;
   price: number;
   durationMinutes: number;
+  /** La primera (o única) foto, para la miniatura de la lista — igual a `images[0]`. */
   image: string | null;
+  /** Todas las fotos del servicio, en el orden que eligió el negocio — para la galería del detalle. */
+  images: string[];
   variants: PublicVariantDto[];
 }
 
@@ -469,7 +472,10 @@ export interface PublicProductDto {
   name: string;
   description: string;
   price: number;
+  /** La primera (o única) foto, para la miniatura de la lista — igual a `images[0]`. */
   image: string | null;
+  /** Todas las fotos del producto, en el orden que eligió el negocio — para la galería del detalle. */
+  images: string[];
   inStock: boolean;
 }
 

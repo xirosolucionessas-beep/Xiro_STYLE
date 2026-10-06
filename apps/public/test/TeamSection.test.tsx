@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { TeamSection } from '../src/profile/TeamSection';
 
-const service = (over: Partial<PublicServiceDto> = {}): PublicServiceDto => ({ id: 'svc1', name: 'Corte', category: 'Cabello', description: '', price: 30_000, durationMinutes: 30, image: null, variants: [], ...over });
+const service = (over: Partial<PublicServiceDto> = {}): PublicServiceDto => ({ id: 'svc1', name: 'Corte', category: 'Cabello', description: '', price: 30_000, durationMinutes: 30, image: null, images: [], variants: [], ...over });
 const member = (over: Partial<PublicTeamMemberDto> = {}): PublicTeamMemberDto => ({ id: 'm1', name: 'Ana Ríos', bio: '', photoUrl: null, serviceIds: [], ...over });
 
 describe('TeamSection', () => {

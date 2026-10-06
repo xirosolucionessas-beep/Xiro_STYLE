@@ -176,11 +176,12 @@ export async function loadPublicProfile(tx: Tx, ctx: BookingContext, now: Date, 
   };
 }
 
-async function firstPhotos(tx: Tx, itemIds: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+/** Todas las fotos de cada ítem, en el orden que el negocio definió (para la miniatura de la lista y la galería del detalle). */
+async function allPhotos(tx: Tx, itemIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
   if (itemIds.length === 0) return out;
   const rows = await tx.select({ itemId: itemPhotos.itemId, file: itemPhotos.file }).from(itemPhotos).where(inArray(itemPhotos.itemId, itemIds)).orderBy(asc(itemPhotos.position));
-  for (const row of rows) if (!out.has(row.itemId)) out.set(row.itemId, mediaUrl(row.file));
+  for (const row of rows) out.set(row.itemId, [...(out.get(row.itemId) ?? []), mediaUrl(row.file)]);
   return out;
 }
 
@@ -195,7 +196,7 @@ export async function loadPublicCatalog(tx: Tx, businessId: string, sections: Re
         .orderBy(asc(items.sortOrder), asc(categories.name), asc(items.name))
     : [];
   const variants = rows.length > 0 ? await tx.select().from(serviceVariants).where(and(eq(serviceVariants.businessId, businessId), eq(serviceVariants.active, true))).orderBy(asc(serviceVariants.sortOrder), asc(serviceVariants.name)) : [];
-  const photos = await firstPhotos(tx, rows.map((r) => r.item.id));
+  const photos = await allPhotos(tx, rows.map((r) => r.item.id));
   const services = rows.map(({ item, categoryName }) => ({
     id: item.id,
     name: item.name,
@@ -203,7 +204,8 @@ export async function loadPublicCatalog(tx: Tx, businessId: string, sections: Re
     description: item.shortDescription || item.description,
     price: item.price,
     durationMinutes: item.durationMinutes,
-    image: photos.get(item.id) ?? null,
+    image: photos.get(item.id)?.[0] ?? null,
+    images: photos.get(item.id) ?? [],
     variants: variants
       .filter((v) => v.itemId === item.id)
       .map((v) => ({ id: v.id, name: v.name, description: v.description, price: v.price, durationMinutes: v.durationMinutes ?? item.durationMinutes })),
@@ -238,8 +240,16 @@ export async function loadPublicCatalog(tx: Tx, businessId: string, sections: Re
   // El negocio puede pedir que un producto agotado desaparezca de aquí (y no solo quede marcado `inStock: false`).
   const [settingsRow] = allProductRows.length > 0 ? await tx.select({ hide: businessSettings.hideOutOfStockInCatalog }).from(businessSettings).where(eq(businessSettings.businessId, businessId)).limit(1) : [];
   const productRows = settingsRow?.hide ? allProductRows.filter((p) => p.stock > 0) : allProductRows;
-  const productPhotos = await firstPhotos(tx, productRows.map((p) => p.id));
-  const products = productRows.map((p) => ({ id: p.id, name: p.name, description: p.shortDescription || p.description, price: p.price, image: productPhotos.get(p.id) ?? null, inStock: p.stock > 0 }));
+  const productPhotos = await allPhotos(tx, productRows.map((p) => p.id));
+  const products = productRows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    description: p.shortDescription || p.description,
+    price: p.price,
+    image: productPhotos.get(p.id)?.[0] ?? null,
+    images: productPhotos.get(p.id) ?? [],
+    inStock: p.stock > 0,
+  }));
 
   return { services, packages, products };
 }

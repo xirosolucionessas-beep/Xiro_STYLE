@@ -75,7 +75,7 @@ export function ProfilePage({ slug, language }: { slug: string; language: Langua
           {sections?.services ? <ServicesSection profile={profile} catalog={catalog} loading={catalogState.loading} language={language} onBook={openFlow} /> : null}
           {sections?.team ? <TeamSection team={teamState.data ?? []} services={catalog?.services ?? []} language={language} /> : null}
           {sections?.gallery ? <GallerySection photos={profile.gallery} language={language} /> : null}
-          {sections?.products && catalog ? <ProductsSection profile={profile} products={catalog.products} language={language} /> : null}
+          {sections?.products && catalog ? <ProductsSection profile={profile} products={catalog.products} language={language} onBook={openFlow} /> : null}
           {sections?.reviews ? <ReviewsSection reviews={reviewsState.data ?? []} language={language} /> : null}
           <HoursSection profile={profile} language={language} />
 

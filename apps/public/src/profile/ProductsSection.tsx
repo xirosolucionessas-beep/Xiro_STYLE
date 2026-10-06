@@ -1,11 +1,29 @@
 import { translate, type Language, type PublicBookingCatalog, type PublicBookingProfile } from '@xiro/shared';
+import { useState } from 'react';
 import { money } from '../lib/format';
 import { Icon } from '../ui/Icon';
+import { ItemDetailModal, type DetailItem } from './ItemDetailModal';
 
-/** Productos con su imagen (recortada a proporción fija), nombre, descripción legible y precio formateado. Los agotados se ven, pero atenuados y rotulados. */
-export function ProductsSection({ profile, products, language }: { profile: PublicBookingProfile; products: PublicBookingCatalog['products']; language: Language }) {
-  const t = (key: string) => translate(language, key);
+type Product = PublicBookingCatalog['products'][number];
+
+function detailFromProduct(product: Product): DetailItem {
+  return {
+    id: product.id,
+    name: product.name,
+    description: product.description && product.description !== product.name && !/^[\d\s.,-]+$/.test(product.description) ? product.description : '',
+    images: product.images,
+    price: product.price,
+  };
+}
+
+/** Productos con su imagen (recortada a proporción fija), nombre, descripción legible y precio formateado. Los agotados se ven, pero atenuados y rotulados.
+ * Tocar la tarjeta abre el detalle con todas las fotos; desde ahí "Reservar" agrega el producto y abre el flujo. */
+export function ProductsSection({ profile, products, language, onBook }: { profile: PublicBookingProfile; products: PublicBookingCatalog['products']; language: Language; onBook: (choice: { productId: string }) => void }) {
+  const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
+  const [openId, setOpenId] = useState<string | null>(null);
   if (products.length === 0) return null;
+  const openProduct = openId ? products.find((p) => p.id === openId) : null;
+
   return (
     <section className="xp-section" id="productos" aria-labelledby="xp-products-h">
       <p className="xp-kicker" aria-hidden="true">
@@ -18,25 +36,41 @@ export function ProductsSection({ profile, products, language }: { profile: Publ
           const description = product.description && product.description !== product.name && !/^[\d\s.,-]+$/.test(product.description) ? product.description : '';
           return (
             <li key={product.id} className={`xp-product${product.inStock ? '' : ' is-out'}`}>
-              {product.image ? (
-                <img className="xp-product-img" src={product.image} alt="" width={400} height={400} loading="lazy" decoding="async" />
-              ) : (
-                <span className="xp-product-img xp-product-img--empty" aria-hidden="true">
-                  <Icon name="image" size={28} />
+              <button type="button" className="xp-product-open" aria-label={t('pub_detail_open', { name: product.name })} onClick={() => setOpenId(product.id)}>
+                {product.image ? (
+                  <img className="xp-product-img" src={product.image} alt="" width={400} height={400} loading="lazy" decoding="async" />
+                ) : (
+                  <span className="xp-product-img xp-product-img--empty" aria-hidden="true">
+                    <Icon name="image" size={28} />
+                  </span>
+                )}
+                <span className="xp-product-body">
+                  <span className="xp-product-name">{product.name}</span>
+                  {description ? <span className="xp-product-desc">{description}</span> : null}
+                  <span className="xp-product-foot">
+                    <span className="xp-price">{money(product.price, profile.currency)}</span>
+                    {!product.inStock ? <span className="xp-tag xp-tag--muted">{t('pub_out_of_stock')}</span> : null}
+                  </span>
                 </span>
-              )}
-              <div className="xp-product-body">
-                <h3 className="xp-product-name">{product.name}</h3>
-                {description ? <p className="xp-product-desc">{description}</p> : null}
-                <div className="xp-product-foot">
-                  <span className="xp-price">{money(product.price, profile.currency)}</span>
-                  {!product.inStock ? <span className="xp-tag xp-tag--muted">{t('pub_out_of_stock')}</span> : null}
-                </div>
-              </div>
+              </button>
             </li>
           );
         })}
       </ul>
+
+      {openProduct ? (
+        <ItemDetailModal
+          item={detailFromProduct(openProduct)}
+          currency={profile.currency}
+          language={language}
+          canBook={profile.acceptsBookings && openProduct.inStock}
+          onClose={() => setOpenId(null)}
+          onBook={() => {
+            setOpenId(null);
+            onBook({ productId: openProduct.id });
+          }}
+        />
+      ) : null}
     </section>
   );
 }
