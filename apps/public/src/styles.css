@@ -319,11 +319,9 @@ textarea {
 }
 
 /* Tarjeta "de vidrio" (glassmorphism ligero): vive SIEMPRE sobre el fondo sólido, nunca sobre la foto (ver nota
-   arriba) — el efecto de vidrio viene del leve desenfoque/transparencia contra ese fondo, no de superponerse a la
-   portada. Se monta sobre el degradado con un margen negativo para sentirse "conectada" a la portada sin taparla.
-   El traslape es DELIBERADAMENTE pequeño (ver `.xp-logo` abajo): una portada puede traer su propio contenido
-   importante (texto, un código QR) hasta bastante abajo de la imagen, y el logo nunca debe tapar eso en NINGÚN
-   negocio, sin importar qué foto suba. */
+   arriba). SIN traslape con la portada (ni el contenedor ni el logo usan margen negativo): una portada puede traer
+   su propio contenido importante hasta el borde inferior (texto, un código QR, como reportó un negocio real), y el
+   logo nunca debe tapar nada de eso, en NINGÚN negocio, sin importar qué foto suba. */
 .xp-identity {
   position: relative;
   z-index: 1;
@@ -331,7 +329,6 @@ textarea {
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-2);
-  margin-top: -12px;
   padding: var(--space-5) var(--space-4) var(--space-5);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   background: linear-gradient(180deg, rgba(var(--bg-rgb), 0.7), rgba(var(--bg-rgb), 0.94) 60%);
@@ -347,7 +344,7 @@ textarea {
 .xp-logo {
   width: 112px;
   height: 112px;
-  margin-top: -36px;
+  margin-top: var(--space-2);
   border-radius: 50%;
   border: 4px solid var(--bg);
   box-shadow: 0 0 0 2px var(--gold), var(--shadow-lg);
@@ -359,7 +356,7 @@ textarea {
   .xp-logo {
     width: 152px;
     height: 152px;
-    margin-top: -48px;
+    margin-top: var(--space-2);
   }
 }
 .xp-logo--fallback {
