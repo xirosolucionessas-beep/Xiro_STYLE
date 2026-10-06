@@ -58,7 +58,7 @@ export interface RegisterViewProps {
 
 const BUSINESS_TYPE_ICONS: Record<BusinessType, IconName> = {
   barbershop: 'scissors',
-  beauty_salon: 'sparkles',
+  beauty_salon: 'star',
   spa: 'droplet',
   nails: 'nail-polish',
   other: 'store',

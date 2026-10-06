@@ -74,8 +74,8 @@ function Column({ list, selected, onSelect, name }: { list: string[]; selected: 
       {list.map((item) => {
         const on = item === selected;
         return (
-          <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={`${name} ${item}`} onPress={() => onSelect(item)} style={[styles.option, { borderColor: on ? colors.gold : colors.border, backgroundColor: on ? colors.goldTint : 'transparent' }]}>
-            <AppText tone={on ? 'gold' : 'text'} variant="bodyStrong">
+          <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={`${name} ${item}`} onPress={() => onSelect(item)} style={[styles.option, { borderColor: colors.border, backgroundColor: on ? colors.surfaceAlt : 'transparent' }]}>
+            <AppText tone="text" variant="bodyStrong">
               {item}
             </AppText>
           </Pressable>

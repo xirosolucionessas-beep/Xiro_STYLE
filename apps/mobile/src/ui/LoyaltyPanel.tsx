@@ -255,7 +255,7 @@ function RecordServiceModal({ client, onClose, onRecorded }: { client: LoyaltyCl
                   accessibilityRole="radio"
                   accessibilityState={{ checked: on }}
                   onPress={() => setItemId(item.id)}
-                  style={[styles.option, { borderColor: on ? colors.gold : colors.border, backgroundColor: on ? colors.goldTint : colors.surface }]}>
+                  style={[styles.option, { borderColor: on ? colors.gold : colors.border, backgroundColor: on ? colors.surfaceAlt : colors.surface }]}>
                   <AppText variant="bodyStrong" style={{ flex: 1 }}>
                     {item.name}
                   </AppText>

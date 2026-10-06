@@ -88,14 +88,14 @@ export function SubscriptionGate() {
   return (
     <Modal transparent visible animationType="fade" onRequestClose={blocking ? undefined : dismiss}>
       <View style={styles.backdrop}>
-        <View style={[styles.card, { borderColor: colors.gold }]}>
+        <View style={[styles.card, { borderColor: colors.border }]}>
           {!blocking ? (
             <Pressable accessibilityRole="button" accessibilityLabel={t('close')} onPress={dismiss} style={styles.close} hitSlop={10}>
               <Ionicons name="close" size={20} color="#9c9689" />
             </Pressable>
           ) : null}
-          <View style={[styles.icon, { backgroundColor: colors.goldTint, borderColor: colors.gold }]}>
-            <Ionicons name="calendar-outline" size={30} color={colors.gold} />
+          <View style={[styles.icon, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+            <Ionicons name="calendar-outline" size={30} color={colors.textMuted} />
             <View style={[styles.clockBadge, { backgroundColor: colors.gold }]}>
               <Ionicons name="time" size={14} color={colors.onGold} />
             </View>

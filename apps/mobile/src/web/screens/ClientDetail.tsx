@@ -50,7 +50,7 @@ export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHre
             </dl>
           </Panel>
 
-          <Panel title={t('sec_cd_actions')} icon="sparkles">
+          <Panel title={t('sec_cd_actions')}>
             <div className="xw-detail-actions" style={{ marginTop: 0 }}>
               {whatsappHref ? (
                 <a className="xw-btn xw-btn--primary" href={whatsappHref} target="_blank" rel="noopener noreferrer">

@@ -49,7 +49,7 @@ export function HoursEditor({ hours, onChange }: { hours: BusinessHours; onChang
                 {row.open ? `${row.from} — ${row.to}` : t('closed')}
               </AppText>
             </View>
-            <Ionicons name="create-outline" size={20} color={colors.gold} />
+            <Ionicons name="create-outline" size={20} color={colors.textMuted} />
           </Pressable>
         );
       })}
@@ -133,8 +133,8 @@ function TimeColumn({ list, selected, onSelect, name }: { list: string[]; select
             accessibilityState={{ selected: on }}
             accessibilityLabel={`${name} ${item}`}
             onPress={() => onSelect(item)}
-            style={[styles.option, { borderColor: on ? colors.gold : colors.border, backgroundColor: on ? colors.goldTint : 'transparent' }]}>
-            <AppText tone={on ? 'gold' : 'text'} variant="bodyStrong">
+            style={[styles.option, { borderColor: colors.border, backgroundColor: on ? colors.surfaceAlt : 'transparent' }]}>
+            <AppText tone="text" variant="bodyStrong">
               {item}
             </AppText>
           </Pressable>

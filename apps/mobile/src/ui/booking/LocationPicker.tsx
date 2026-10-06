@@ -50,7 +50,7 @@ export function LocationPicker({ value, onChange }: { value: PickedLocation | nu
         <View style={[styles.list, { borderColor: colors.border, backgroundColor: colors.surface }]}>
           {picker.coordsOffer ? (
             <Pressable accessibilityRole="button" onPress={() => void picker.applyCoords(picker.coordsOffer!)} style={[styles.row, { borderBottomColor: colors.border }]}>
-              <Ionicons name="pin" size={18} color={colors.gold} />
+              <Ionicons name="pin" size={18} color={colors.textMuted} />
               <AppText variant="bodyStrong" style={{ flex: 1 }}>
                 {t('bk_loc_use_coords', { coords: formatCoords(picker.coordsOffer) })}
               </AppText>
@@ -63,7 +63,7 @@ export function LocationPicker({ value, onChange }: { value: PickedLocation | nu
               accessibilityLabel={suggestion.secondaryText ? `${suggestion.text}, ${suggestion.secondaryText}` : suggestion.text}
               onPress={() => void picker.pick(suggestion)}
               style={[styles.row, index < picker.suggestions.length - 1 && { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-              <Ionicons name="location-outline" size={18} color={colors.gold} />
+              <Ionicons name="location-outline" size={18} color={colors.textMuted} />
               <View style={{ flex: 1 }}>
                 <AppText variant="bodyStrong">{suggestion.text}</AppText>
                 {suggestion.secondaryText ? (

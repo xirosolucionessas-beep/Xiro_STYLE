@@ -9,57 +9,57 @@ Objetivo: WCAG 2.2 AA — 4.5:1 texto normal · 3:1 texto grande, iconos y borde
 
 | Token | Valor |
 |---|---|
-| `background` | `#0d0d0f` |
-| `surface` | `#1a1a1d` |
-| `surfaceAlt` | `#24221d` |
-| `surfaceTint` | `#221e2b` |
-| `border` | `#726d60` |
-| `borderSubtle` | `#37342b` |
-| `text` | `#ffffff` |
-| `textMuted` | `#b9b3a7` |
-| `accent` | `#d9b636` |
-| `accentTint` | `rgba(217, 182, 54, 0.14)` |
-| `onAccent` | `#17130a` |
-| `danger` | `#e56565` |
-| `success` | `#53c878` |
-| `warning` | `#f2c94c` |
+| `background` | `#15130f` |
+| `surface` | `#1c1914` |
+| `surfaceAlt` | `#272019` |
+| `surfaceTint` | `#211d28` |
+| `border` | `#746d5c` |
+| `borderSubtle` | `#39332b` |
+| `text` | `#f3eee3` |
+| `textMuted` | `#b7ad9b` |
+| `accent` | `#cda668` |
+| `accentTint` | `rgba(205, 166, 104, 0.14)` |
+| `onAccent` | `#1a1510` |
+| `danger` | `#e2766a` |
+| `success` | `#5fb37e` |
+| `warning` | `#e08a4e` |
 | `overlay` | `rgba(0, 0, 0, 0.7)` |
-| `focus` | `#d9b636` |
+| `focus` | `#cda668` |
 
 ### Contraste verificado (dark)
 
 | Par | Ratio | Mínimo | Resultado |
 |---|---|---|---|
-| Texto sobre fondo (`#ffffff` / `#0d0d0f`) | 19.42:1 | 4.5:1 | Cumple |
-| Texto sobre superficie (`#ffffff` / `#1a1a1d`) | 17.36:1 | 4.5:1 | Cumple |
-| Texto sobre superficie elevada (`#ffffff` / `#24221d`) | 15.89:1 | 4.5:1 | Cumple |
-| Texto secundario sobre fondo (`#b9b3a7` / `#0d0d0f`) | 9.31:1 | 4.5:1 | Cumple |
-| Texto secundario sobre superficie (`#b9b3a7` / `#1a1a1d`) | 8.33:1 | 4.5:1 | Cumple |
-| Texto secundario sobre superficie elevada (`#b9b3a7` / `#24221d`) | 7.62:1 | 4.5:1 | Cumple |
-| Acento (texto/enlaces) sobre fondo (`#d9b636` / `#0d0d0f`) | 9.89:1 | 4.5:1 | Cumple |
-| Acento sobre superficie (`#d9b636` / `#1a1a1d`) | 8.84:1 | 4.5:1 | Cumple |
-| Acento sobre superficie elevada (`#d9b636` / `#24221d`) | 8.09:1 | 4.5:1 | Cumple |
-| Texto sobre superficie lavanda (`#ffffff` / `#221e2b`) | 16.30:1 | 4.5:1 | Cumple |
-| Texto secundario sobre superficie lavanda (`#b9b3a7` / `#221e2b`) | 7.81:1 | 4.5:1 | Cumple |
-| Acento sobre superficie lavanda (`#d9b636` / `#221e2b`) | 8.30:1 | 4.5:1 | Cumple |
-| Acento sobre chip seleccionado (fondo) (`#d9b636` / `#2a2514`) | 7.79:1 | 4.5:1 | Cumple |
-| Acento sobre chip seleccionado (superficie) (`#d9b636` / `#353021`) | 6.70:1 | 4.5:1 | Cumple |
-| Texto del botón primario (`#17130a` / `#d9b636`) | 9.43:1 | 4.5:1 | Cumple |
-| Peligro (texto) sobre fondo (`#e56565` / `#0d0d0f`) | 5.90:1 | 4.5:1 | Cumple |
-| Peligro sobre superficie (`#e56565` / `#1a1a1d`) | 5.28:1 | 4.5:1 | Cumple |
-| Peligro sobre superficie elevada (`#e56565` / `#24221d`) | 4.83:1 | 4.5:1 | Cumple |
-| Éxito (texto) sobre fondo (`#53c878` / `#0d0d0f`) | 9.15:1 | 4.5:1 | Cumple |
-| Éxito sobre superficie elevada (toast) (`#53c878` / `#24221d`) | 7.49:1 | 4.5:1 | Cumple |
-| Aviso (texto) sobre fondo (`#f2c94c` / `#0d0d0f`) | 12.24:1 | 4.5:1 | Cumple |
-| Aviso sobre superficie elevada (`#f2c94c` / `#24221d`) | 10.01:1 | 4.5:1 | Cumple |
-| Borde de control sobre fondo (`#726d60` / `#0d0d0f`) | 3.76:1 | 3:1 | Cumple |
-| Borde de control sobre superficie (`#726d60` / `#1a1a1d`) | 3.37:1 | 3:1 | Cumple |
-| Borde de control sobre superficie elevada (`#726d60` / `#24221d`) | 3.08:1 | 3:1 | Cumple |
-| Anillo de foco sobre fondo (`#d9b636` / `#0d0d0f`) | 9.89:1 | 3:1 | Cumple |
-| Anillo de foco sobre superficie (`#d9b636` / `#1a1a1d`) | 8.84:1 | 3:1 | Cumple |
-| Icono/borde de acento sobre fondo (`#d9b636` / `#0d0d0f`) | 9.89:1 | 3:1 | Cumple |
+| Texto sobre fondo (`#f3eee3` / `#15130f`) | 16.03:1 | 4.5:1 | Cumple |
+| Texto sobre superficie (`#f3eee3` / `#1c1914`) | 15.14:1 | 4.5:1 | Cumple |
+| Texto sobre superficie elevada (`#f3eee3` / `#272019`) | 13.89:1 | 4.5:1 | Cumple |
+| Texto secundario sobre fondo (`#b7ad9b` / `#15130f`) | 8.36:1 | 4.5:1 | Cumple |
+| Texto secundario sobre superficie (`#b7ad9b` / `#1c1914`) | 7.90:1 | 4.5:1 | Cumple |
+| Texto secundario sobre superficie elevada (`#b7ad9b` / `#272019`) | 7.24:1 | 4.5:1 | Cumple |
+| Acento (texto/enlaces) sobre fondo (`#cda668` / `#15130f`) | 8.17:1 | 4.5:1 | Cumple |
+| Acento sobre superficie (`#cda668` / `#1c1914`) | 7.72:1 | 4.5:1 | Cumple |
+| Acento sobre superficie elevada (`#cda668` / `#272019`) | 7.08:1 | 4.5:1 | Cumple |
+| Texto sobre superficie lavanda (`#f3eee3` / `#211d28`) | 14.28:1 | 4.5:1 | Cumple |
+| Texto secundario sobre superficie lavanda (`#b7ad9b` / `#211d28`) | 7.45:1 | 4.5:1 | Cumple |
+| Acento sobre superficie lavanda (`#cda668` / `#211d28`) | 7.28:1 | 4.5:1 | Cumple |
+| Acento sobre chip seleccionado (fondo) (`#cda668` / `#2f281b`) | 6.42:1 | 4.5:1 | Cumple |
+| Acento sobre chip seleccionado (superficie) (`#cda668` / `#352d20`) | 5.98:1 | 4.5:1 | Cumple |
+| Texto del botón primario (`#1a1510` / `#cda668`) | 7.98:1 | 4.5:1 | Cumple |
+| Peligro (texto) sobre fondo (`#e2766a` / `#15130f`) | 6.21:1 | 4.5:1 | Cumple |
+| Peligro sobre superficie (`#e2766a` / `#1c1914`) | 5.87:1 | 4.5:1 | Cumple |
+| Peligro sobre superficie elevada (`#e2766a` / `#272019`) | 5.38:1 | 4.5:1 | Cumple |
+| Éxito (texto) sobre fondo (`#5fb37e` / `#15130f`) | 7.28:1 | 4.5:1 | Cumple |
+| Éxito sobre superficie elevada (toast) (`#5fb37e` / `#272019`) | 6.30:1 | 4.5:1 | Cumple |
+| Aviso (texto) sobre fondo (`#e08a4e` / `#15130f`) | 6.99:1 | 4.5:1 | Cumple |
+| Aviso sobre superficie elevada (`#e08a4e` / `#272019`) | 6.06:1 | 4.5:1 | Cumple |
+| Borde de control sobre fondo (`#746d5c` / `#15130f`) | 3.61:1 | 3:1 | Cumple |
+| Borde de control sobre superficie (`#746d5c` / `#1c1914`) | 3.41:1 | 3:1 | Cumple |
+| Borde de control sobre superficie elevada (`#746d5c` / `#272019`) | 3.13:1 | 3:1 | Cumple |
+| Anillo de foco sobre fondo (`#cda668` / `#15130f`) | 8.17:1 | 3:1 | Cumple |
+| Anillo de foco sobre superficie (`#cda668` / `#1c1914`) | 7.72:1 | 3:1 | Cumple |
+| Icono/borde de acento sobre fondo (`#cda668` / `#15130f`) | 8.17:1 | 3:1 | Cumple |
 | Botón Google: texto (`#e3e3e3` / `#131314`) | 14.47:1 | 4.5:1 | Cumple |
-| Botón Google: borde sobre el fondo de página (`#8e918f` / `#0d0d0f`) | 6.10:1 | 3:1 | Cumple |
+| Botón Google: borde sobre el fondo de página (`#8e918f` / `#15130f`) | 5.83:1 | 3:1 | Cumple |
 | Botón Google: borde sobre su propio fondo (`#8e918f` / `#131314`) | 5.83:1 | 3:1 | Cumple |
 | Botón Apple: texto (`#000000` / `#ffffff`) | 21.00:1 | 4.5:1 | Cumple |
 
@@ -67,57 +67,57 @@ Objetivo: WCAG 2.2 AA — 4.5:1 texto normal · 3:1 texto grande, iconos y borde
 
 | Token | Valor |
 |---|---|
-| `background` | `#faf8f2` |
+| `background` | `#f6f2e9` |
 | `surface` | `#ffffff` |
-| `surfaceAlt` | `#f3efe3` |
-| `surfaceTint` | `#ece6f1` |
-| `border` | `#857f6b` |
-| `borderSubtle` | `#e2dccb` |
-| `text` | `#1a160a` |
-| `textMuted` | `#6d6656` |
-| `accent` | `#7a5c00` |
-| `accentTint` | `rgba(122, 92, 0, 0.12)` |
+| `surfaceAlt` | `#f0e9db` |
+| `surfaceTint` | `#eee7f2` |
+| `border` | `#8a8370` |
+| `borderSubtle` | `#e3dbc8` |
+| `text` | `#201b14` |
+| `textMuted` | `#685f4f` |
+| `accent` | `#7a5c12` |
+| `accentTint` | `rgba(122, 92, 18, 0.12)` |
 | `onAccent` | `#ffffff` |
-| `danger` | `#b32d2d` |
-| `success` | `#1b7038` |
-| `warning` | `#805a00` |
+| `danger` | `#ad3527` |
+| `success` | `#176b3a` |
+| `warning` | `#954b10` |
 | `overlay` | `rgba(0, 0, 0, 0.5)` |
-| `focus` | `#7a5c00` |
+| `focus` | `#7a5c12` |
 
 ### Contraste verificado (light)
 
 | Par | Ratio | Mínimo | Resultado |
 |---|---|---|---|
-| Texto sobre fondo (`#1a160a` / `#faf8f2`) | 17.00:1 | 4.5:1 | Cumple |
-| Texto sobre superficie (`#1a160a` / `#ffffff`) | 18.06:1 | 4.5:1 | Cumple |
-| Texto sobre superficie elevada (`#1a160a` / `#f3efe3`) | 15.71:1 | 4.5:1 | Cumple |
-| Texto secundario sobre fondo (`#6d6656` / `#faf8f2`) | 5.37:1 | 4.5:1 | Cumple |
-| Texto secundario sobre superficie (`#6d6656` / `#ffffff`) | 5.70:1 | 4.5:1 | Cumple |
-| Texto secundario sobre superficie elevada (`#6d6656` / `#f3efe3`) | 4.96:1 | 4.5:1 | Cumple |
-| Acento (texto/enlaces) sobre fondo (`#7a5c00` / `#faf8f2`) | 5.89:1 | 4.5:1 | Cumple |
-| Acento sobre superficie (`#7a5c00` / `#ffffff`) | 6.25:1 | 4.5:1 | Cumple |
-| Acento sobre superficie elevada (`#7a5c00` / `#f3efe3`) | 5.44:1 | 4.5:1 | Cumple |
-| Texto sobre superficie lavanda (`#1a160a` / `#ece6f1`) | 14.75:1 | 4.5:1 | Cumple |
-| Texto secundario sobre superficie lavanda (`#6d6656` / `#ece6f1`) | 4.66:1 | 4.5:1 | Cumple |
-| Acento sobre superficie lavanda (`#7a5c00` / `#ece6f1`) | 5.11:1 | 4.5:1 | Cumple |
-| Acento sobre chip seleccionado (fondo) (`#7a5c00` / `#ebe5d5`) | 4.97:1 | 4.5:1 | Cumple |
-| Acento sobre chip seleccionado (superficie) (`#7a5c00` / `#efebe0`) | 5.25:1 | 4.5:1 | Cumple |
-| Texto del botón primario (`#ffffff` / `#7a5c00`) | 6.25:1 | 4.5:1 | Cumple |
-| Peligro (texto) sobre fondo (`#b32d2d` / `#faf8f2`) | 5.94:1 | 4.5:1 | Cumple |
-| Peligro sobre superficie (`#b32d2d` / `#ffffff`) | 6.31:1 | 4.5:1 | Cumple |
-| Peligro sobre superficie elevada (`#b32d2d` / `#f3efe3`) | 5.49:1 | 4.5:1 | Cumple |
-| Éxito (texto) sobre fondo (`#1b7038` / `#faf8f2`) | 5.78:1 | 4.5:1 | Cumple |
-| Éxito sobre superficie elevada (toast) (`#1b7038` / `#f3efe3`) | 5.34:1 | 4.5:1 | Cumple |
-| Aviso (texto) sobre fondo (`#805a00` / `#faf8f2`) | 5.85:1 | 4.5:1 | Cumple |
-| Aviso sobre superficie elevada (`#805a00` / `#f3efe3`) | 5.40:1 | 4.5:1 | Cumple |
-| Borde de control sobre fondo (`#857f6b` / `#faf8f2`) | 3.77:1 | 3:1 | Cumple |
-| Borde de control sobre superficie (`#857f6b` / `#ffffff`) | 4.00:1 | 3:1 | Cumple |
-| Borde de control sobre superficie elevada (`#857f6b` / `#f3efe3`) | 3.48:1 | 3:1 | Cumple |
-| Anillo de foco sobre fondo (`#7a5c00` / `#faf8f2`) | 5.89:1 | 3:1 | Cumple |
-| Anillo de foco sobre superficie (`#7a5c00` / `#ffffff`) | 6.25:1 | 3:1 | Cumple |
-| Icono/borde de acento sobre fondo (`#7a5c00` / `#faf8f2`) | 5.89:1 | 3:1 | Cumple |
+| Texto sobre fondo (`#201b14` / `#f6f2e9`) | 15.30:1 | 4.5:1 | Cumple |
+| Texto sobre superficie (`#201b14` / `#ffffff`) | 17.10:1 | 4.5:1 | Cumple |
+| Texto sobre superficie elevada (`#201b14` / `#f0e9db`) | 14.15:1 | 4.5:1 | Cumple |
+| Texto secundario sobre fondo (`#685f4f` / `#f6f2e9`) | 5.63:1 | 4.5:1 | Cumple |
+| Texto secundario sobre superficie (`#685f4f` / `#ffffff`) | 6.29:1 | 4.5:1 | Cumple |
+| Texto secundario sobre superficie elevada (`#685f4f` / `#f0e9db`) | 5.21:1 | 4.5:1 | Cumple |
+| Acento (texto/enlaces) sobre fondo (`#7a5c12` / `#f6f2e9`) | 5.58:1 | 4.5:1 | Cumple |
+| Acento sobre superficie (`#7a5c12` / `#ffffff`) | 6.24:1 | 4.5:1 | Cumple |
+| Acento sobre superficie elevada (`#7a5c12` / `#f0e9db`) | 5.16:1 | 4.5:1 | Cumple |
+| Texto sobre superficie lavanda (`#201b14` / `#eee7f2`) | 14.12:1 | 4.5:1 | Cumple |
+| Texto secundario sobre superficie lavanda (`#685f4f` / `#eee7f2`) | 5.20:1 | 4.5:1 | Cumple |
+| Acento sobre superficie lavanda (`#7a5c12` / `#eee7f2`) | 5.15:1 | 4.5:1 | Cumple |
+| Acento sobre chip seleccionado (fondo) (`#7a5c12` / `#e7e0cf`) | 4.74:1 | 4.5:1 | Cumple |
+| Acento sobre chip seleccionado (superficie) (`#7a5c12` / `#efebe3`) | 5.25:1 | 4.5:1 | Cumple |
+| Texto del botón primario (`#ffffff` / `#7a5c12`) | 6.24:1 | 4.5:1 | Cumple |
+| Peligro (texto) sobre fondo (`#ad3527` / `#f6f2e9`) | 5.67:1 | 4.5:1 | Cumple |
+| Peligro sobre superficie (`#ad3527` / `#ffffff`) | 6.33:1 | 4.5:1 | Cumple |
+| Peligro sobre superficie elevada (`#ad3527` / `#f0e9db`) | 5.24:1 | 4.5:1 | Cumple |
+| Éxito (texto) sobre fondo (`#176b3a` / `#f6f2e9`) | 5.87:1 | 4.5:1 | Cumple |
+| Éxito sobre superficie elevada (toast) (`#176b3a` / `#f0e9db`) | 5.43:1 | 4.5:1 | Cumple |
+| Aviso (texto) sobre fondo (`#954b10` / `#f6f2e9`) | 5.71:1 | 4.5:1 | Cumple |
+| Aviso sobre superficie elevada (`#954b10` / `#f0e9db`) | 5.28:1 | 4.5:1 | Cumple |
+| Borde de control sobre fondo (`#8a8370` / `#f6f2e9`) | 3.38:1 | 3:1 | Cumple |
+| Borde de control sobre superficie (`#8a8370` / `#ffffff`) | 3.78:1 | 3:1 | Cumple |
+| Borde de control sobre superficie elevada (`#8a8370` / `#f0e9db`) | 3.13:1 | 3:1 | Cumple |
+| Anillo de foco sobre fondo (`#7a5c12` / `#f6f2e9`) | 5.58:1 | 3:1 | Cumple |
+| Anillo de foco sobre superficie (`#7a5c12` / `#ffffff`) | 6.24:1 | 3:1 | Cumple |
+| Icono/borde de acento sobre fondo (`#7a5c12` / `#f6f2e9`) | 5.58:1 | 3:1 | Cumple |
 | Botón Google: texto (`#1f1f1f` / `#ffffff`) | 16.48:1 | 4.5:1 | Cumple |
-| Botón Google: borde sobre el fondo de página (`#747775` / `#faf8f2`) | 4.26:1 | 3:1 | Cumple |
+| Botón Google: borde sobre el fondo de página (`#747775` / `#f6f2e9`) | 4.05:1 | 3:1 | Cumple |
 | Botón Google: borde sobre su propio fondo (`#747775` / `#ffffff`) | 4.53:1 | 3:1 | Cumple |
 | Botón Apple: texto (`#ffffff` / `#000000`) | 21.00:1 | 4.5:1 | Cumple |
 

@@ -40,7 +40,7 @@ export function InventoryCard({ item, currency, onPress }: CardProps) {
         <AppText variant="bodyStrong" numberOfLines={1}>
           {item.name}
         </AppText>
-        <AppText variant="small" tone="gold" numberOfLines={1}>
+        <AppText variant="small" tone="muted" numberOfLines={1}>
           {item.categoryName}
         </AppText>
         <View style={styles.statusRow}>
@@ -76,7 +76,7 @@ export function CatalogCard({ item, currency, onPress }: CardProps) {
           <AppText tone="gold" variant="bodyStrong">
             {formatMoney(item.price, currency)}
           </AppText>
-          <Ionicons name="chevron-forward" size={16} color={colors.gold} />
+          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
         </View>
         {!item.published ? (
           <View style={[styles.hidden, { borderColor: colors.border }]}>

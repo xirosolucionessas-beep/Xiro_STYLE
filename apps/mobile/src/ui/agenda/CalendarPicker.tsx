@@ -46,13 +46,13 @@ export function CalendarPicker({ value, onChange, today, allowPast, marks, maxDa
     <View>
       <View style={styles.head}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('cal_prev_month')} onPress={() => go(-1)} hitSlop={8} style={styles.nav}>
-          <Ionicons name="chevron-back" size={22} color={colors.gold} />
+          <Ionicons name="chevron-back" size={22} color={colors.textMuted} />
         </Pressable>
         <AppText variant="bodyStrong" accessibilityLiveRegion="polite">
           {upperFirst(formatMonth(month, language))}
         </AppText>
         <Pressable accessibilityRole="button" accessibilityLabel={t('cal_next_month')} onPress={() => go(1)} hitSlop={8} style={styles.nav}>
-          <Ionicons name="chevron-forward" size={22} color={colors.gold} />
+          <Ionicons name="chevron-forward" size={22} color={colors.textMuted} />
         </Pressable>
       </View>
       <View style={styles.row}>

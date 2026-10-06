@@ -21,7 +21,7 @@ export function Field({ label, error, hint, prefix, password, multiline, ...inpu
 
   return (
     <View style={styles.wrapper}>
-      <AppText variant="label" tone="gold" style={styles.label}>
+      <AppText variant="label" tone="muted" style={styles.label}>
         {label}
       </AppText>
       <View
@@ -31,7 +31,7 @@ export function Field({ label, error, hint, prefix, password, multiline, ...inpu
           multiline && styles.multiline,
         ]}>
         {prefix ? (
-          <AppText tone="gold" variant="bodyStrong" style={styles.prefix}>
+          <AppText tone="muted" variant="bodyStrong" style={styles.prefix}>
             {prefix}
           </AppText>
         ) : null}

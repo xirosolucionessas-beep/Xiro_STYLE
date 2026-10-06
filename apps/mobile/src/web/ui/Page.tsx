@@ -93,11 +93,8 @@ export function KpiCard({ kpi, loadingLabel, trendSuffix }: { kpi: KpiView; load
   const displayValue = !kpi.loading && kpi.format && animated !== undefined ? kpi.format(animated) : kpi.value;
   const body = (
     <>
-      <span className={cx('xw-kpi-ic', kpi.tone && `is-${kpi.tone}`)} aria-hidden="true">
-        <Ico name={kpi.icon} size={22} />
-      </span>
       <span className="xw-kpi-label">{kpi.label}</span>
-      {kpi.loading ? <span className="xw-skeleton xw-kpi-skel" aria-hidden="true" /> : <span className="xw-kpi-value">{displayValue}</span>}
+      {kpi.loading ? <span className="xw-skeleton xw-kpi-skel" aria-hidden="true" /> : <span className={cx('xw-kpi-value', kpi.tone && `is-${kpi.tone}`)}>{displayValue}</span>}
       {kpi.loading ? <span className="xw-sr">{loadingLabel}</span> : null}
       {!kpi.loading && kpi.trend ? <Trend trend={kpi.trend} srSuffix={trendSuffix} /> : null}
       {!kpi.loading && kpi.hint ? <span className="xw-kpi-hint">{kpi.hint}</span> : null}

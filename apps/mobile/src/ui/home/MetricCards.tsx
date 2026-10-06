@@ -38,7 +38,7 @@ export function MetricCards({ metrics }: { metrics: Metric[] }) {
           onPress={metric.onPress}
           accessibilityLabel={`${metric.loading ? '' : metric.value} ${metric.label}${metric.note ? `, ${metric.note}` : ''}`.trim()}
           innerStyle={styles.inner}>
-          <Ionicons name={metric.icon} size={24} color={colors.gold} />
+          <Ionicons name={metric.icon} size={24} color={colors.textMuted} />
           {metric.loading ? (
             <Skeleton width={44} height={22} style={{ marginVertical: 6 }} />
           ) : (

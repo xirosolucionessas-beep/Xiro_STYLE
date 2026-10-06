@@ -65,15 +65,16 @@ export function buildCss(): string {
 .xw-btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--xw-space-2); box-sizing: border-box;
   min-height: var(--xw-touch); min-width: var(--xw-touch); padding: var(--xw-space-2) var(--xw-space-5);
   border: 2px solid transparent; border-radius: var(--xw-radius-lg); cursor: pointer; text-align: center;
-  font: ${font.weight.extrabold} var(--xw-text-md)/${font.lineHeight.tight} var(--xw-font); transition: background-color var(--xw-fast), border-color var(--xw-fast), opacity var(--xw-fast), transform var(--xw-fast); }
+  font: ${font.weight.bold} var(--xw-text-md)/${font.lineHeight.tight} var(--xw-font); transition: background-color var(--xw-fast), border-color var(--xw-fast), opacity var(--xw-fast), transform var(--xw-fast); }
 .xw-btn--sm { padding: var(--xw-space-1) var(--xw-space-3); border-radius: var(--xw-radius-md); font-size: var(--xw-text-sm); }
 .xw-btn--block { display: flex; width: 100%; }
 .xw-btn--primary { background: var(--xw-accent); color: var(--xw-on-accent); border-color: var(--xw-accent); }
-.xw-btn--secondary { background: transparent; color: var(--xw-accent); border-color: var(--xw-accent); }
+/* Neutra a propósito (no el color de acento): el acento es para UNA acción primaria por vista, no para todos los contornos. */
+.xw-btn--secondary { background: transparent; color: var(--xw-text); border-color: var(--xw-border); }
 .xw-btn--ghost { background: transparent; color: var(--xw-text-muted); }
 .xw-btn--danger { background: transparent; color: var(--xw-danger); border-color: var(--xw-danger); }
 .xw-btn:hover:not([aria-disabled='true']):not(:disabled) { opacity: .88; }
-.xw-btn--secondary:hover:not([aria-disabled='true']):not(:disabled), .xw-btn--ghost:hover:not([aria-disabled='true']):not(:disabled) { background: var(--xw-accent-tint); opacity: 1; }
+.xw-btn--secondary:hover:not([aria-disabled='true']):not(:disabled), .xw-btn--ghost:hover:not([aria-disabled='true']):not(:disabled) { background: var(--xw-surface-alt); opacity: 1; }
 .xw-btn:active:not([aria-disabled='true']):not(:disabled) { transform: scale(.97); opacity: 1; }
 .xw-btn[aria-disabled='true'], .xw-btn:disabled { opacity: .55; cursor: not-allowed; }
 .xw-spinner { width: 1em; height: 1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: xw-spin .8s linear infinite; }
@@ -81,7 +82,7 @@ export function buildCss(): string {
 
 /* ---------- Campos ---------- */
 .xw-field { display: block; margin-bottom: var(--xw-space-4); font-family: var(--xw-font); }
-.xw-label { display: block; margin-bottom: var(--xw-space-2); color: var(--xw-accent); font: ${font.weight.bold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
+.xw-label { display: block; margin-bottom: var(--xw-space-2); color: var(--xw-text-muted); font: ${font.weight.semibold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
 .xw-control { display: flex; align-items: center; gap: var(--xw-space-2); box-sizing: border-box; min-height: calc(var(--xw-touch) + 4px); padding: 0 var(--xw-space-3);
   background: var(--xw-surface); color: var(--xw-text); border: 2px solid var(--xw-border); border-radius: var(--xw-radius-md); }
 .xw-control:focus-within { border-color: var(--xw-focus); outline: ${focusRing.width}px solid var(--xw-focus); outline-offset: ${focusRing.offset}px; }
@@ -95,7 +96,7 @@ export function buildCss(): string {
 .xw-control select { appearance: none; padding-right: var(--xw-space-6); cursor: pointer; }
 .xw-control select option { background: var(--xw-surface); color: var(--xw-text); }
 .xw-control ::placeholder { color: var(--xw-text-muted); opacity: 1; }
-.xw-prefix { color: var(--xw-accent); font-weight: ${font.weight.bold}; }
+.xw-prefix { color: var(--xw-text-muted); font-weight: ${font.weight.semibold}; }
 .xw-chevron { pointer-events: none; margin-left: calc(var(--xw-space-6) * -1); color: var(--xw-text-muted); }
 .xw-icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: var(--xw-touch); min-height: var(--xw-touch); margin-right: calc(var(--xw-space-3) * -1);
   background: transparent; border: 0; color: var(--xw-text-muted); cursor: pointer; border-radius: var(--xw-radius-md); transition: background-color var(--xw-fast), color var(--xw-fast); }
@@ -142,7 +143,7 @@ button.xw-card:active, a.xw-card:active { transform: scale(.99); }
 
 /* ---------- Estado vacío / Skeleton ---------- */
 .xw-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--xw-space-3); padding: var(--xw-space-12) var(--xw-space-4); color: var(--xw-text-muted); font-family: var(--xw-font); }
-.xw-empty-ic { color: var(--xw-accent); }
+.xw-empty-ic { color: var(--xw-text-muted); }
 .xw-empty-title { margin: 0; color: var(--xw-text); font: ${font.weight.bold} var(--xw-text-lg)/${font.lineHeight.tight} var(--xw-font); }
 .xw-empty-text { margin: 0; max-width: 32rem; font: var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); }
 .xw-skeleton { display: block; background: linear-gradient(90deg, var(--xw-surface-alt) 25%, var(--xw-surface) 50%, var(--xw-surface-alt) 75%); background-size: 200% 100%; animation: xw-shimmer 1.4s ease-in-out infinite; }

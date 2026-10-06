@@ -13,7 +13,7 @@ export function UpcomingList({ appointments, timezone, loading, onOpen }: { appo
   if (appointments.length === 0) {
     return (
       <Pressable accessibilityRole="button" onPress={onOpen} style={[styles.box, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Ionicons name="calendar-outline" size={26} color={colors.gold} />
+        <Ionicons name="calendar-outline" size={26} color={colors.textMuted} />
         <View style={{ flex: 1 }}>
           <AppText variant="bodyStrong">{loading ? t('loading') : t('home_upcoming_empty')}</AppText>
           {!loading ? (

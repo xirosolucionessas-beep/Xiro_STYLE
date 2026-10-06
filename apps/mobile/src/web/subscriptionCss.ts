@@ -49,7 +49,7 @@ export function buildSubscriptionCss(): string {
   .xw-co-aside { position: sticky; top: var(--xw-space-4); max-height: calc(100vh - var(--xw-space-16)); max-height: calc(100dvh - var(--xw-space-16)); overflow-y: auto; overscroll-behavior: contain; }
 }
 .xw-co-aside { display: flex; flex-direction: column; align-items: flex-start; gap: var(--xw-space-4); box-sizing: border-box; padding: var(--xw-space-8); border-radius: var(--xw-radius-xl); color: var(--xw-text); border: 1px solid var(--xw-border-subtle);
-  background: radial-gradient(90% 120% at 100% 0%, rgba(217, 182, 54, .28), transparent 55%), linear-gradient(135deg, #17140a 0%, #0d0d0f 70%); }
+  background: var(--xw-surface-alt); }
 .xw-co-logo { display: block; width: 56px; height: 56px; border-radius: var(--xw-radius-lg); overflow: hidden; border: 2px solid rgba(217, 182, 54, .6); }
 .xw-co-title { margin: 0; font: ${font.weight.extrabold} var(--xw-text-3xl)/${font.lineHeight.tight} var(--xw-font); }
 .xw-co-sub { margin: 0; color: var(--xw-text-muted); font: var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); }
@@ -75,7 +75,7 @@ export function buildSubscriptionCss(): string {
   box-shadow: 0 12px 30px -18px rgba(0, 0, 0, .5); transition: border-color var(--xw-fast), background-color var(--xw-fast), box-shadow var(--xw-fast), transform var(--xw-fast); }
 .xw-plan-card:hover { border-color: var(--xw-border); transform: translateY(-2px); box-shadow: 0 18px 38px -18px rgba(0, 0, 0, .55); }
 .xw-plan-card.is-selected { border-color: var(--xw-accent); background: var(--xw-accent-tint);
-  box-shadow: 0 20px 44px -20px color-mix(in srgb, var(--xw-accent) 55%, transparent); }
+  box-shadow: 0 18px 38px -18px rgba(0, 0, 0, .55); }
 .xw-plan-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--xw-space-2); margin-bottom: var(--xw-space-2); }
 .xw-plan-badge { padding: 2px var(--xw-space-2); border-radius: var(--xw-radius-pill); background: var(--xw-accent); color: var(--xw-on-accent); font: ${font.weight.bold} var(--xw-text-xs)/1.5 var(--xw-font); white-space: nowrap; }
 .xw-plan-price { color: var(--xw-text); font: ${font.weight.extrabold} var(--xw-text-2xl)/1.15 var(--xw-font); }
@@ -90,7 +90,7 @@ export function buildSubscriptionCss(): string {
 [data-mode='mobile'] .xw-pay-method { flex-direction: row; justify-content: flex-start; min-height: calc(var(--xw-touch) + var(--xw-space-2)); text-align: left; }
 .xw-pay-method:hover { border-color: var(--xw-accent); transform: translateY(-2px); box-shadow: 0 16px 34px -18px rgba(0, 0, 0, .6); }
 .xw-pay-method.is-selected { border-color: var(--xw-accent); color: var(--xw-accent); background: var(--xw-accent-tint);
-  box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--xw-accent) 55%, transparent); }
+  box-shadow: 0 16px 34px -18px rgba(0, 0, 0, .6); }
 .xw-pay-method[aria-disabled='true'] { opacity: .45; cursor: not-allowed; }
 .xw-pay-method-ico { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 3.25rem; height: 3.25rem; border-radius: var(--xw-radius-lg);
   background: var(--xw-surface-tint); border: 1px solid color-mix(in srgb, var(--xw-accent) 25%, transparent); color: inherit; }

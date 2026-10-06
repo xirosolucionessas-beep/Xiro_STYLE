@@ -25,7 +25,7 @@ export function buildShellCss(): string {
 a.xw-nav-item:hover { background: var(--xw-surface-alt); color: var(--xw-text); }
 a.xw-nav-item:active { background: var(--xw-accent-tint); }
 /* El estado activo no depende solo del color: barra lateral + peso + fondo. */
-.xw-nav-item[aria-current='page'] { background: var(--xw-accent-tint); color: var(--xw-accent); font-weight: ${font.weight.extrabold}; box-shadow: inset 4px 0 0 var(--xw-accent); }
+.xw-nav-item[aria-current='page'] { background: var(--xw-surface-alt); color: var(--xw-text); font-weight: ${font.weight.semibold}; box-shadow: inset 3px 0 0 var(--xw-accent); }
 .xw-nav-item.is-disabled { cursor: not-allowed; }
 .xw-nav-label { flex: 1; min-width: 0; overflow-wrap: break-word; }
 .xw-nav-stack { display: flex; flex-direction: column; min-width: 0; padding: 6px 0; }
@@ -48,8 +48,9 @@ a.xw-nav-item:active { background: var(--xw-accent-tint); }
 .xw-menu-btn { margin-right: 0; border: 1px solid var(--xw-border); color: var(--xw-text); }
 .xw-crumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: var(--xw-space-1) var(--xw-space-2); margin: 0; padding: 0; list-style: none; font: ${font.weight.medium} var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
 .xw-crumbs li + li::before { content: '›' / ''; margin-right: var(--xw-space-2); color: var(--xw-text-muted); }
-.xw-crumbs a { display: inline-flex; align-items: center; min-height: var(--xw-touch); color: var(--xw-accent); text-decoration: underline; text-underline-offset: 3px; }
-.xw-crumbs [aria-current='page'] { color: var(--xw-text); font-weight: ${font.weight.bold}; }
+.xw-crumbs a { display: inline-flex; align-items: center; min-height: var(--xw-touch); color: var(--xw-text-muted); text-decoration: none; }
+.xw-crumbs a:hover { color: var(--xw-text); text-decoration: underline; text-underline-offset: 3px; }
+.xw-crumbs [aria-current='page'] { color: var(--xw-text); font-weight: ${font.weight.semibold}; }
 
 /* ---------- Drawer (móvil) ---------- */
 .xw-drawer-root { position: fixed; inset: 0; z-index: 9000; background: var(--xw-overlay); }

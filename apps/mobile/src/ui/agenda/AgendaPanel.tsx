@@ -98,15 +98,16 @@ export function AgendaPanel() {
       <ChipRow label={t('agenda_view')}>
         <Chip label={t('agenda_view_day')} selected={view === 'day'} onPress={() => setView('day')} />
         <Chip label={t('agenda_view_week')} selected={view === 'week'} onPress={() => setView('week')} />
-        {seesAll && bookable.length > 1 ? (
-          <>
-            <Chip label={t('agenda_all_professionals')} selected={professionalId === null} onPress={() => setProfessionalId(null)} />
-            {bookable.map((p) => (
-              <Chip key={p.id} label={p.publicName} selected={professionalId === p.id} onPress={() => setProfessionalId(p.id)} />
-            ))}
-          </>
-        ) : null}
       </ChipRow>
+
+      {seesAll && bookable.length > 1 ? (
+        <ChipRow label={t('agenda_all_professionals')}>
+          <Chip label={t('agenda_all_professionals')} selected={professionalId === null} onPress={() => setProfessionalId(null)} />
+          {bookable.map((p) => (
+            <Chip key={p.id} label={p.publicName} selected={professionalId === p.id} onPress={() => setProfessionalId(p.id)} />
+          ))}
+        </ChipRow>
+      ) : null}
 
       <View style={styles.strip} accessibilityRole="tablist">
         {weekDates(date).map((d) => {
@@ -122,15 +123,15 @@ export function AgendaPanel() {
                 goto(d);
                 setView('day');
               }}
-              style={[styles.stripDay, { borderColor: selected ? colors.gold : d === today ? colors.border : 'transparent', backgroundColor: selected ? colors.goldTint : 'transparent' }]}>
+              style={[styles.stripDay, { borderColor: selected ? colors.border : d === today ? colors.border : 'transparent', backgroundColor: selected ? colors.surfaceAlt : 'transparent' }]}>
               <AppText variant="small" tone="muted" style={{ textTransform: 'capitalize' }}>
                 {weekdayShort(new Date(`${d}T00:00:00Z`).getUTCDay(), language).slice(0, 3)}
               </AppText>
-              <AppText variant="bodyStrong" tone={selected ? 'gold' : 'text'}>
+              <AppText variant="bodyStrong" tone="text">
                 {Number(d.slice(8))}
               </AppText>
-              <View style={[styles.count, { backgroundColor: count > 0 ? colors.gold : 'transparent' }]}>
-                <AppText variant="small" style={{ color: colors.onGold, fontWeight: '800', fontSize: 11 }}>
+              <View style={[styles.count, { backgroundColor: count > 0 ? colors.surfaceAlt : 'transparent' }]}>
+                <AppText variant="small" style={{ color: colors.textMuted, fontWeight: '700', fontSize: 11 }}>
                   {count > 0 ? count : ''}
                 </AppText>
               </View>
@@ -161,10 +162,9 @@ export function AgendaPanel() {
 
       {appointments.data && view === 'day' ? (
         dayList.length === 0 ? (
-          <View>
-            <EmptyState icon="calendar-outline" message={t('agenda_empty_day')} />
-            {canManage ? <Button label={t('appt_new')} icon="add" variant="secondary" onPress={() => setCreating(true)} /> : null}
-          </View>
+          // El botón "Nueva cita" del encabezado ya hace exactamente esto (misma fecha vista): sin un segundo botón
+          // duplicado aquí abajo para la misma acción en la misma vista.
+          <EmptyState icon="calendar-outline" message={t('agenda_empty_day')} />
         ) : (
           <View style={styles.list}>
             {dayList.map((appt) => (
@@ -183,8 +183,8 @@ export function AgendaPanel() {
               .filter((d) => (byDay.get(d) ?? []).length > 0)
               .map((d) => (
                 <View key={d} style={{ gap: 10 }}>
-                  <AppText variant="label" tone="gold" accessibilityRole="header" style={{ marginTop: 8 }}>
-                    {formatDay(d, language).toUpperCase()}
+                  <AppText variant="label" tone="muted" accessibilityRole="header" style={{ marginTop: 8 }}>
+                    {upperFirst(formatDay(d, language))}
                   </AppText>
                   {(byDay.get(d) ?? []).map((appt) => (
                     <AppointmentCard key={appt.id} appointment={appt} timezone={timezone} currency={currency} showProfessional={seesAll} onPress={() => setOpen(appt)} />

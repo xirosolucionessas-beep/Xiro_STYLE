@@ -4,25 +4,25 @@
  */
 
 :root {
-  --bg: #0d0d0f;
-  --surface: #17171a;
-  --surface-2: #1f1f23;
-  --surface-alt: #24221d;
-  --border: #2e2b24;
-  --border-strong: #4b4536;
-  --text: #f6f2e8;
-  --text-soft: #e6e0d2;
-  --text-muted: #bdb6a8;
-  --gold: #d9b636;
-  --gold-soft: #f2d670;
-  --gold-tint: rgba(217, 182, 54, 0.13);
-  --on-gold: #17130a;
-  --danger: #f07a7a;
-  --danger-tint: rgba(240, 122, 122, 0.14);
-  --success: #5fd085;
-  --success-tint: rgba(95, 208, 133, 0.14);
-  --warning: #f2c94c;
-  --warning-tint: rgba(242, 201, 76, 0.14);
+  --bg: #15130f;
+  --surface: #1c1914;
+  --surface-2: #211c16;
+  --surface-alt: #272019;
+  --border: #332d23;
+  --border-strong: #4d4531;
+  --text: #f3eee3;
+  --text-soft: #e3dcc9;
+  --text-muted: #b7ad9b;
+  --gold: #cda668;
+  --gold-soft: #e0c08f;
+  --gold-tint: rgba(205, 166, 104, 0.13);
+  --on-gold: #1a1510;
+  --danger: #e2766a;
+  --danger-tint: rgba(226, 118, 106, 0.14);
+  --success: #5fb37e;
+  --success-tint: rgba(95, 179, 126, 0.14);
+  --warning: #e08a4e;
+  --warning-tint: rgba(224, 138, 78, 0.14);
   --overlay: rgba(0, 0, 0, 0.66);
   --radius-sm: 10px;
   --radius-md: 14px;
@@ -38,14 +38,14 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 20px 48px -12px rgba(0, 0, 0, 0.6);
-  --shadow-gold: 0 6px 22px rgba(217, 182, 54, 0.26);
+  --shadow-gold: 0 3px 12px rgba(205, 166, 104, 0.18);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   /* El contenido va centrado y a un ancho cómodo de lectura en celular; en pantallas más anchas crece con el viewport
      (ver los breakpoints de --max-width más abajo) para que la cuadrícula de servicios/productos aproveche el espacio
      en vez de quedar una columna angosta flotando en medio de una ventana de escritorio. */
   --max-width: 760px;
-  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Outfit', var(--font);
+  --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'IBM Plex Sans Condensed', var(--font);
 }
 @media (min-width: 900px) {
   :root {
@@ -361,11 +361,9 @@ textarea {
 .xp-kicker {
   display: block;
   margin-bottom: 6px;
-  color: var(--gold);
+  color: var(--text-muted);
   font-size: 12.5px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-weight: 600;
 }
 .xp-about {
   padding-top: var(--space-2);
@@ -441,12 +439,11 @@ textarea {
   min-height: 22px;
   padding: 0 9px;
   border-radius: var(--radius-pill);
-  background: var(--gold-tint);
-  color: var(--gold-soft);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  border: 1px solid var(--border);
   font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  font-weight: 600;
   margin-left: 8px;
   vertical-align: middle;
 }
@@ -488,9 +485,7 @@ textarea {
   margin-bottom: var(--space-3);
   color: var(--text-muted);
   font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 700;
 }
 
 /* img-auto */
@@ -710,8 +705,6 @@ img {
   color: var(--text-soft);
   font-size: 13px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 .xp-member-detail-services ul {
   display: flex;
@@ -1097,7 +1090,7 @@ img {
   background: var(--gold);
   color: var(--on-gold);
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.2;
   text-align: center;
   text-decoration: none;
@@ -1123,13 +1116,15 @@ img {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* Contorno neutro a propósito (no el color de acento): el acento es para UNA acción primaria por vista. */
 .xp-btn--secondary {
   background: transparent;
-  color: var(--gold);
+  border-color: var(--border);
+  color: var(--text);
 }
 .xp-btn--secondary:hover:not(:disabled) {
-  background: var(--gold-tint);
-  border-color: var(--gold);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
   box-shadow: none;
 }
 .xp-btn--ghost {
@@ -1282,10 +1277,10 @@ img {
 }
 .xp-chip[aria-checked='true'],
 .xp-chip[aria-current='true'] {
-  border-color: var(--gold);
-  background: var(--gold-tint);
-  color: var(--gold-soft);
-  font-weight: 800;
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
 }
 .xp-chip:disabled {
   opacity: 0.4;
@@ -1530,8 +1525,7 @@ img {
 }
 .xp-choice.is-picked {
   border-color: var(--gold);
-  background: linear-gradient(180deg, var(--gold-tint), transparent), var(--surface);
-  box-shadow: 0 0 0 1px var(--gold);
+  background: var(--surface-alt);
 }
 .xp-choice-main {
   display: flex;
@@ -1652,8 +1646,7 @@ img {
 }
 .xp-pro.is-picked {
   border-color: var(--gold);
-  background: linear-gradient(180deg, var(--gold-tint), transparent), var(--surface);
-  box-shadow: 0 0 0 1px var(--gold);
+  background: var(--surface-alt);
 }
 .xp-pro-photo {
   display: flex;
@@ -1707,9 +1700,7 @@ img {
 .xp-summary dt {
   color: var(--text-muted);
   font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 600;
 }
 .xp-summary dd {
   margin: 0;

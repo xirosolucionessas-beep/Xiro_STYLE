@@ -132,7 +132,7 @@ export function DashboardView(props: DashboardViewProps) {
       <div className="xw-dash-grid">
         <div className="xw-dash-col">
           {actions.length > 0 ? (
-            <Panel title={t('quick_actions')} icon="sparkles">
+            <Panel title={t('quick_actions')}>
               <p className="xw-panel-sub">{t('dash_actions_sub')}</p>
               <div className="xw-actions-grid">
                 {actions.map((action) => (
