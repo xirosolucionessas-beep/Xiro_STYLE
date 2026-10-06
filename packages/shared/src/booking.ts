@@ -418,6 +418,15 @@ export interface PublicAppointmentDto {
   canReview: boolean;
 }
 
+/**
+ * Lo mismo que `PublicAppointmentDto`, con el `id` real de la cita — solo en "Mis citas" (sesión de cuenta de cliente
+ * ya autenticada y acotada a SUS propias citas), nunca en el flujo anónimo por enlace/token (`PublicAppointmentDto`
+ * lo omite a propósito ahí: el token es la única llave, no hace falta ni conviene exponer el id interno).
+ */
+export interface ClientAppointmentDto extends PublicAppointmentDto {
+  id: string;
+}
+
 /** Lo que el cliente envía para reseñar SU cita ya completada, con el mismo enlace de gestión. */
 export const publicReviewInputSchema = z.object({
   rating: z.number().int().min(1).max(5),

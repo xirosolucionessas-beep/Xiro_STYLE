@@ -3,6 +3,7 @@ import type {
   AvailabilityResponse,
   BookingSelection,
   ClientAccountDto,
+  ClientAppointmentDto,
   ClientSessionDeviceDto,
   DaySummary,
   PublicAppointmentDto,
@@ -98,6 +99,7 @@ export const publicApi = {
   accountRecoverRequest: (slug: string, phone: string) => request<{ ok: true; devCode?: string }>(`/${slug}/account/recover/request`, { method: 'POST', body: JSON.stringify({ phone }) }),
   accountRecoverVerify: (slug: string, phone: string, code: string) => request<{ resetToken: string }>(`/${slug}/account/recover/verify`, { method: 'POST', body: JSON.stringify({ phone, code }) }),
   accountRecoverReset: (slug: string, resetToken: string, newPassword: string) => request<{ ok: true }>(`/${slug}/account/recover/reset`, { method: 'POST', body: JSON.stringify({ resetToken, newPassword }) }),
-  accountAppointments: (slug: string) => request<PublicAppointmentDto[]>(`/${slug}/account/appointments`),
+  accountAppointments: (slug: string) => request<ClientAppointmentDto[]>(`/${slug}/account/appointments`),
+  accountCancelAppointment: (slug: string, id: string, reason = '') => request<ClientAppointmentDto>(`/${slug}/account/appointments/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
   accountLoyalty: (slug: string) => request<LoyaltyAccountView>(`/${slug}/account/loyalty`),
 };

@@ -1,4 +1,4 @@
-import { formatClock, formatDay, localDate, localTime, translate, upperFirst, type ClientAccountDto, type Language, type PublicAppointmentDto } from '@xiro/shared';
+import { formatClock, formatDay, formatMoney, localDate, localTime, translate, upperFirst, type ClientAccountDto, type ClientAppointmentDto, type Currency, type Language } from '@xiro/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { publicApi, type LoyaltyAccountView } from '../api';
 import { accountErrorMessage } from '../lib/accountErrors';
@@ -41,6 +41,9 @@ export function MyAccountPage({ slug, language, account, onAccountChange, onLogo
 
   return (
     <div className="xp-container">
+      <button type="button" className="xp-back-to-business" onClick={() => navigate(profilePath(slug))}>
+        <Icon name="back" size={16} /> {t('pub_my_account_back_to_business')}
+      </button>
       <div className="xp-seg" role="radiogroup" aria-label={t('pub_my_account_title')} style={{ margin: '20px 0' }}>
         <button type="button" role="radio" aria-checked={effectiveTab === 'appointments'} className="xp-seg-btn xp-seg-btn--text" onClick={() => setTab('appointments')}>
           {t('pub_my_account_nav_appointments')}
@@ -62,30 +65,126 @@ export function MyAccountPage({ slug, language, account, onAccountChange, onLogo
   );
 }
 
+const APPT_STATUS_KEY: Record<ClientAppointmentDto['status'], string> = {
+  pending: 'pub_my_account_appt_status_pending',
+  confirmed: 'pub_my_account_appt_status_confirmed',
+  in_progress: 'pub_my_account_appt_status_in_progress',
+  completed: 'pub_my_account_appt_status_completed',
+  cancelled: 'pub_my_account_appt_status_cancelled',
+  no_show: 'pub_my_account_appt_status_no_show',
+};
+
 function AppointmentsTab({ slug, language, t }: { slug: string; language: Language; t: (k: string, p?: Record<string, string | number>) => string }) {
   const state = useAsync(() => publicApi.accountAppointments(slug), [slug]);
   if (state.loading) return <p className="xp-muted">{t('loading')}</p>;
-  const appointments: PublicAppointmentDto[] = state.data ?? [];
+  const appointments: ClientAppointmentDto[] = state.data ?? [];
   if (appointments.length === 0) return <p className="xp-muted">{t('pub_my_account_appointments_empty')}</p>;
   return (
-    <ul className="xp-price-list">
-      {appointments.map((appt, i) => (
-        <li key={i} className="xp-price-row">
-          <div className="xp-price-main">
-            <div className="xp-price-top">
-              <h3 className="xp-price-name">{upperFirst(formatDay(localDate(appt.startsAt, appt.business.timezone), language, { weekday: 'long', day: 'numeric', month: 'long' }))}</h3>
-              <span className="xp-price">{formatClock(localTime(appt.startsAt, appt.business.timezone), language)}</span>
-            </div>
-            <div className="xp-price-sub">
-              <span className="xp-price-desc">{appt.items.map((item) => item.name).join(' + ')}</span>
-            </div>
-            <div className="xp-price-sub">
-              <span className="xp-meta">{appt.professionalName}</span>
-            </div>
-          </div>
-        </li>
+    <div className="xp-stack">
+      {appointments.map((appt) => (
+        <AppointmentCard key={appt.id} slug={slug} appt={appt} language={language} t={t} onCancelled={() => state.reload()} />
       ))}
-    </ul>
+    </div>
+  );
+}
+
+function AppointmentCard({ slug, appt, language, t, onCancelled }: { slug: string; appt: ClientAppointmentDto; language: Language; t: (k: string, p?: Record<string, string | number>) => string; onCancelled: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
+  const money = (amount: number) => formatMoney(amount, appt.business.currency as Currency);
+
+  async function doCancel() {
+    setCancelling(true);
+    setCancelError('');
+    try {
+      await publicApi.accountCancelAppointment(slug, appt.id);
+      onCancelled();
+    } catch (err) {
+      setCancelError(accountErrorMessage(t, err));
+    } finally {
+      setCancelling(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <div className={`xp-appt-card is-${appt.status}`}>
+      <div className="xp-appt-top">
+        <span className={`xp-appt-badge is-${appt.status}`}>
+          <span className="xp-dot" aria-hidden="true" />
+          {t(APPT_STATUS_KEY[appt.status])}
+        </span>
+        <span className="xp-appt-price">{money(appt.totalPrice)}</span>
+      </div>
+
+      <h3 className="xp-appt-date">{upperFirst(formatDay(localDate(appt.startsAt, appt.business.timezone), language, { weekday: 'long', day: 'numeric', month: 'long' }))}</h3>
+
+      <div className="xp-appt-meta">
+        <span className="xp-appt-meta-row">
+          <Icon name="clock" size={15} /> {formatClock(localTime(appt.startsAt, appt.business.timezone), language)}
+        </span>
+        <span className="xp-appt-meta-row">
+          <Icon name="user" size={15} /> {t('pub_my_account_appt_with', { name: appt.professionalName })}
+        </span>
+      </div>
+
+      <p className="xp-appt-items">{appt.items.map((item) => item.name).join(' + ')}</p>
+
+      {expanded ? (
+        <div className="xp-appt-details">
+          <div className="xp-appt-detail-row">
+            <span>{t('pub_account_phone_label')}</span>
+            <span>{appt.business.phone ?? '—'}</span>
+          </div>
+          <div className="xp-appt-detail-row">
+            <span>{appt.business.address}</span>
+          </div>
+          <ul className="xp-appt-item-list">
+            {appt.items.map((item, i) => (
+              <li key={i} className="xp-appt-detail-row">
+                <span>{item.name}</span>
+                <span>{money(item.price)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {cancelError ? (
+        <p className="xp-error" role="alert">
+          {cancelError}
+        </p>
+      ) : null}
+
+      {confirming ? (
+        <div className="xp-appt-confirm">
+          <p className="xp-hint">
+            <strong>{t('pub_my_account_appt_cancel_confirm_title')}</strong> {t('pub_my_account_appt_cancel_confirm_text')}
+          </p>
+          <div className="xp-btn-row">
+            <Button variant="ghost" full={false} onClick={() => setConfirming(false)}>
+              {t('pub_my_account_appt_cancel_keep')}
+            </Button>
+            <Button variant="danger" full={false} loading={cancelling} onClick={() => void doCancel()}>
+              {t('pub_my_account_appt_cancel')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="xp-appt-actions">
+          <Button variant="ghost" size="sm" full={false} onClick={() => setExpanded((v) => !v)}>
+            {t(expanded ? 'pub_my_account_appt_hide_details' : 'pub_my_account_appt_details')}
+          </Button>
+          {appt.canCancel ? (
+            <Button variant="secondary" size="sm" full={false} onClick={() => setConfirming(true)}>
+              {t('pub_my_account_appt_cancel')}
+            </Button>
+          ) : null}
+        </div>
+      )}
+    </div>
   );
 }
 
