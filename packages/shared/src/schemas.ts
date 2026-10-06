@@ -98,6 +98,64 @@ export const recoverResetSchema = z.object({
   newPassword: passwordSchema,
 });
 
+/* ---------- Cuentas de cliente (página pública; opcionales, nunca obligatorias para reservar) ---------- */
+
+export const clientRegisterSchema = z.object({
+  name: required(80),
+  phone: phoneSchema,
+  password: passwordSchema,
+  email: emailSchema.optional(),
+  acceptTerms: z.literal(true, { error: 'terms_required' }),
+  /** "Mantener sesión iniciada" en este dispositivo; por defecto activa. */
+  remember: z.boolean().default(true),
+});
+export type ClientRegisterInput = z.input<typeof clientRegisterSchema>;
+
+export const clientLoginSchema = z.object({
+  phone: phoneSchema,
+  password: z.string().min(1, 'required').max(128),
+  remember: z.boolean().default(true),
+});
+export type ClientLoginInput = z.input<typeof clientLoginSchema>;
+
+export const clientRecoverRequestSchema = z.object({ phone: phoneSchema });
+export type ClientRecoverRequestInput = z.input<typeof clientRecoverRequestSchema>;
+
+export const clientRecoverVerifySchema = z.object({ phone: phoneSchema, code: z.string().trim().regex(/^\d{6}$/, 'code_invalid') });
+export type ClientRecoverVerifyInput = z.input<typeof clientRecoverVerifySchema>;
+
+export const clientRecoverResetSchema = z.object({ resetToken: z.string().min(20).max(200), newPassword: passwordSchema });
+export type ClientRecoverResetInput = z.input<typeof clientRecoverResetSchema>;
+
+export const clientChangePasswordSchema = z.object({ currentPassword: z.string().min(1, 'required').max(128), newPassword: passwordSchema });
+export type ClientChangePasswordInput = z.input<typeof clientChangePasswordSchema>;
+
+export const clientUpdateProfileSchema = z.object({ name: required(80).optional(), email: emailSchema.nullable().optional() });
+export type ClientUpdateProfileInput = z.input<typeof clientUpdateProfileSchema>;
+
+export const clientDeleteAccountSchema = z.object({ password: z.string().min(1, 'required').max(128) });
+export type ClientDeleteAccountInput = z.input<typeof clientDeleteAccountSchema>;
+
+export interface ClientAccountDto {
+  id: string;
+  name: string;
+  /** Normalizado (sin "+"); quien lo muestra le da formato legible. */
+  phone: string;
+  email: string | null;
+  photoUrl: string | null;
+  /** true justo después de que el negocio restableció la contraseña: debe elegir una propia antes de seguir. */
+  mustChangePassword: boolean;
+}
+
+export interface ClientSessionDeviceDto {
+  id: string;
+  deviceLabel: string;
+  createdAt: string;
+  lastUsedAt: string;
+  /** La sesión con la que se hizo esta misma petición. */
+  current: boolean;
+}
+
 export const profileUpdateSchema = z
   .object({
     name: required(80),
@@ -373,7 +431,12 @@ export interface Client {
   /** Foto opcional del cliente; null ⇒ se muestra un avatar con sus iniciales. */
   photoUrl: string | null;
   createdAt: string;
+  /** Solo en el detalle (no en la lista): si tiene cuenta en la página pública. `null` = no tiene cuenta. */
+  onlineAccount?: { lastLoginAt: string | null } | null;
 }
+
+export const resetClientPasswordSchema = z.object({ password: passwordSchema.optional() });
+export type ResetClientPasswordInput = z.input<typeof resetClientPasswordSchema>;
 
 export interface ServiceRecord {
   id: string;

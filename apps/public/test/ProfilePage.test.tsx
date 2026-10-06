@@ -58,8 +58,8 @@ const emptyCatalog: PublicBookingCatalog = { services: [], packages: [], product
 describe('ProfilePage', () => {
   const oneService: PublicBookingCatalog = {
     services: [
-      { id: '11111111-1111-4111-8111-111111111111', name: 'Corte', category: 'Servicios', description: '', price: 35000, durationMinutes: 60, image: null, variants: [] },
-      { id: '33333333-3333-4333-8333-333333333333', name: 'Barba', category: 'Servicios', description: '', price: 20000, durationMinutes: 30, image: null, variants: [] },
+      { id: '11111111-1111-4111-8111-111111111111', name: 'Corte', category: 'Servicios', description: '', price: 35000, durationMinutes: 60, image: null, images: [], variants: [] },
+      { id: '33333333-3333-4333-8333-333333333333', name: 'Barba', category: 'Servicios', description: '', price: 20000, durationMinutes: 30, image: null, images: [], variants: [] },
     ],
     packages: [],
     products: [],

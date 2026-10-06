@@ -56,7 +56,7 @@ const profile: PublicBookingProfile = {
 };
 
 const catalog: PublicBookingCatalog = {
-  services: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Corte', category: 'Servicios', description: '', price: 30000, durationMinutes: 60, image: null, variants: [] }],
+  services: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Corte', category: 'Servicios', description: '', price: 30000, durationMinutes: 60, image: null, images: [], variants: [] }],
   packages: [],
   products: [],
 };

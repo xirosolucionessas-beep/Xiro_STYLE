@@ -66,6 +66,8 @@ export interface CreateInput {
   startsAt: Date;
   source: AppointmentSource;
   client: { id: string } | { create: ClientInput };
+  /** Cuenta de cliente que hace la reserva, si inició sesión (ver client_accounts); null = invitado. */
+  clientAccountId?: string | null;
   customerNotes: string;
   internalNotes: string;
   createdBy: string | null;
@@ -151,6 +153,7 @@ export async function createAppointment(tx: Tx, businessId: string, p: Prepared,
             termsAcceptedIp: input.publicFlow ? (input.termsIp ?? null) : null,
             remindersOptIn: input.remindersOptIn,
             createdBy: input.createdBy,
+            clientAccountId: input.clientAccountId ?? null,
             idempotencyHash: idem?.hash ?? null,
           })
           .returning();

@@ -49,6 +49,16 @@ export function sixDigitCode(): string {
   return randomInt(0, 1_000_000).toString().padStart(6, '0');
 }
 
+/** Sin caracteres ambiguos (0/O, 1/I/l…): para que se pueda leer o copiar a mano sin dudas, p. ej. una contraseña
+ * temporal que el dueño del negocio le entrega a un cliente. */
+const UNAMBIGUOUS_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+
+export function readableTempPassword(length = 10): string {
+  let out = '';
+  for (let i = 0; i < length; i += 1) out += UNAMBIGUOUS_CHARS[randomInt(0, UNAMBIGUOUS_CHARS.length)];
+  return out;
+}
+
 export function hmac(secret: string, value: string): string {
   return createHmac('sha256', secret).update(value).digest('hex');
 }

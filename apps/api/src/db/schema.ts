@@ -816,6 +816,110 @@ export const servicePackageEntries = pgTable(
 );
 
 /**
+ * Cuenta de cliente final (opcional, página pública): quien reserva puede guardar sus datos para no volver a
+ * escribirlos, sin que eso sea obligatorio — agendar como invitado sigue funcionando exactamente igual. Distinta de
+ * `users` (dueño y empleados del negocio): una cuenta pertenece a UN SOLO negocio, nunca es una identidad global —
+ * el mismo teléfono en dos negocios son dos cuentas independientes, cada una con su propia contraseña
+ * (`client_accounts_business_phone_uq`). Vinculada 1 a 1 con un `clients` del mismo negocio (el registro de cliente
+ * que el negocio ya tenía, o uno nuevo creado al registrarse) — así el dueño sigue viendo un solo directorio.
+ */
+export const clientAccounts = pgTable(
+  'client_accounts',
+  {
+    id: id(),
+    businessId: businessRef(),
+    clientId: uuid('client_id').notNull(),
+    phoneE164: text('phone_e164').notNull(),
+    phoneVerifiedAt: ts('phone_verified_at'),
+    passwordHash: text('password_hash').notNull(),
+    name: text('name').notNull(),
+    email: text('email'),
+    photoFile: text('photo_file'),
+    language: text('language'),
+    /** true tras un restablecimiento hecho por el negocio (ver client_audit_log): debe elegir una contraseña propia
+     * antes de seguir — así el negocio nunca llega a conocer la definitiva. */
+    mustChangePassword: boolean('must_change_password').notNull().default(false),
+    tempPasswordExpiresAt: ts('temp_password_expires_at'),
+    createdAt: createdAt(),
+    lastLoginAt: ts('last_login_at'),
+    disabledAt: ts('disabled_at'),
+  },
+  (t) => [
+    foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'client_accounts_client_business_fk' }).onDelete('cascade'),
+    unique('client_accounts_id_business_uq').on(t.id, t.businessId),
+    uniqueIndex('client_accounts_business_phone_uq').on(t.businessId, t.phoneE164),
+    uniqueIndex('client_accounts_client_uq').on(t.clientId),
+  ],
+);
+
+/** Sesiones del navegador de una cuenta de cliente (sesión "permanente": hasta 180 días, deslizante). El token en
+ * claro nunca se guarda, solo su hash — igual que `refresh_tokens` de `users`. */
+export const clientSessions = pgTable(
+  'client_sessions',
+  {
+    id: id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => clientAccounts.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    createdAt: createdAt(),
+    expiresAt: ts('expires_at').notNull(),
+    lastUsedAt: ts('last_used_at').notNull().defaultNow(),
+    deviceLabel: text('device_label').notNull().default(''),
+    revokedAt: ts('revoked_at'),
+  },
+  (t) => [uniqueIndex('client_sessions_token_uq').on(t.tokenHash), index('client_sessions_account_idx').on(t.accountId)],
+);
+
+/** Token de un solo uso entre "código verificado" y "contraseña cambiada" — mismo patrón que `reset_tokens` de `users`. */
+export const clientResetTokens = pgTable(
+  'client_reset_tokens',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => clientAccounts.id, { onDelete: 'cascade' }),
+    expiresAt: ts('expires_at').notNull(),
+  },
+  (t) => [index('client_reset_account_idx').on(t.accountId), index('client_reset_expires_idx').on(t.expiresAt)],
+);
+
+/** Códigos de recuperación de acceso de una cuenta de cliente ("Olvidé mi contraseña") — mismo patrón de un solo uso que `otp_codes` de `users`. */
+export const clientRecoveryCodes = pgTable(
+  'client_recovery_codes',
+  {
+    id: id(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => clientAccounts.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    channel: text('channel').notNull(),
+    expiresAt: ts('expires_at').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    usedAt: ts('used_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('client_recovery_codes_account_idx').on(t.accountId), check('client_recovery_codes_channel_ck', sql`${t.channel} in ('sms','whatsapp','email')`)],
+);
+
+/** Auditoría mínima del acceso en línea de un cliente (p. ej. "el negocio restableció tu contraseña"). Sin contraseñas ni códigos. */
+export const clientAuditLog = pgTable(
+  'client_audit_log',
+  {
+    id: id(),
+    businessId: businessRef(),
+    accountId: uuid('account_id'),
+    action: text('action').notNull(),
+    actorUserId: uuid('actor_user_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.actorUserId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'client_audit_log_actor_fk' }).onDelete('set null'),
+    index('client_audit_log_business_idx').on(t.businessId, t.createdAt.desc()),
+  ],
+);
+
+/**
  * Citas. Los instantes van en UTC. `busy_until` = fin del servicio + tiempo de limpieza: es lo que ocupa el calendario.
  * La migración añade una restricción de EXCLUSIÓN (btree_gist) que impide que dos citas activas del mismo profesional se
  * crucen: es la garantía real contra el doble agendamiento, aunque dos reservas lleguen exactamente a la vez.
@@ -846,6 +950,10 @@ export const appointments = pgTable(
     termsAcceptedIp: text('terms_accepted_ip'),
     remindersOptIn: boolean('reminders_opt_in').notNull().default(false),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    /** Cuenta de cliente que hizo la reserva (si inició sesión); null = invitado, o un cambio de teléfono en esa
+     * cita la desvinculó. La fidelización cuenta por `clientId`, no por este campo — un cambio de teléfono en la
+     * cita no le hace perder su avance. */
+    clientAccountId: uuid('client_account_id'),
     cancelledAt: ts('cancelled_at'),
     cancelReason: text('cancel_reason').notNull().default(''),
     createdAt: createdAt(),
@@ -854,6 +962,7 @@ export const appointments = pgTable(
   (t) => [
     foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'appointments_client_business_fk' }).onDelete('cascade'),
     foreignKey({ columns: [t.professionalId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'appointments_professional_business_fk' }),
+    foreignKey({ columns: [t.clientAccountId, t.businessId], foreignColumns: [clientAccounts.id, clientAccounts.businessId], name: 'appointments_client_account_business_fk' }).onDelete('set null'),
     unique('appointments_id_business_uq').on(t.id, t.businessId),
     uniqueIndex('appointments_token_uq').on(t.tokenHash),
     uniqueIndex('appointments_idem_uq').on(t.businessId, t.idempotencyHash).where(sql`${t.idempotencyHash} is not null`),

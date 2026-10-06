@@ -2,6 +2,8 @@ import type {
   ApiErrorBody,
   AvailabilityResponse,
   BookingSelection,
+  ClientAccountDto,
+  ClientSessionDeviceDto,
   DaySummary,
   PublicAppointmentDto,
   PublicBookingCatalog,
@@ -10,6 +12,14 @@ import type {
   PublicReviewDto,
   PublicTeamMemberDto,
 } from '@xiro/shared';
+
+export interface LoyaltyAccountView {
+  active: boolean;
+  count?: number;
+  goal?: number;
+  rewardAvailable?: boolean;
+  rewardMessage?: string;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -67,4 +77,20 @@ export const publicApi = {
     request<PublicAppointmentDto>(`/${slug}/appointments/${token}/reschedule`, { method: 'POST', body: JSON.stringify({ startsAt, ...(professionalId ? { professionalId } : {}) }) }),
   deleteData: (slug: string, token: string) => request<{ ok: true }>(`/${slug}/appointments/${token}/privacy-delete`, { method: 'POST' }),
   review: (slug: string, token: string, rating: number, comment: string) => request<PublicAppointmentDto>(`/${slug}/appointments/${token}/review`, { method: 'POST', body: JSON.stringify({ rating, comment }) }),
+
+  accountMe: (slug: string) => request<ClientAccountDto | undefined>(`/${slug}/account/me`),
+  accountRegister: (slug: string, body: { name: string; phone: string; password: string; email?: string; acceptTerms: true; remember: boolean }) =>
+    request<ClientAccountDto>(`/${slug}/account/register`, { method: 'POST', body: JSON.stringify(body) }),
+  accountLogin: (slug: string, body: { phone: string; password: string; remember: boolean }) => request<ClientAccountDto>(`/${slug}/account/login`, { method: 'POST', body: JSON.stringify(body) }),
+  accountLogout: (slug: string) => request<void>(`/${slug}/account/logout`, { method: 'POST' }),
+  accountUpdate: (slug: string, body: { name?: string; email?: string | null }) => request<ClientAccountDto>(`/${slug}/account/me`, { method: 'PUT', body: JSON.stringify(body) }),
+  accountChangePassword: (slug: string, body: { currentPassword: string; newPassword: string }) => request<{ ok: true }>(`/${slug}/account/change-password`, { method: 'POST', body: JSON.stringify(body) }),
+  accountDelete: (slug: string, password: string) => request<void>(`/${slug}/account`, { method: 'DELETE', body: JSON.stringify({ password }) }),
+  accountSessions: (slug: string) => request<ClientSessionDeviceDto[]>(`/${slug}/account/sessions`),
+  accountRevokeSession: (slug: string, id: string) => request<void>(`/${slug}/account/sessions/${id}`, { method: 'DELETE' }),
+  accountRecoverRequest: (slug: string, phone: string) => request<{ ok: true; devCode?: string }>(`/${slug}/account/recover/request`, { method: 'POST', body: JSON.stringify({ phone }) }),
+  accountRecoverVerify: (slug: string, phone: string, code: string) => request<{ resetToken: string }>(`/${slug}/account/recover/verify`, { method: 'POST', body: JSON.stringify({ phone, code }) }),
+  accountRecoverReset: (slug: string, resetToken: string, newPassword: string) => request<{ ok: true }>(`/${slug}/account/recover/reset`, { method: 'POST', body: JSON.stringify({ resetToken, newPassword }) }),
+  accountAppointments: (slug: string) => request<PublicAppointmentDto[]>(`/${slug}/account/appointments`),
+  accountLoyalty: (slug: string) => request<LoyaltyAccountView>(`/${slug}/account/loyalty`),
 };

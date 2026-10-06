@@ -265,6 +265,7 @@ export function ManagePage({ slug, token, language }: { slug: string; token: str
       {confirmCancel ? (
         <Modal
           title={t('pub_manage_cancel_confirm_title')}
+          closeLabel={t('close')}
           onClose={() => setConfirmCancel(false)}
           footer={
             <>
@@ -287,6 +288,7 @@ export function ManagePage({ slug, token, language }: { slug: string; token: str
       {confirmDelete ? (
         <Modal
           title={t('pub_manage_delete_confirm_title')}
+          closeLabel={t('close')}
           onClose={() => setConfirmDelete(false)}
           footer={
             <>
