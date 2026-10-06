@@ -7,6 +7,7 @@ export * from './i18n';
 export * from './messages';
 export * from './money';
 export * from './phone';
+export * from './reports';
 export * from './roles';
 export * from './sales';
 export * from './schemas';
