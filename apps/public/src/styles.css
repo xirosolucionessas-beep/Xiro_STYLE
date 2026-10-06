@@ -321,7 +321,10 @@ textarea {
 /* Tarjeta "de vidrio" (glassmorphism ligero): vive SIEMPRE sobre el fondo sólido, nunca sobre la foto (ver nota
    arriba). SIN traslape con la portada (ni el contenedor ni el logo usan margen negativo): una portada puede traer
    su propio contenido importante hasta el borde inferior (texto, un código QR, como reportó un negocio real), y el
-   logo nunca debe tapar nada de eso, en NINGÚN negocio, sin importar qué foto suba. */
+   logo nunca debe tapar nada de eso, en NINGÚN negocio, sin importar qué foto suba.
+   `border-top` en dorado: una portada muy oscura (tema oscuro + foto de fondo negro, caso real reportado) se funde
+   visualmente con el fondo de esta tarjeta y el límite entre una y otra deja de verse — el dorado nunca es negro en
+   ningún tema, así que la línea siempre separa la portada del contenido, sin importar la foto que suba el negocio. */
 .xp-identity {
   position: relative;
   z-index: 1;
@@ -331,6 +334,7 @@ textarea {
   gap: var(--space-2);
   padding: var(--space-5) var(--space-4) var(--space-5);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border-top: 2px solid var(--gold);
   background: linear-gradient(180deg, rgba(var(--bg-rgb), 0.7), rgba(var(--bg-rgb), 0.94) 60%);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
