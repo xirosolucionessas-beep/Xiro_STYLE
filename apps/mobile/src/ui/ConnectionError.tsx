@@ -7,7 +7,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSettings } from '@/lib/settings';
 import { Button } from './Button';
@@ -50,7 +50,15 @@ export function ConnectionError({ retrying, onRetry }: { retrying: boolean; onRe
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0d0d0f' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
-  border: { width: '100%', maxWidth: 420, borderRadius: 26, padding: 1.5, shadowColor: GOLD, shadowOpacity: 0.35, shadowRadius: 26, shadowOffset: { width: 0, height: 8 } },
+  border: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 26,
+    padding: 1.5,
+    // Mismo brillo dorado en los tres: en web "boxShadow" directo (RNW también lo hace en tiempo real desde shadow*,
+    // pero de paso avisa que está obsoleto), en iOS shadow* de toda la vida, en Android sin sombra (como ya era).
+    ...Platform.select({ web: { boxShadow: `0px 8px 26px ${GOLD}59` }, ios: { shadowColor: GOLD, shadowOpacity: 0.35, shadowRadius: 26, shadowOffset: { width: 0, height: 8 } } }),
+  },
   card: { alignItems: 'center', borderRadius: 24.5, paddingHorizontal: 24, paddingTop: 28, paddingBottom: 24, backgroundColor: 'rgba(14,13,10,0.94)' },
   icon: { width: 68, height: 68, borderRadius: 34, alignItems: 'center', justifyContent: 'center', marginBottom: 16, backgroundColor: 'rgba(217,182,54,0.14)', borderWidth: 1, borderColor: 'rgba(217,182,54,0.45)' },
   title: { color: '#ffffff', fontSize: 20, fontWeight: '800', textAlign: 'center' },

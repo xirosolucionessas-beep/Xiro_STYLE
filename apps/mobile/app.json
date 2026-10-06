@@ -13,7 +13,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Xiro Style usa la cámara para fotografiar tus productos y servicios.",
-        "NSPhotoLibraryUsageDescription": "Xiro Style accede a tus fotos para el logo y el catálogo.",
+        "NSPhotoLibraryUsageDescription": "Xiro Style accede a tus fotos para el logo, el catálogo y las fotos de tu equipo.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -45,6 +45,12 @@
           "backgroundColor": "#0d0d0f",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 160
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Xiro Style usa tu ubicación solo cuando pulsas «Usar mi ubicación actual» para marcar tu local en el mapa."
         }
       ],
       [

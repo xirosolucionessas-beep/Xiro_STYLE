@@ -4,7 +4,10 @@ import { authEn, authEs } from '../strings/auth';
 import { dashboardEn, dashboardEs } from '../strings/dashboard';
 import { homeEn, homeEs } from '../strings/home';
 import { legalEn, legalEs } from '../strings/legal';
+import { cashCloseEn, cashCloseEs } from '../strings/cashClose';
 import { profileEn, profileEs } from '../strings/profile';
+import { saleFormEn, saleFormEs } from '../strings/saleForm';
+import { salesTodayEn, salesTodayEs } from '../strings/salesToday';
 import { sectionsEn, sectionsEs } from '../strings/sections';
 import { welcomeEn, welcomeEs } from '../strings/welcome';
 
@@ -20,7 +23,7 @@ const es = {
   nav_home: 'Inicio',
   nav_agenda: 'Citas',
   nav_clients: 'Clientes',
-  nav_services: 'Servicios',
+  nav_catalog: 'Catálogo',
   nav_inventory: 'Inventario',
   nav_employees: 'Empleados',
   nav_reports: 'Reportes',
@@ -42,6 +45,9 @@ const es = {
   ...profileEs,
   ...dashboardEs,
   ...sectionsEs,
+  ...salesTodayEs,
+  ...saleFormEs,
+  ...cashCloseEs,
 } as const;
 
 export type WebStringKey = keyof typeof es;
@@ -57,7 +63,7 @@ const en: Record<WebStringKey, string> = {
   nav_home: 'Home',
   nav_agenda: 'Appointments',
   nav_clients: 'Clients',
-  nav_services: 'Services',
+  nav_catalog: 'Catalog',
   nav_inventory: 'Inventory',
   nav_employees: 'Employees',
   nav_reports: 'Reports',
@@ -79,6 +85,9 @@ const en: Record<WebStringKey, string> = {
   ...profileEn,
   ...dashboardEn,
   ...sectionsEn,
+  ...salesTodayEn,
+  ...saleFormEn,
+  ...cashCloseEn,
 };
 
 const dictionaries: Record<Language, Record<WebStringKey, string>> = { es, en };

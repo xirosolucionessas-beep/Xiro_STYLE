@@ -1,5 +1,7 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Device from 'expo-device';
+import { useRouter } from 'expo-router';
+import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { api } from './api';
 import type { PushAdapter, PushOutcome, PushPermission } from './pushTypes';
@@ -70,3 +72,34 @@ export const push: PushAdapter = {
     await prefsStorage.remove(TOKEN_KEY);
   },
 };
+
+/**
+ * Deep linking al tocar un push (app en segundo plano, cerrada del todo, o recién abierta desde él): navega a la
+ * ruta de destino (`data.url`, puesta por el backend en push.ts) en vez de dejar a la persona en Inicio sin más
+ * (sección "Deep linking"). Monta una sola vez, cerca de la raíz — ver `useNotificationNavigation()` en _layout.
+ */
+export function useNotificationNavigation(): void {
+  const router = useRouter();
+  useEffect(() => {
+    if (inExpoGo || !Device.isDevice) return;
+    let active = true;
+    let subscription: { remove: () => void } | undefined;
+    const go = (url: unknown) => {
+      if (active && typeof url === 'string' && url) router.push(url as never);
+    };
+    void notifications().then((Notifications) => {
+      if (!active) return;
+      // La app se abrió TOCANDO un push (venía cerrada o en segundo plano): navega una sola vez a su destino.
+      void Notifications.getLastNotificationResponseAsync().then((response) => {
+        if (!active || !response) return;
+        go(response.notification.request.content.data?.url);
+        void Notifications.clearLastNotificationResponseAsync?.();
+      });
+      subscription = Notifications.addNotificationResponseReceivedListener((response) => go(response.notification.request.content.data?.url));
+    });
+    return () => {
+      active = false;
+      subscription?.remove();
+    };
+  }, [router]);
+}

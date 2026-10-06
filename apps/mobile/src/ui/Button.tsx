@@ -22,7 +22,8 @@ export function Button({ label, onPress, variant = 'primary', icon, loading, dis
   const inactive = disabled || loading;
   const palette = {
     primary: { bg: colors.gold, fg: colors.onGold, border: colors.gold },
-    secondary: { bg: 'transparent', fg: colors.gold, border: colors.gold },
+    // Contorno neutro a propósito (no el color de acento): el acento es para UNA acción primaria por vista.
+    secondary: { bg: 'transparent', fg: colors.text, border: colors.border },
     ghost: { bg: 'transparent', fg: colors.textMuted, border: 'transparent' },
     danger: { bg: 'transparent', fg: colors.danger, border: colors.danger },
   }[variant];
@@ -43,7 +44,7 @@ export function Button({ label, onPress, variant = 'primary', icon, loading, dis
       ) : (
         <View style={styles.content}>
           {icon ? <Ionicons name={icon} size={18} color={palette.fg} /> : null}
-          <AppText variant="bodyStrong" style={{ color: palette.fg, fontWeight: '800' }}>
+          <AppText variant="bodyStrong" style={{ color: palette.fg, fontWeight: '700' }}>
             {label}
           </AppText>
         </View>

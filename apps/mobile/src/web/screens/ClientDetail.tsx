@@ -26,10 +26,13 @@ export interface ClientDetailViewProps {
   onEdit: () => void;
   onDelete: () => void;
   canManage: boolean;
+  /** Derecho de supresión (Ley 1581): borra los datos identificables y conserva el historial. */
+  anonymizing: boolean;
+  onAnonymize: () => void;
 }
 
-/** Ficha de cliente: contacto, indicadores e historial real de servicios, con las mismas acciones que la nativa (WhatsApp, llamar, editar, eliminar). */
-export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHref, deleting, onEdit, onDelete, canManage }: ClientDetailViewProps) {
+/** Ficha de cliente: contacto, indicadores e historial real de servicios, con las mismas acciones que la nativa (WhatsApp, llamar, editar, eliminar datos, eliminar). */
+export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHref, deleting, onEdit, onDelete, canManage, anonymizing, onAnonymize }: ClientDetailViewProps) {
   useWebStyles();
   return (
     <div className="xw-section">
@@ -47,7 +50,7 @@ export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHre
             </dl>
           </Panel>
 
-          <Panel title={t('sec_cd_actions')} icon="sparkles">
+          <Panel title={t('sec_cd_actions')}>
             <div className="xw-detail-actions" style={{ marginTop: 0 }}>
               {whatsappHref ? (
                 <a className="xw-btn xw-btn--primary" href={whatsappHref} target="_blank" rel="noopener noreferrer">
@@ -65,6 +68,9 @@ export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHre
                 <>
                   <Button variant="secondary" icon={<Ico name="pencil" size={18} />} onPress={onEdit}>
                     {t('edit')}
+                  </Button>
+                  <Button variant="secondary" icon={<Ico name="eye-off" size={18} />} loading={anonymizing} loadingLabel={t('loading')} onPress={onAnonymize}>
+                    {t('client_anonymize')}
                   </Button>
                   <Button variant="danger" icon={<Ico name="trash-2" size={18} />} loading={deleting} loadingLabel={t('loading')} onPress={onDelete}>
                     {t('delete')}

@@ -9,7 +9,7 @@ import { useFormEnhancements } from '@/web/shell/useFormEnhancements';
 import { useInertHidden } from '@/web/shell/useInertHidden';
 import { useCookieConsent } from '@/lib/useCookieConsent';
 import { AssistantContext } from '@/web/shell/assistantContext';
-import { HeaderSearchContainer, HeaderToolsContainer, SidebarPlan } from '@/web/shell/HeaderContainers';
+import { HeaderSearchContainer, HeaderToolsContainer, PlanCelebrationHost, SidebarPlan } from '@/web/shell/HeaderContainers';
 import { ShellView } from '@/web/shell/ShellView';
 import { useWebText } from '@/web/services/useWebText';
 import { Brand } from '@/ui/Brand';
@@ -105,6 +105,7 @@ export function WebShell({ children }: { children: ReactNode }) {
         {children}
       </ShellView>
       <SubscriptionGate t={t} language={language} />
+      {signedIn && business ? <PlanCelebrationHost businessId={business.id} /> : null}
       <CookieConsentView open={cookies.visible && !route.auth && !route.standalone} t={t} onAccept={cookies.accept} navigate={(href) => router.navigate(href as never)} />
     </AssistantContext.Provider>
   );

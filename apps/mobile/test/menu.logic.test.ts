@@ -54,7 +54,7 @@ describe('qué ve cada persona', () => {
 
   it('un empleado sin permisos solo ve Inicio y el asistente ("Próximamente"); las secciones vacías se ocultan', () => {
     const result = menuFor(employee());
-    expect(ids(result)).toEqual(['home', 'assistant']);
+    expect(ids(result)).toEqual(['home', 'messages', 'assistant']);
     expect(result.map((s) => s.id)).toEqual(['main', 'assistant']);
   });
 
@@ -77,6 +77,7 @@ describe('opción actual resaltada', () => {
     expect(isCurrentItem(find('clients'), '/clients')).toBe(true);
     expect(isCurrentItem(find('inventory'), '/inventory')).toBe(true);
     expect(isCurrentItem(find('team'), '/employees')).toBe(true);
-    expect(isCurrentItem(find('appointments'), '/agenda')).toBe(false); // sin ruta
+    expect(isCurrentItem(find('appointments'), '/agenda')).toBe(true);
+    expect(isCurrentItem(find('booking'), '/booking')).toBe(true);
   });
 });

@@ -16,15 +16,33 @@ export const POLICY: Record<string, PolicyRule> = {
   // Cuenta propia
   'GET /me': 'any',
   'PATCH /me': 'any',
+  'PUT /me/photo': 'any',
+  'DELETE /me/photo': 'any',
   'POST /me/phone/request': 'any',
   'POST /me/phone/confirm': 'any',
+
+  // Mensajes: chat interno entre personas del mismo negocio, cada quien ve y escribe solo lo suyo.
+  'GET /messages/people': 'any',
+  'GET /messages/conversations': 'any',
+  'POST /messages/conversations': 'any',
+  'GET /messages/conversations/:id/messages': 'any',
+  'POST /messages/conversations/:id/messages': 'any',
+  'POST /messages/conversations/:id/read': 'any',
 
   // Negocio (leer lo básico es necesario para mostrar la app; cambiarlo, caja y equipo son del dueño)
   'GET /business': 'any',
   'PATCH /business': 'owner',
   'PUT /business/logo': 'owner',
   'GET /cash/today': 'owner',
+  'GET /cash/openings': 'owner',
   'POST /cash/opening': 'owner',
+  'GET /expenses': 'owner',
+  'POST /expenses': 'owner',
+  'GET /cash/close-summary': 'owner',
+  'GET /cash/closings': 'owner',
+  'GET /cash/closings/:id': 'owner',
+  'POST /cash/close': 'owner',
+  'POST /cash/closings/:id/void': 'owner',
 
   // Catálogo e inventario
   'GET /categories': ['catalog_view'],
@@ -35,6 +53,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'GET /items/:id': ['catalog_view'],
   'POST /items': ['catalog_manage'],
   'PUT /items/:id': ['catalog_manage'],
+  'POST /items/bulk-publish': ['catalog_manage'],
   'POST /items/:id/stock-adjustments': ['catalog_manage'],
   'DELETE /items/:id': ['catalog_manage'],
   'POST /items/:id/photos': ['catalog_manage'],
@@ -47,6 +66,15 @@ export const POLICY: Record<string, PolicyRule> = {
   'POST /clients': ['clients_manage'],
   'PUT /clients/:id': ['clients_manage'],
   'DELETE /clients/:id': ['clients_manage'],
+  'PUT /clients/:id/photo': ['clients_manage'],
+  'DELETE /clients/:id/photo': ['clients_manage'],
+  'POST /clients/:id/anonymize': ['clients_manage'],
+
+  // Ventas (POS): registrar y consultar piden el mismo permiso que registrar un servicio; anular es solo del dueño.
+  'GET /sales': ['services_record'],
+  'GET /sales/:id': ['services_record'],
+  'POST /sales': ['services_record'],
+  'POST /sales/:id/void': 'owner',
 
   // Servicios realizados y fidelización (la configuración del programa es del dueño)
   'GET /service-records': ['services_record'],
@@ -64,19 +92,79 @@ export const POLICY: Record<string, PolicyRule> = {
   'POST /subscription/checkout/paypal': 'owner',
   'POST /subscription/checkout/bank-transfer': 'owner',
   'POST /subscription/cancel': 'owner',
+  'GET /subscription/invoices': 'owner',
 
-  // Notificaciones push del negocio (van al dueño)
+  // Notificaciones push: las preferencias del negocio son del dueño, pero cada persona (también los empleados, para recibir avisos de
+  // sus citas) registra y da de baja SUS propios dispositivos. Los avisos de negocio (premios, facturación) siguen yendo solo al dueño.
   'GET /notifications/settings': 'owner',
   'PUT /notifications/settings': 'owner',
-  'GET /notifications/vapid-public-key': 'owner',
-  'POST /notifications/register': 'owner',
-  'DELETE /notifications/register': 'owner',
-  'POST /notifications/test': 'owner',
+  'GET /notifications/vapid-public-key': 'any',
+  'POST /notifications/register': 'any',
+  'DELETE /notifications/register': 'any',
+  'POST /notifications/test': 'any',
+  // Centro de notificaciones: cada quien lee/marca solo LAS SUYAS (lo aplica la ruta, acotando siempre por request.user.sub).
+  'GET /notifications': 'any',
+  'POST /notifications/:id/read': 'any',
+  'POST /notifications/read-all': 'any',
+
+  // Agenda: sin "ver todas las agendas" un empleado solo ve y toca las citas donde él es el profesional (lo aplica la ruta)
+  'GET /appointments': ['agenda_own'],
+  'GET /appointments/:id': ['agenda_own'],
+  'POST /booking/events/ticket': ['agenda_own'],
+  'POST /appointments': ['appointments_manage'],
+  'PATCH /appointments/:id': ['appointments_manage'],
+  'POST /appointments/:id/status': ['appointments_manage'],
+  'GET /booking/availability': ['appointments_manage'],
+  'GET /booking/days': ['appointments_manage'],
+  'GET /professionals': ['appointments_manage', 'agenda_all', 'public_page_manage'],
+  'PATCH /professionals/:id': ['public_page_manage'],
+  'PUT /professionals/:id/photo': ['public_page_manage'],
+  'DELETE /professionals/:id/photo': ['public_page_manage'],
+  'PUT /professionals/:id/schedule': ['public_page_manage'],
+  'PUT /professionals/:id/services': ['public_page_manage'],
+  'GET /professionals/:id/time-off': ['agenda_own'],
+  'POST /professionals/:id/time-off': ['agenda_own'],
+  'DELETE /time-off/:id': ['agenda_own'],
+
+  // Servicios: estilos, paquetes y revisión servicio/producto (mismo permiso que el catálogo)
+  'GET /items/classification': ['catalog_manage'],
+  'POST /items/classification': ['catalog_manage'],
+  'GET /items/:id/variants': ['catalog_view'],
+  'POST /items/:id/variants': ['catalog_manage'],
+  'PUT /variants/:id': ['catalog_manage'],
+  'DELETE /variants/:id': ['catalog_manage'],
+  'GET /packages': ['catalog_view'],
+  'POST /packages': ['catalog_manage'],
+  'PUT /packages/:id': ['catalog_manage'],
+  'DELETE /packages/:id': ['catalog_manage'],
+
+  // Página pública de reservas: por defecto solo el dueño (los empleados no tienen este permiso salvo que se les dé)
+  'GET /booking/settings': ['public_page_manage'],
+  'PUT /booking/settings': ['public_page_manage'],
+  'PUT /booking/profile': ['public_page_manage'],
+  'PUT /booking/profile/cover': ['public_page_manage'],
+  'DELETE /booking/profile/cover': ['public_page_manage'],
+  'POST /booking/profile/gallery': ['public_page_manage'],
+  'DELETE /booking/profile/gallery/:file': ['public_page_manage'],
+  'GET /booking/slug/check': ['public_page_manage'],
+  'PUT /booking/slug': ['public_page_manage'],
+  'GET /booking/closures': ['public_page_manage'],
+  'POST /booking/closures': ['public_page_manage'],
+  'DELETE /booking/closures/:id': ['public_page_manage'],
+  'GET /booking/places/config': ['public_page_manage'],
+  'GET /booking/places/autocomplete': ['public_page_manage'],
+  'GET /booking/places/details': ['public_page_manage'],
+  'GET /booking/places/reverse': ['public_page_manage'],
+  'GET /booking/places/static-map': ['public_page_manage'],
+  'GET /booking/reviews': ['public_page_manage'],
+  'PATCH /booking/reviews/:id': ['public_page_manage'],
 
   // Equipo y bitácora
   'GET /employees': 'owner',
   'POST /employees': 'owner',
   'PATCH /employees/:id': 'owner',
+  'PUT /employees/:id/photo': 'owner',
+  'DELETE /employees/:id/photo': 'owner',
   'GET /audit-logs': 'owner',
 };
 

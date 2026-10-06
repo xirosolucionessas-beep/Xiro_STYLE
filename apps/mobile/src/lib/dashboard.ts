@@ -1,5 +1,5 @@
 import type { Item } from '@xiro/shared';
-import { dayKey } from './homeMetrics';
+import { dayKey, tracksStock } from './homeMetrics';
 
 /**
  * Cálculos del tablero de Inicio (web) con datos que la app YA tiene: servicios registrados, clientes e inventario.
@@ -29,21 +29,35 @@ export interface DayTotals {
   count: number;
 }
 
-/** Ventas y cantidad de servicios de hoy y de ayer, según el día del negocio (su zona horaria). */
-export function serviceDays(records: ReadonlyArray<{ amount: number; createdAt: string }>, timezone: string, now: Date = new Date()): { today: DayTotals; yesterday: DayTotals } {
+/**
+ * Ventas (servicios + productos) y, aparte, el valor y la cantidad SOLO de servicios, de hoy y de ayer, según el día
+ * del negocio (su zona horaria). "Ventas hoy" usa `today`/`yesterday` (el general); "Servicios hoy" usa
+ * `todayServices`/`yesterdayServices` — ambos vienen de la misma lista de registros, así que nunca pueden desalinearse.
+ */
+export function serviceDays(
+  records: ReadonlyArray<{ amount: number; createdAt: string; kind: 'service' | 'product' }>,
+  timezone: string,
+  now: Date = new Date(),
+): { today: DayTotals; yesterday: DayTotals; todayServices: DayTotals; yesterdayServices: DayTotals } {
   const todayKey = dayKey(timezone, now);
   const yesterdayKey = dayKey(timezone, new Date(now.getTime() - DAY_MS));
   const today: DayTotals = { total: 0, count: 0 };
   const yesterday: DayTotals = { total: 0, count: 0 };
+  const todayServices: DayTotals = { total: 0, count: 0 };
+  const yesterdayServices: DayTotals = { total: 0, count: 0 };
   for (const record of records) {
     const key = dayKey(timezone, new Date(record.createdAt));
     const bucket = key === todayKey ? today : key === yesterdayKey ? yesterday : null;
-    if (bucket) {
-      bucket.total += record.amount;
-      bucket.count += 1;
+    if (!bucket) continue;
+    bucket.total += record.amount;
+    bucket.count += 1;
+    if (record.kind === 'service') {
+      const serviceBucket = key === todayKey ? todayServices : yesterdayServices;
+      serviceBucket.total += record.amount;
+      serviceBucket.count += 1;
     }
   }
-  return { today, yesterday };
+  return { today, yesterday, todayServices, yesterdayServices };
 }
 
 /** Clientes nuevos hoy y ayer. */
@@ -61,8 +75,9 @@ export function newClients(clients: ReadonlyArray<{ createdAt: string }>, timezo
 }
 
 /** Productos por reponer o agotados, del más crítico (menos unidades) al menos. */
-export function lowStockList(items: ReadonlyArray<Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus'>>, limit = 4): Array<Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus'>> {
+export function lowStockList<T extends Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus'> & Partial<Pick<Item, 'kind' | 'kindConfirmed'>>>(items: ReadonlyArray<T>, limit = 4): T[] {
   return items
+    .filter(tracksStock)
     .filter((item) => item.stockStatus === 'reorder' || item.stockStatus === 'out_of_stock')
     .sort((a, b) => a.stock - b.stock || a.name.localeCompare(b.name))
     .slice(0, limit);
@@ -86,7 +101,7 @@ export interface ActivityItem {
 export interface ActivityInput {
   records?: ReadonlyArray<{ id: string; clientName: string; label: string; amount: number; createdAt: string }>;
   clients?: ReadonlyArray<{ id: string; name: string; createdAt: string }>;
-  items?: ReadonlyArray<Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus' | 'updatedAt'>>;
+  items?: ReadonlyArray<Pick<Item, 'id' | 'name' | 'stock' | 'stockStatus' | 'updatedAt'> & Partial<Pick<Item, 'kind' | 'kindConfirmed'>>>;
   limit?: number;
 }
 
@@ -98,7 +113,7 @@ export function buildActivity({ records = [], clients = [], items = [], limit = 
   const events: ActivityItem[] = [
     ...records.map((r): ActivityItem => ({ id: `service:${r.id}`, kind: 'service', at: Date.parse(r.createdAt), primary: r.clientName, secondary: r.label, amount: r.amount })),
     ...clients.map((c): ActivityItem => ({ id: `client:${c.id}`, kind: 'client', at: Date.parse(c.createdAt), primary: c.name })),
-    ...items.filter((i) => i.stockStatus === 'reorder' || i.stockStatus === 'out_of_stock').map((i): ActivityItem => ({ id: `stock:${i.id}`, kind: 'stock', at: Date.parse(i.updatedAt), primary: i.name, units: i.stock })),
+    ...items.filter((i) => tracksStock(i) && (i.stockStatus === 'reorder' || i.stockStatus === 'out_of_stock')).map((i): ActivityItem => ({ id: `stock:${i.id}`, kind: 'stock', at: Date.parse(i.updatedAt), primary: i.name, units: i.stock })),
   ].filter((event) => Number.isFinite(event.at));
   return events.sort((a, b) => b.at - a.at).slice(0, limit);
 }

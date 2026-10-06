@@ -25,7 +25,7 @@ type Change = (patch: Partial<RegistrationDraft>) => void;
 
 function Label({ children }: { children: ReactNode }) {
   return (
-    <AppText variant="label" tone="gold" style={{ marginBottom: 6 }}>
+    <AppText variant="label" tone="muted" style={{ marginBottom: 6 }}>
       {children}
     </AppText>
   );
@@ -82,7 +82,7 @@ export function StepAccount({ draft, secrets, errors, onChange, onSecrets, onOpe
           accessibilityLabel={t('accept_terms')}
           onPress={() => onChange({ accepted: !draft.accepted })}
           hitSlop={12}
-          style={[styles.box, { borderColor: errors.acceptTerms ? colors.danger : colors.gold, backgroundColor: draft.accepted ? colors.gold : 'transparent' }]}>
+          style={[styles.box, { borderColor: errors.acceptTerms ? colors.danger : draft.accepted ? colors.gold : colors.border, backgroundColor: draft.accepted ? colors.gold : 'transparent' }]}>
           {draft.accepted ? <Ionicons name="checkmark" size={16} color={colors.onGold} /> : null}
         </Pressable>
         <Pressable accessibilityRole="link" onPress={onOpenTerms} style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}>
@@ -139,16 +139,16 @@ export function StepPhoto({ logo, notice, busy, onGallery, onCamera, onRemove, o
   const { t, colors } = useSettings();
   return (
     <>
-      <View style={[styles.photoBox, { borderColor: colors.gold, backgroundColor: colors.surface }]}>
+      <View style={[styles.photoBox, { borderColor: colors.border, backgroundColor: colors.surface }]}>
         {logo ? (
           <Image source={{ uri: logo.uri }} style={styles.photo} accessibilityLabel={t('reg_photo_title')} accessibilityIgnoresInvertColors />
         ) : (
           <View style={styles.photoEmpty}>
-            <Ionicons name="camera-outline" size={34} color={colors.gold} />
+            <Ionicons name="camera-outline" size={34} color={colors.textMuted} />
             <AppText variant="bodyStrong" center>
               {t('reg_photo_title')}
             </AppText>
-            <AppText tone="gold" variant="small">
+            <AppText tone="muted" variant="small">
               {t('reg_photo_optional')}
             </AppText>
             <AppText tone="muted" variant="small" center>
@@ -184,7 +184,7 @@ export function StepPhoto({ logo, notice, busy, onGallery, onCamera, onRemove, o
 const styles = StyleSheet.create({
   terms: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
   box: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  photoBox: { minHeight: 220, borderRadius: radius.xl, borderWidth: 1.5, borderStyle: 'dashed', overflow: 'hidden', marginBottom: 14 },
+  photoBox: { minHeight: 220, borderRadius: radius.xl, borderWidth: 1, overflow: 'hidden', marginBottom: 14 },
   photoEmpty: { flex: 1, minHeight: 220, alignItems: 'center', justifyContent: 'center', gap: 6, padding: 20 },
   photo: { width: '100%', height: 260 },
   photoActions: { flexDirection: 'row', gap: 10, marginBottom: 4 },

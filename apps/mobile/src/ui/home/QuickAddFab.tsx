@@ -42,8 +42,8 @@ export function QuickAddFab({ actions, label, bottom = 18 }: { actions: FabActio
                   setOpen(false);
                   action.onPress();
                 }}
-                style={[styles.action, { backgroundColor: colors.surface, borderColor: colors.gold }]}>
-                <Ionicons name={action.icon} size={20} color={colors.gold} />
+                style={[styles.action, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Ionicons name={action.icon} size={20} color={colors.text} />
                 <AppText variant="bodyStrong">{action.label}</AppText>
               </Pressable>
             ))}

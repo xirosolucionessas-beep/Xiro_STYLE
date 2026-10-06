@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
   categoryInputSchema,
   itemInputSchema,
@@ -14,12 +14,15 @@ import { isForeignKeyViolation, isUniqueViolation } from '../db/errors';
 import { categories, itemPhotos, items } from '../db/schema';
 import { AppError, isUuid, notFound, parse, uuid } from '../errors';
 import { removeMedia, saveImage } from '../media';
+import { notifyLowStockIfNeeded } from '../push';
 import { loadItems, redactItemForActor } from '../serializers';
 
 /** Actualización de artículo: el contrato original más un campo OPCIONAL para detectar ediciones simultáneas. */
 const itemUpdateSchema = itemInputSchema.extend({ expectedUpdatedAt: z.iso.datetime().optional() });
 
 const stockAdjustmentSchema = z.object({ delta: z.number().int().min(-1_000_000).max(1_000_000).refine((n) => n !== 0, 'required') });
+
+const bulkPublishSchema = z.object({ ids: z.array(z.string()).min(1).max(200), published: z.boolean() });
 
 export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
@@ -102,6 +105,18 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
     internalNotes: input.internalNotes,
   });
 
+  /**
+   * Campos de reserva (opcionales): las apps ya instaladas no los envían, y en ese caso el servidor conserva lo que ya
+   * había. Si llega `kind`, la persona está decidiendo la clasificación: queda confirmada.
+   */
+  const bookingValues = (input: ReturnType<typeof itemInputSchema.parse>) => ({
+    ...(input.kind !== undefined ? { kind: input.kind, kindConfirmed: true } : {}),
+    ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
+    ...(input.cleanupMinutes !== undefined ? { cleanupMinutes: input.cleanupMinutes } : {}),
+    ...(input.bookable !== undefined ? { bookable: input.bookable } : {}),
+    ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+  });
+
   const unknownCategory = () => new AppError(400, 'validation_error', 'Unknown category');
 
   app.get('/items', async (request) => (await loadItems(db, businessOf(request))).map((item) => redactItemForActor(item, request.actor)));
@@ -114,7 +129,9 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (!isUuid(input.categoryId)) throw unknownCategory();
     try {
       // La FK compuesta (categoría, negocio) hace que la propia base de datos rechace categorías de otro negocio.
-      const [row] = await db.insert(items).values({ businessId, ...itemValues(input) }).returning({ id: items.id });
+      // Sin `kind` explícito: con existencias se trata como producto; si no, como servicio (queda "sin confirmar").
+      const inferred = input.kind === undefined ? { kind: input.stock > 0 ? 'product' : 'service' } : {};
+      const [row] = await db.insert(items).values({ businessId, ...itemValues(input), ...inferred, ...bookingValues(input) }).returning({ id: items.id });
       return reply.status(201).send(await requireItem(businessId, row!.id));
     } catch (error) {
       if (isForeignKeyViolation(error)) throw unknownCategory();
@@ -132,7 +149,7 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
     try {
       updated = await db
         .update(items)
-        .set({ ...itemValues(input as ReturnType<typeof itemInputSchema.parse>), updatedAt: new Date() })
+        .set({ ...itemValues(input as ReturnType<typeof itemInputSchema.parse>), ...bookingValues(input as ReturnType<typeof itemInputSchema.parse>), updatedAt: new Date() })
         .where(
           and(
             eq(items.id, id),
@@ -155,6 +172,23 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
   });
 
   /**
+   * Publicar o despublicar varios artículos a la vez (selección múltiple en Inventario): el catálogo y el artículo son
+   * la MISMA fila, así que esto es lo único que hace falta — no hay una copia aparte que "sincronizar" después.
+   */
+  app.post('/items/bulk-publish', async (request) => {
+    const { ids, published } = parse(bulkPublishSchema, request.body);
+    const businessId = businessOf(request);
+    const validIds = [...new Set(ids)].filter(isUuid).map((id) => id.toLowerCase());
+    if (validIds.length === 0) return { updated: 0 };
+    const updated = await db
+      .update(items)
+      .set({ published, updatedAt: new Date() })
+      .where(and(inArray(items.id, validIds), eq(items.businessId, businessId)))
+      .returning({ id: items.id });
+    return { updated: updated.length };
+  });
+
+  /**
    * Ajuste RELATIVO de stock, atómico: `stock = stock + delta` se evalúa dentro de la base de datos, así que dos ventas
    * simultáneas nunca se pisan ni dejan el stock en negativo (a diferencia de leer, calcular y guardar).
    */
@@ -164,7 +198,7 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
     const businessId = businessOf(request);
     const next = sql`${items.stock} + ${delta}`;
 
-    const updated = await db
+    const [updated] = await db
       .update(items)
       .set({
         stock: next,
@@ -172,12 +206,14 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
         updatedAt: new Date(),
       })
       .where(and(eq(items.id, id), eq(items.businessId, businessId), sql`${items.stock} + ${delta} >= 0`, sql`${items.stock} + ${delta} <= 1000000`))
-      .returning({ id: items.id });
+      .returning({ id: items.id, name: items.name, stockStatus: items.stockStatus });
 
-    if (updated.length === 0) {
+    if (!updated) {
       await requireItem(businessId, id);
       throw new AppError(409, 'insufficient_stock');
     }
+    // No-op si no quedó bajo/agotado (ver notifyLowStockIfNeeded); el propio dueño/empleado que ajustó ya lo sabe.
+    void notifyLowStockIfNeeded(ctx, businessId, updated);
     return requireItem(businessId, id);
   });
 

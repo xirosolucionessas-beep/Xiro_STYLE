@@ -4,6 +4,9 @@ import { font } from './tokens';
 export function buildProfileCss(): string {
   return `
 .xw-profile-content { display: flex; flex-direction: column; }
+.xw-profile-avatar-row { display: flex; align-items: center; gap: var(--xw-space-4); margin-bottom: var(--xw-space-6); }
+.xw-avatar-edit { position: relative; flex: none; }
+.xw-avatar--xl { width: 84px; height: 84px; font-size: var(--xw-text-xl); }
 .xw-profile-field { margin: var(--xw-space-6) 0; }
 .xw-profile-field .xw-btn { margin-top: var(--xw-space-2); }
 .xw-profile-view { margin: 0 0 var(--xw-space-6); padding-top: var(--xw-space-4); border-top: 1px solid var(--xw-border-subtle); }

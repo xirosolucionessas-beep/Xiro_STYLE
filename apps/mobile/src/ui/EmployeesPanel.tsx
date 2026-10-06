@@ -6,12 +6,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/lib/api';
 import { ACTION_LABELS, isRequiredByAnother, togglePermission, validateEmployeeForm, type EmployeeFormErrors } from '@/lib/employeesLogic';
 import { apiErrors } from '@/lib/forms';
+import { pickFromLibrary, uploadableImage } from '@/lib/images';
 import { keys, useAuditLogs, useEmployees } from '@/lib/queries';
 import { useSettings } from '@/lib/settings';
 import { Button } from './Button';
 import { CheckRow } from './CheckRow';
+import { useDialogs } from './Dialogs';
 import { Field } from './Field';
-import { Card, Chip, ChipRow, EmptyState } from './Kit';
+import { Card, Chip, ChipRow, EmptyState, Photo } from './Kit';
 import { Header, Screen } from './Screen';
 import { AppText } from './Text';
 import { radius } from './theme';
@@ -69,6 +71,7 @@ export function EmployeesPanel() {
           {employees.data?.map((employee) => (
             <Card key={employee.id} style={employee.active ? undefined : { opacity: 0.7 }}>
               <View style={styles.top}>
+                <Photo url={employee.photoUrl} size={36} style={{ borderRadius: 18 }} initials={employee.name} icon="person-outline" />
                 <AppText variant="bodyStrong" style={{ flex: 1 }}>
                   {employee.name}
                 </AppText>
@@ -126,17 +129,50 @@ export function EmployeesPanel() {
 
 function EmployeeForm({ employee, onClose, onSaved }: { employee?: Employee; onClose: () => void; onSaved: () => Promise<void> }) {
   const { t, colors } = useSettings();
+  const { confirm } = useDialogs();
   const editing = Boolean(employee);
   const [values, setValues] = useState({ name: employee?.name ?? '', email: '', phone: '', password: '' });
   const [permissions, setPermissions] = useState<EmployeePermission[]>(employee?.permissions ?? []);
   const [errors, setErrors] = useState<EmployeeFormErrors>({});
   const [general, setGeneral] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(employee?.photoUrl ?? null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string>();
   const set = (key: keyof typeof values) => (value: string) => {
     setValues((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key === 'email' || key === 'phone' ? 'contact' : key]: undefined }));
   };
   const effective = normalizePermissions(permissions);
+
+  async function changePhoto() {
+    if (!employee) return;
+    const [picked] = await pickFromLibrary(1);
+    if (!picked) return;
+    setPhotoBusy(true);
+    setPhotoError(undefined);
+    try {
+      setPhotoUrl((await api.uploadEmployeePhoto(employee.id, await uploadableImage(picked))).photoUrl);
+    } catch (e) {
+      setPhotoError(apiErrors(e, t).general ?? t('unknown_error'));
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function removePhoto() {
+    if (!employee) return;
+    if (!(await confirm({ title: t('emp_photo_remove_title'), message: t('emp_photo_remove_text'), confirmLabel: t('delete'), destructive: true }))) return;
+    setPhotoBusy(true);
+    setPhotoError(undefined);
+    try {
+      setPhotoUrl((await api.deleteEmployeePhoto(employee.id)).photoUrl);
+    } catch (e) {
+      setPhotoError(apiErrors(e, t).general ?? t('unknown_error'));
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   async function submit() {
     setGeneral(undefined);
@@ -164,6 +200,25 @@ function EmployeeForm({ employee, onClose, onSaved }: { employee?: Employee; onC
             <AppText variant="title" style={{ marginBottom: 16 }}>
               {employee ? t('emp_edit_title', { name: employee.name }) : t('emp_new_title')}
             </AppText>
+            {employee ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+                <Photo url={photoUrl} size={72} initials={employee.name} icon="person-outline" />
+                <View style={{ flex: 1, gap: 6 }}>
+                  <AppText variant="small" tone="muted">
+                    {t('emp_photo_hint')}
+                  </AppText>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    <Button label={t(photoUrl ? 'account_photo_change' : 'account_photo_add')} icon="image-outline" variant="secondary" compact loading={photoBusy} onPress={() => void changePhoto()} style={{ alignSelf: 'flex-start' }} />
+                    {photoUrl ? <Button label={t('delete')} icon="trash-outline" variant="ghost" compact loading={photoBusy} onPress={() => void removePhoto()} style={{ alignSelf: 'flex-start' }} /> : null}
+                  </View>
+                  {photoError ? (
+                    <AppText tone="danger" variant="small">
+                      {photoError}
+                    </AppText>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
             <Field label={t('emp_name_label')} value={values.name} onChangeText={set('name')} error={errors.name} maxLength={80} />
             {editing ? null : (
               <>

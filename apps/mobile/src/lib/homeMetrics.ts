@@ -32,8 +32,16 @@ export const TEAM_LABEL_KEYS: Record<BusinessType, string> = {
   other: 'team_label_other',
 };
 
+/**
+ * ¿Este artículo lleva inventario? Los productos sí; los servicios no (no tienen existencias). Mientras el dueño no haya
+ * confirmado la clasificación (pantalla "Revisa tus servicios y productos") se cuenta todo lo que aún no confirmó, para que
+ * un producto agotado que se propuso como servicio no desaparezca de Inventario ni de las alertas.
+ */
+export const tracksStock = (item: Partial<Pick<Item, 'kind' | 'kindConfirmed'>>): boolean => (item.kind ?? 'product') === 'product' || item.kindConfirmed === false;
+
 /** Productos por reponer o agotados (mismo criterio de stock mínimo que ya usa Inventario). */
-export function lowStock(items: ReadonlyArray<Pick<Item, 'stockStatus'>>): { count: number; reorder: number; outOfStock: number } {
+export function lowStock(all: ReadonlyArray<Pick<Item, 'stockStatus'> & Partial<Pick<Item, 'kind' | 'kindConfirmed'>>>): { count: number; reorder: number; outOfStock: number } {
+  const items = all.filter(tracksStock);
   const reorder = items.filter((item) => item.stockStatus === 'reorder').length;
   const outOfStock = items.filter((item) => item.stockStatus === 'out_of_stock').length;
   return { count: reorder + outOfStock, reorder, outOfStock };

@@ -9,15 +9,28 @@ self.addEventListener('push', (event) => {
   } catch {
     payload = { title: 'Xiro Style', body: event.data ? event.data.text() : '' };
   }
-  event.waitUntil(self.registration.showNotification(payload.title || 'Xiro Style', { body: payload.body || '', icon: '/favicon.ico', tag: payload.tag }));
+  // `data.url` (si viene) es la ruta de destino al tocar el aviso — ver "Deep linking" en notificationclick.
+  event.waitUntil(self.registration.showNotification(payload.title || 'Xiro Style', { body: payload.body || '', icon: '/favicon.ico', tag: payload.tag, data: payload.data || {} }));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (windows) => {
       const open = windows[0];
-      return open ? open.focus() : self.clients.openWindow('/');
+      if (!open) return self.clients.openWindow(url);
+      await open.focus();
+      // No todos los navegadores soportan navegar una pestaña ya abierta desde el service worker (p. ej. Safari):
+      // si no se puede, se deja enfocada en lo que ya tenía — mejor eso que fallar el clic entero.
+      if ('navigate' in open) {
+        try {
+          await open.navigate(url);
+        } catch {
+          /* ver nota arriba */
+        }
+      }
+      return open;
     }),
   );
 });

@@ -1,8 +1,7 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
-import { AgendaView } from '../src/web/screens/Agenda';
 import { ClientDetailView, type ClientDetailViewProps } from '../src/web/screens/ClientDetail';
 import { NotificationsView } from '../src/web/screens/Notifications';
 import { SubscriptionView } from '../src/web/screens/Subscription';
@@ -11,7 +10,7 @@ import { CatalogView, type CatalogViewProps } from '../src/web/screens/Catalog';
 import { ClientsView, type ClientsViewProps } from '../src/web/screens/Clients';
 import { InventoryView, type InventoryViewProps } from '../src/web/screens/Inventory';
 import { ReportsView, type ReportsViewProps } from '../src/web/screens/Reports';
-import { SettingsView, type SettingsViewProps } from '../src/web/screens/Settings';
+import { SettingsView, type NotificationsModel, type SettingsViewProps } from '../src/web/screens/Settings';
 import { tw } from '../src/web/shell/strings';
 import { FilterChips, type KpiView } from '../src/web/ui/Page';
 
@@ -37,8 +36,8 @@ function clientsView(overrides: Partial<ClientsViewProps> = {}) {
     onSearch: vi.fn(),
     appliedQuery: '',
     rows: [
-      { id: '1', name: 'Juan Pérez', phone: '3001112233', email: 'juan@x.co', since: '3 sept 2026', visits: '2', lastVisit: '20 sept 2026', href: '/client/1' },
-      { id: '2', name: 'Marta Gómez', phone: null, email: null, since: '5 sept 2026', visits: '0', lastVisit: null, href: '/client/2' },
+      { id: '1', name: 'Juan Pérez', phone: '3001112233', email: 'juan@x.co', photoUrl: null, since: '3 sept 2026', visits: '2', lastVisit: '20 sept 2026', href: '/client/1' },
+      { id: '2', name: 'Marta Gómez', phone: null, email: null, photoUrl: null, since: '5 sept 2026', visits: '0', lastVisit: null, href: '/client/2' },
     ],
     showServiceCols: true,
     state: 'ready',
@@ -61,6 +60,30 @@ describe('ClientsView', () => {
     const marta = within(table).getByRole('link', { name: 'Marta Gómez' }).closest('tr')!;
     expect(marta.textContent).toContain('—');
     await noViolations(container);
+  });
+
+  it('sin foto muestra la inicial; con foto (opcional) muestra la imagen', () => {
+    const { container } = clientsView({
+      rows: [
+        { id: '1', name: 'Juan Pérez', phone: null, email: null, photoUrl: null, since: '3 sept 2026', visits: null, lastVisit: null, href: '/client/1' },
+        { id: '2', name: 'Marta Gómez', phone: null, email: null, photoUrl: '/media/marta.webp', since: '5 sept 2026', visits: null, lastVisit: null, href: '/client/2' },
+      ],
+    });
+    const rows = container.querySelectorAll('tbody tr');
+    expect(rows[0]!.querySelector('.xw-avatar')!.textContent).toBe('J');
+    const img = rows[1]!.querySelector('.xw-avatar img')!;
+    expect(img.getAttribute('src')).toBe('http://localhost:3000/media/marta.webp');
+  });
+
+  it('si la foto falla al cargar (archivo borrado, red…), vuelve de inmediato a la inicial en vez de quedarse con el ícono roto', () => {
+    const { container } = clientsView({
+      rows: [{ id: '2', name: 'Marta Gómez', phone: null, email: null, photoUrl: '/media/marta.webp', since: '5 sept 2026', visits: null, lastVisit: null, href: '/client/2' }],
+    });
+    const avatar = container.querySelector('.xw-avatar')!;
+    expect(avatar.querySelector('img')).toBeTruthy();
+    fireEvent.error(avatar.querySelector('img')!);
+    expect(avatar.querySelector('img')).toBeNull();
+    expect(avatar.textContent).toBe('M');
   });
 
   it('sin permiso para ver servicios no muestra esas columnas', () => {
@@ -159,12 +182,19 @@ function inventoryView(overrides: Partial<InventoryViewProps> = {}) {
     status: null,
     onStatus: vi.fn(),
     rows: [
-      { id: '1', name: 'Cera', category: 'Productos', stock: 2, status: 'reorder', statusLabel: 'Por reponer', cost: '$ 9.000', photo: null, href: '/item/1' },
-      { id: '2', name: 'Aceite', category: 'Productos', stock: 0, status: 'out_of_stock', statusLabel: 'Agotado', cost: '—', photo: null, href: '/item/2' },
+      { id: '1', name: 'Cera', category: 'Productos', stock: 2, status: 'reorder', statusLabel: 'Por reponer', cost: '$ 9.000', photo: null, href: '/item/1', published: true },
+      { id: '2', name: 'Aceite', category: 'Productos', stock: 0, status: 'out_of_stock', statusLabel: 'Agotado', cost: '—', photo: null, href: '/item/2', published: false },
     ],
     state: 'ready',
     onRetry: vi.fn(),
     navigate: vi.fn(),
+    canPublish: true,
+    selected: [],
+    onToggleSelect: vi.fn(),
+    onSelectAll: vi.fn(),
+    onQuickPublish: vi.fn(),
+    onBulkPublish: vi.fn(),
+    bulkBusy: false,
     ...overrides,
   };
   return { props, ...render(<InventoryView {...props} />) };
@@ -195,6 +225,32 @@ describe('InventoryView', () => {
     inventoryView({ rows: [] });
     expect(screen.getByText('No se encontraron artículos.')).toBeTruthy();
   });
+
+  it('muestra si cada artículo está publicado y el botón lo cambia', async () => {
+    const { props } = inventoryView();
+    expect(screen.getByText('Publicado')).toBeTruthy();
+    expect(screen.getByText('Sin publicar')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Despublicar' })); // la fila publicada (Cera)
+    expect(props.onQuickPublish).toHaveBeenCalledWith('1', false);
+  });
+
+  it('seleccionar filas muestra la barra de acciones en lote, y "Publicar seleccionados" llama a onBulkPublish', async () => {
+    const { props } = inventoryView({ selected: ['1'] });
+    await userEvent.click(screen.getByRole('button', { name: 'Publicar seleccionados' }));
+    expect(props.onBulkPublish).toHaveBeenCalledWith(true);
+    expect(screen.getByText('1 seleccionados')).toBeTruthy();
+  });
+
+  it('sin ninguna fila seleccionada no aparece la barra de acciones en lote', () => {
+    inventoryView({ selected: [] });
+    expect(screen.queryByRole('toolbar')).toBeNull();
+  });
+
+  it('sin permiso de catálogo no se ofrece seleccionar ni publicar', () => {
+    inventoryView({ canPublish: false });
+    expect(screen.queryByText('Publicado')).toBeNull();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+  });
 });
 
 /* ---------- Reportes ---------- */
@@ -202,45 +258,78 @@ describe('InventoryView', () => {
 function reportsView(overrides: Partial<ReportsViewProps> = {}) {
   const props: ReportsViewProps = {
     t,
-    period: '7',
+    period: 'week',
     onPeriod: vi.fn(),
+    customFrom: '',
+    customTo: '',
+    onCustomFrom: vi.fn(),
+    onCustomTo: vi.fn(),
+    rangeLabel: '21 – 27 sept 2026',
     kpis: [{ id: 's', icon: 'coins', label: 'Ventas', value: '$ 65.000', trend: { direction: 'up', text: 'Sube frente al periodo anterior' } }],
+    growth: { direction: 'up', percentLabel: '+18%', currentLabel: '$ 65.000', previousLabel: '$ 55.000' },
     loading: false,
     empty: false,
     bars: [
-      { key: '2026-09-23', label: 'mié', aria: 'mié 23: $ 0', height: 0, empty: true },
-      { key: '2026-09-24', label: 'jue', aria: 'jue 24: $ 65.000', height: 1, value: '$ 65.000', empty: false },
+      { key: '2026-09-23', label: 'mié', aria: 'mié 23: $ 0', height: 0, empty: true, tooltip: { dateLabel: 'mié 23 sept', amountLabel: 'Ventas: $ 0', countLabel: 'Servicios: 0' } },
+      { key: '2026-09-24', label: 'jue', aria: 'jue 24: $ 65.000', height: 1, value: '$ 65.000', empty: false, tooltip: { dateLabel: 'jue 24 sept', amountLabel: 'Ventas: $ 65.000', countLabel: 'Servicios: 3' } },
     ],
     topServices: [{ id: 'Corte', name: 'Corte', value: '$ 50.000', sub: '2 veces' }],
+    topProducts: [{ id: 'Shampoo', name: 'Shampoo', value: '$ 15.000', sub: '1 vez' }],
     topClients: [{ id: 'Ana', name: 'Ana', value: '$ 65.000', sub: '3 servicios' }],
+    paymentMethods: [{ id: 'cash', label: 'Efectivo', amountLabel: '$ 65.000', percent: 100 }],
+    cashBalance: { openingLabel: '$ 25.000', cashSalesLabel: '$ 65.000', totalLabel: '$ 90.000' },
+    employees: [{ id: 'e1', name: 'Carlos', countLabel: '3 veces', amountLabel: '$ 65.000', percent: 100 }],
     stock: { value: '$ 90.000', low: 2, href: '/inventory?status=reorder' },
     navigate: vi.fn(),
+    onExportPdf: vi.fn(),
+    onExportExcel: vi.fn(),
+    exportingPdf: false,
+    exportingExcel: false,
     ...overrides,
   };
   return { props, ...render(<ReportsView {...props} />) };
 }
 
 describe('ReportsView', () => {
-  it('cada barra tiene su valor para lectores de pantalla y hay ranking de servicios y clientes', async () => {
+  it('cada barra tiene su valor para lectores de pantalla y hay ranking de servicios, productos, clientes, formas de pago y empleados', async () => {
     const { container } = reportsView();
     const chart = screen.getByRole('list', { name: 'Ventas por día' });
     expect(within(chart).getByText('jue 24: $ 65.000')).toBeTruthy();
     expect(within(chart).getAllByRole('listitem')).toHaveLength(2);
     expect(screen.getByText('Corte')).toBeTruthy();
+    expect(screen.getByText('Shampoo')).toBeTruthy();
+    expect(screen.getByText('Efectivo')).toBeTruthy();
+    expect(screen.getByText('Carlos')).toBeTruthy();
     expect(screen.getByText('Sube frente al periodo anterior')).toBeTruthy();
+    expect(screen.getByText('+18%')).toBeTruthy();
+    const cashBlock = container.querySelector('.xw-rep-cashbalance');
+    expect(cashBlock?.textContent).toContain('$ 25.000'); // base inicial
+    expect(cashBlock?.textContent).toContain('$ 90.000'); // total en caja = base + ventas en efectivo
     await noViolations(container);
   });
 
-  it('cambia el periodo con botones de estado', async () => {
-    const { props } = reportsView();
-    const group = screen.getByRole('group', { name: 'Periodo' });
-    expect(within(group).getByRole('button', { name: 'Últimos 7 días' }).getAttribute('aria-pressed')).toBe('true');
-    await userEvent.click(within(group).getByRole('button', { name: 'Últimos 30 días' }));
-    expect(props.onPeriod).toHaveBeenCalledWith('30');
+  it('sin ninguna base de caja registrada en el periodo, no muestra el bloque de "Total en caja" (nunca un $0 inventado)', () => {
+    reportsView({ cashBalance: null });
+    expect(screen.queryByText('Total en caja')).toBeNull();
   });
 
-  it('sin servicios en el periodo no dibuja barras ni inventa rankings', () => {
-    reportsView({ empty: true, bars: [], topServices: [], topClients: [] });
+  it('cambia el periodo con un grupo de radios (hoy/semana/mes/año/personalizado)', async () => {
+    const { props } = reportsView();
+    const group = screen.getByRole('radiogroup', { name: 'Periodo' });
+    expect(within(group).getByRole('radio', { name: 'Esta semana' }).getAttribute('aria-checked')).toBe('true');
+    await userEvent.click(within(group).getByRole('radio', { name: 'Este mes' }));
+    expect(props.onPeriod).toHaveBeenCalledWith('month');
+  });
+
+  it('rango personalizado: muestra los campos de fecha y el error de validación si lo hay', () => {
+    reportsView({ period: 'custom', customFrom: '2026-09-10', customTo: '2026-09-01', customError: 'Elige una fecha "desde" anterior o igual a la fecha "hasta".' });
+    expect(screen.getByLabelText('Desde')).toBeTruthy();
+    expect(screen.getByLabelText('Hasta')).toBeTruthy();
+    expect(screen.getByText('Elige una fecha "desde" anterior o igual a la fecha "hasta".')).toBeTruthy();
+  });
+
+  it('sin ventas en el periodo no dibuja barras ni inventa rankings', () => {
+    reportsView({ empty: true, bars: [], topServices: [], topProducts: [], topClients: [], paymentMethods: [], employees: [], cashBalance: null });
     expect(screen.queryByRole('list', { name: 'Ventas por día' })).toBeNull();
     expect(screen.getAllByText('Aún no hay servicios registrados en este periodo.').length).toBeGreaterThanOrEqual(2);
   });
@@ -251,23 +340,42 @@ describe('ReportsView', () => {
     await userEvent.click(screen.getByRole('link', { name: '2' }));
     expect(props.navigate).toHaveBeenCalledWith('/inventory?status=reorder');
   });
-});
 
-/* ---------- Citas ---------- */
-
-describe('AgendaView', () => {
-  it('dice "Próximamente" y no muestra citas de ejemplo; ofrece lo que sí existe', async () => {
-    const navigate = vi.fn();
-    const { container } = render(<AgendaView t={t} navigate={navigate} />);
-    expect(screen.getByText('Próximamente')).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 2, name: 'La agenda de citas está en camino' })).toBeTruthy();
-    await userEvent.click(screen.getByRole('link', { name: 'Ver Reportes' }));
-    expect(navigate).toHaveBeenCalledWith('/reports');
-    await noViolations(container);
+  it('los botones de exportar PDF/Excel llaman a sus handlers', async () => {
+    const { props } = reportsView();
+    await userEvent.click(screen.getByRole('button', { name: 'Descargar Reporte PDF' }));
+    expect(props.onExportPdf).toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Exportar a Excel' }));
+    expect(props.onExportExcel).toHaveBeenCalled();
   });
 });
 
 /* ---------- Ajustes ---------- */
+
+const baseNotificationsModel = (): NotificationsModel => ({
+  enabled: true,
+  loyalty: true,
+  billing: false,
+  appointments: true,
+  reviews: true,
+  clients: true,
+  sales: true,
+  inventory: true,
+  employees: true,
+  security: true,
+  busy: false,
+  onToggle: vi.fn(),
+  onLoyalty: vi.fn(),
+  onBilling: vi.fn(),
+  onAppointments: vi.fn(),
+  onReviews: vi.fn(),
+  onClients: vi.fn(),
+  onSales: vi.fn(),
+  onInventory: vi.fn(),
+  onEmployees: vi.fn(),
+  onSecurity: vi.fn(),
+  onTest: vi.fn(),
+});
 
 function settingsView(overrides: Partial<SettingsViewProps> = {}) {
   const props: SettingsViewProps = {
@@ -280,7 +388,7 @@ function settingsView(overrides: Partial<SettingsViewProps> = {}) {
     onLanguage: vi.fn(),
     darkMode: true,
     onDarkMode: vi.fn(),
-    notifications: { enabled: true, loyalty: true, billing: false, busy: false, onToggle: vi.fn(), onLoyalty: vi.fn(), onBilling: vi.fn(), onTest: vi.fn() },
+    notifications: baseNotificationsModel(),
     supportLinks: [{ id: 'logout', icon: 'log-out', title: 'Cerrar sesión', sub: 'Salir', tone: 'danger', onPress: vi.fn() }],
     navigate: vi.fn(),
     ...overrides,
@@ -319,7 +427,7 @@ describe('SettingsView', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Enviar notificación de prueba' }));
     expect(on.props.notifications!.onTest).toHaveBeenCalled();
     on.unmount();
-    settingsView({ notifications: { enabled: false, loyalty: true, billing: true, busy: true, onToggle: vi.fn(), onLoyalty: vi.fn(), onBilling: vi.fn(), onTest: vi.fn() } });
+    settingsView({ notifications: { ...baseNotificationsModel(), enabled: false, billing: true, busy: true } });
     expect(screen.queryByRole('switch', { name: 'Fidelización' })).toBeNull();
     expect((screen.getByRole('switch', { name: 'Activar notificaciones' }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -330,7 +438,7 @@ describe('SettingsView', () => {
   });
 
   it('muestra el aviso del navegador cuando no se pueden activar', () => {
-    settingsView({ notifications: { enabled: false, loyalty: true, billing: true, busy: false, note: 'Bloqueadas en este navegador', onToggle: vi.fn(), onLoyalty: vi.fn(), onBilling: vi.fn(), onTest: vi.fn() } });
+    settingsView({ notifications: { ...baseNotificationsModel(), enabled: false, billing: true, note: 'Bloqueadas en este navegador' } });
     expect(screen.getByText('Bloqueadas en este navegador')).toBeTruthy();
   });
 });
@@ -364,21 +472,25 @@ function clientDetail(overrides: Partial<ClientDetailViewProps> = {}) {
     canManage: true,
     onEdit: vi.fn(),
     onDelete: vi.fn(),
+    anonymizing: false,
+    onAnonymize: vi.fn(),
     ...overrides,
   };
   return { props, ...render(<ClientDetailView {...props} />) };
 }
 
 describe('ClientDetailView', () => {
-  it('muestra el contacto, el historial real y las acciones (WhatsApp, llamar, editar, eliminar)', async () => {
+  it('muestra el contacto, el historial real y las acciones (WhatsApp, llamar, editar, eliminar datos, eliminar)', async () => {
     const { props, container } = clientDetail();
     expect(screen.getByRole('link', { name: '+573001112233' }).getAttribute('href')).toBe('tel:+573001112233');
     expect(screen.getByRole('link', { name: /WhatsApp/ }).getAttribute('target')).toBe('_blank');
     expect(screen.getByRole('link', { name: /Llamar/ }).getAttribute('href')).toBe('tel:+573001112233');
     expect(screen.getByText('Con degradado')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Editar' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar datos personales' }));
     await userEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
     expect(props.onEdit).toHaveBeenCalledOnce();
+    expect(props.onAnonymize).toHaveBeenCalledOnce();
     expect(props.onDelete).toHaveBeenCalledOnce();
     await noViolations(container);
   });
@@ -476,6 +588,7 @@ describe('SubscriptionView', () => {
   const subscribe = (overrides: Partial<Parameters<typeof SubscriptionView>[0]> = {}) => {
     const props = {
       t,
+      language: 'es',
       currency: 'COP' as const,
       subscription: { plan: null, status: 'none' as const, platform: null, paymentMethod: null, trialEndsAt: null, currentPeriodEnd: null, nextBillingAt: null, cancelAtPeriodEnd: false, gracePeriodEndsAt: null, hasAccess: false },
       onCheckout: vi.fn(async () => ({ instructions: 'Transfiere a la cuenta 123' })),
@@ -510,8 +623,15 @@ describe('SubscriptionView', () => {
   it('quien ya tiene un plan no ve la prueba gratis pero sí puede cerrar', async () => {
     const onClose = vi.fn();
     subscribe({ subscription: { plan: 'monthly', status: 'active', platform: 'web', paymentMethod: 'card', trialEndsAt: null, currentPeriodEnd: null, nextBillingAt: null, cancelAtPeriodEnd: false, gracePeriodEndsAt: null, hasAccess: true }, onClose });
+    expect(screen.getByText(/Tu plan actual/)).toBeTruthy();
     expect(screen.queryByText(/días gratis/)).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('en prueba gratis se anuncia como prueba, NUNCA como "tu plan actual" (no se ha cobrado nada todavía)', () => {
+    subscribe({ subscription: { plan: 'yearly', status: 'trial', platform: 'web', paymentMethod: null, trialEndsAt: '2026-10-01T00:00:00Z', currentPeriodEnd: null, nextBillingAt: null, cancelAtPeriodEnd: false, gracePeriodEndsAt: null, hasAccess: true } });
+    expect(screen.queryByText(/Tu plan actual/)).toBeNull();
+    expect(screen.getByText(/Prueba gratis del plan Anual/)).toBeTruthy();
   });
 });

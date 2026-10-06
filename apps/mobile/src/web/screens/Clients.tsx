@@ -11,6 +11,7 @@ export interface ClientRowView {
   name: string;
   phone: string | null;
   email: string | null;
+  photoUrl: string | null;
   /** Ya formateado ("12 sep 2026"); `null` = sin dato. */
   since: string;
   visits: string | null;
@@ -83,7 +84,7 @@ export function ClientsView({ t, kpis, search, onSearch, appliedQuery, rows, sho
                   <tr key={row.id}>
                     <td>
                       <div className="xw-cell-main">
-                        <Avatar name={row.name} />
+                        <Avatar name={row.name} photoUrl={row.photoUrl} />
                         <a className="xw-cell-title" {...linkProps(row.href, navigate)}>
                           {row.name}
                         </a>

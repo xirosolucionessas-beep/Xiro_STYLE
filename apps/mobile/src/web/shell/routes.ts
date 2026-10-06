@@ -1,6 +1,7 @@
 /** Metadatos de cada ruta de la app: título, migas de pan, sección activa y ancho de contenido. Puro (sin React). */
+import type { IconName } from '../icons';
 
-export type SectionId = 'home' | 'notifications' | 'agenda' | 'reports' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
+export type SectionId = 'home' | 'notifications' | 'messages' | 'agenda' | 'booking' | 'reports' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
 
 export interface Crumb {
   /** Clave de traducción. */
@@ -12,6 +13,10 @@ export interface RouteInfo {
   /** Clave de traducción del título de la página (también para document.title). */
   titleKey: string;
   section: SectionId | null;
+  /** Ícono del encabezado de la pantalla; sin esto, usa el de `section` (p. ej. una ficha de cliente hereda el de Clientes).
+   * Se fija aquí cuando la pantalla NO corresponde de verdad a su sección (p. ej. Ventas de hoy cuelga de "Inicio" para
+   * la barra lateral, pero su encabezado no debe mostrar la casa). */
+  icon?: IconName;
   trail: Crumb[];
   /** Pantallas de autenticación: sin sidebar, contenido estrecho. */
   auth: boolean;
@@ -31,7 +36,7 @@ export interface RouteInfo {
 
 const HOME: Crumb = { labelKey: 'nav_home', href: '/' };
 const INVENTORY: Crumb = { labelKey: 'nav_inventory', href: '/inventory' };
-const SERVICES: Crumb = { labelKey: 'nav_services', href: '/catalog' };
+const SERVICES: Crumb = { labelKey: 'nav_catalog', href: '/catalog' };
 const CLIENTS: Crumb = { labelKey: 'nav_clients', href: '/clients' };
 const SETTINGS: Crumb = { labelKey: 'nav_settings', href: '/more' };
 const LOYALTY: Crumb = { labelKey: 'nav_loyalty', href: '/loyalty' };
@@ -47,14 +52,22 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
       return { titleKey: 'nav_home', section: 'home', trail: [{ labelKey: 'nav_home' }], auth: false, width: 'wide', needsHeading: true };
     case '/notifications':
       return { titleKey: 'notifications', section: 'notifications', trail: [HOME, { labelKey: 'notifications' }], auth: false, width: 'wide', needsHeading: false };
+    case '/messages':
+      return { titleKey: 'messages_title', section: 'messages', trail: [HOME, { labelKey: 'messages_title' }], auth: false, width: 'wide', needsHeading: false };
     case '/agenda':
       return { titleKey: 'nav_agenda', section: 'agenda', trail: [HOME, { labelKey: 'nav_agenda' }], auth: false, width: 'wide', needsHeading: false };
+    case '/booking':
+      return { titleKey: 'booking_title', section: 'booking', trail: [HOME, { labelKey: 'booking_title' }], auth: false, width: 'wide', needsHeading: false };
+    case '/packages':
+      return { titleKey: 'pkg_title', section: 'services', trail: [HOME, SERVICES, { labelKey: 'pkg_title' }], auth: false, width: 'wide', needsHeading: false };
+    case '/review-items':
+      return { titleKey: 'review_title', section: 'services', trail: [HOME, SERVICES, { labelKey: 'review_title' }], auth: false, width: 'form', needsHeading: false };
     case '/reports':
       return { titleKey: 'nav_reports', section: 'reports', trail: [HOME, { labelKey: 'nav_reports' }], auth: false, width: 'wide', needsHeading: false };
     case '/inventory':
       return { titleKey: 'inventory', section: 'inventory', trail: [HOME, { labelKey: 'nav_inventory' }], auth: false, width: 'wide', needsHeading: false, inlineErrors: true };
     case '/catalog':
-      return { titleKey: 'catalog', section: 'services', trail: [HOME, { labelKey: 'nav_services' }], auth: false, width: 'wide', needsHeading: false, inlineErrors: true };
+      return { titleKey: 'catalog', section: 'services', trail: [HOME, { labelKey: 'nav_catalog' }], auth: false, width: 'wide', needsHeading: false, inlineErrors: true };
     case '/clients':
       return { titleKey: 'clients', section: 'clients', trail: [HOME, { labelKey: 'nav_clients' }], auth: false, width: 'wide', needsHeading: false };
     case '/more':
@@ -74,7 +87,14 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
     case '/loyalty':
       return { titleKey: 'nav_loyalty', section: 'loyalty', trail: [HOME, LOYALTY], auth: false, width: 'wide', needsHeading: false };
     case '/cash-opening':
-      return { titleKey: 'cash_opening_title', section: 'home', trail: [HOME, { labelKey: 'crumb_cash' }], auth: false, width: 'form', needsHeading: false };
+      return { titleKey: 'cash_opening_title', section: 'home', icon: 'wallet', trail: [HOME, { labelKey: 'crumb_cash' }], auth: false, width: 'form', needsHeading: false };
+    case '/sales-today':
+      return { titleKey: 'nav_sales_today', section: 'home', icon: 'coins', trail: [HOME, { labelKey: 'nav_sales_today' }], auth: false, width: 'wide', needsHeading: false, inlineErrors: true };
+    case '/sale/new':
+      // Como el checkout del plan: pantalla enfocada, sin el WhatsApp/asistente flotantes tapando el carrito o el pago.
+      return { titleKey: 'sale_new_title', section: 'home', icon: 'coins', trail: [HOME, { labelKey: 'sale_new_title' }], auth: false, width: 'wide', needsHeading: false, hideFloating: true };
+    case '/cash-close':
+      return { titleKey: 'nav_cash_close', section: 'home', icon: 'wallet', trail: [HOME, { labelKey: 'nav_cash_close' }], auth: false, width: 'wide', needsHeading: false, inlineErrors: true };
     case '/share':
       return { titleKey: 'share_whatsapp', section: 'services', trail: [SERVICES, { labelKey: 'crumb_send' }], auth: false, width: 'form', needsHeading: false };
     case '/item/form': {

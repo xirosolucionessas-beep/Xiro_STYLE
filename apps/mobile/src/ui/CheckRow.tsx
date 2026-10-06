@@ -13,7 +13,7 @@ export function CheckRow({ label, hint, checked, onChange, disabled }: { label: 
       accessibilityLabel={hint ? `${label}. ${hint}` : label}
       onPress={disabled ? undefined : () => onChange(!checked)}
       style={[styles.row, { opacity: disabled ? 0.7 : 1 }]}>
-      <View style={[styles.box, { borderColor: colors.gold, backgroundColor: checked ? colors.gold : 'transparent' }]}>{checked ? <Ionicons name="checkmark" size={16} color={colors.onGold} /> : null}</View>
+      <View style={[styles.box, { borderColor: checked ? colors.gold : colors.border, backgroundColor: checked ? colors.gold : 'transparent' }]}>{checked ? <Ionicons name="checkmark" size={16} color={colors.onGold} /> : null}</View>
       <View style={{ flex: 1 }}>
         <AppText variant="bodyStrong">{label}</AppText>
         {hint ? (

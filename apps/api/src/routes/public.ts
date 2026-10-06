@@ -1,11 +1,12 @@
+import type { PublicCatalog, PublicItem } from '@xiro/shared';
 import { eq } from 'drizzle-orm';
-import type { PublicCatalog } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
-import { businesses } from '../db/schema';
+import { businessSettings } from '../db/schema';
 import { isUuid, notFound, parse } from '../errors';
 import { mediaUrl } from '../media';
+import { resolveSlug } from '../booking/view';
 import { loadItems, toPublicItem, type BusinessRow } from '../serializers';
 
 const slugParams = z.object({ slug: z.string().min(1).max(60) });
@@ -19,9 +20,10 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db } = ctx;
 
   const loadBusiness = async (slug: string) => {
-    const [business] = await db.select().from(businesses).where(eq(businesses.slug, slug)).limit(1);
-    if (!business) throw notFound();
-    return business;
+    // Una dirección anterior del negocio (que cambió su slug) sigue mostrando su catálogo.
+    const resolved = await resolveSlug(db, slug);
+    if (!resolved) throw notFound();
+    return resolved.business;
   };
 
   const describe = (business: BusinessRow): PublicCatalog['business'] => ({
@@ -32,6 +34,13 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
     logoUrl: business.logoFile ? mediaUrl(business.logoFile) : null,
   });
 
+  /** El negocio puede pedir que un producto agotado desaparezca del catálogo público en vez de quedar marcado "Agotado". */
+  const hidesOutOfStock = async (businessId: string): Promise<boolean> => {
+    const [row] = await db.select({ hide: businessSettings.hideOutOfStockInCatalog }).from(businessSettings).where(eq(businessSettings.businessId, businessId)).limit(1);
+    return row?.hide ?? false;
+  };
+  const visible = (items: PublicItem[], hideSoldOut: boolean): PublicItem[] => (hideSoldOut ? items.filter((item) => !item.soldOut) : items);
+
   app.addHook('onSend', async (_request, reply) => {
     reply.header('Cache-Control', 'public, max-age=15');
   });
@@ -40,9 +49,10 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { slug } = parse(slugParams, request.params);
     const { category } = parse(catalogQuery, request.query);
     const business = await loadBusiness(slug);
-    const items = (await loadItems(db, business.id, { publishedOnly: true }))
-      .filter((item) => !category || item.categoryName.toLowerCase() === category.toLowerCase())
-      .map(toPublicItem);
+    const items = visible(
+      (await loadItems(db, business.id, { publishedOnly: true })).filter((item) => !category || item.categoryName.toLowerCase() === category.toLowerCase()).map(toPublicItem),
+      await hidesOutOfStock(business.id),
+    );
     return { business: describe(business), items };
   });
 
@@ -53,6 +63,9 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await loadBusiness(slug);
     const [item] = await loadItems(db, business.id, { id: id.toLowerCase(), publishedOnly: true });
     if (!item) throw notFound();
-    return { business: describe(business), item: toPublicItem(item) };
+    const publicItem = toPublicItem(item);
+    // Oculto = oculto también por enlace directo (mismo trato que un artículo sin publicar): no hay una segunda puerta.
+    if (publicItem.soldOut && (await hidesOutOfStock(business.id))) throw notFound();
+    return { business: describe(business), item: publicItem };
   });
 }

@@ -9,6 +9,8 @@ export class AppError extends Error {
     readonly code: string,
     message?: string,
     readonly headers?: Record<string, string>,
+    /** Campos extra del cuerpo de la respuesta (p. ej. horarios alternativos en `slot_taken`). */
+    readonly extra?: Record<string, unknown>,
   ) {
     super(message ?? code);
   }
@@ -50,7 +52,7 @@ export function installErrorHandler(app: FastifyInstance): void {
       return reply.status(400).send(body);
     }
     if (error instanceof AppError) {
-      const body: ApiErrorBody = { code: error.code, message: error.message };
+      const body = { code: error.code, message: error.message, ...error.extra } as ApiErrorBody;
       if (error.headers) reply.headers(error.headers);
       return reply.status(error.status).send(body);
     }

@@ -215,7 +215,7 @@ function ClientsTab({ t, currency, program, items, clientsProgress, onRecordServ
           <ProgressBar count={c.count} goal={c.goal} />
           {c.rewardAvailable ? (
             <div className="xw-note" style={{ marginTop: 'var(--xw-space-2)' }}>
-              <Ico name="sparkles" size={16} />
+              <Ico name="crown" size={16} />
               <span>{t('loyalty_reward_available')}</span>
             </div>
           ) : null}
@@ -253,7 +253,7 @@ function HistoryTab({ t, redemptions }: Pick<LoyaltyViewProps, 't' | 'redemption
     <ul className="xw-loy-history">
       {redemptions.map((r) => (
         <li key={r.id} className="xw-loy-history-row">
-          <Ico name="sparkles" size={18} />
+          <Ico name="crown" size={18} />
           <span className="xw-loy-history-text">{t('loyalty_history_row', { name: r.clientName, goal: r.goalAtRedemption })}</span>
           <span className="xw-loy-history-date">{new Date(r.redeemedAt).toLocaleDateString()}</span>
         </li>
@@ -269,7 +269,7 @@ export function LoyaltyView({ t, currency, businessName, program, items, clients
   const kpis: KpiView[] = [
     { id: 'status', icon: 'gift', label: t('sec_loy_kpi_status'), value: program.enabled ? t('sec_loy_on') : t('sec_loy_off') },
     { id: 'goal', icon: 'star', label: t('sec_loy_kpi_goal'), value: String(program.goal) },
-    { id: 'rewards', icon: 'sparkles', label: t('sec_loy_kpi_rewards'), value: String(clientsProgress.filter((c) => c.rewardAvailable).length) },
+    { id: 'rewards', icon: 'crown', label: t('sec_loy_kpi_rewards'), value: String(clientsProgress.filter((c) => c.rewardAvailable).length) },
     ...(canRedeem ? [{ id: 'redeemed', icon: 'circle-check' as const, label: t('sec_loy_kpi_redeemed'), value: String(redemptions.length) }] : []),
   ];
 

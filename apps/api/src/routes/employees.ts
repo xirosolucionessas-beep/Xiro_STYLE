@@ -7,6 +7,8 @@ import type { Ctx } from '../context';
 import { isUniqueViolation } from '../db/errors';
 import { auditLogs, pushTokens, refreshTokens, users } from '../db/schema';
 import { AppError, notFound, parse, uuid } from '../errors';
+import { removeMedia, saveAvatarImage } from '../media';
+import { notifyUser } from '../push';
 import { hashPassword } from '../security';
 import { toEmployee } from '../serializers';
 
@@ -18,7 +20,7 @@ const auditQuery = z.object({ userId: z.string().optional(), limit: z.coerce.num
  * desactiva (`active = false`), así la bitácora conserva quién hizo qué.
  */
 export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
-  const { db } = ctx;
+  const { db, config } = ctx;
 
   async function findEmployee(businessId: string, id: string) {
     const [row] = await db.select().from(users).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).limit(1);
@@ -62,7 +64,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
     const businessId = request.user.bid;
     const id = uuid((request.params as { id?: string }).id);
     const input = parse(employeeUpdateSchema, request.body);
-    await findEmployee(businessId, id);
+    const before = await findEmployee(businessId, id);
 
     const changes: Partial<typeof users.$inferInsert> = {};
     if (input.name !== undefined) changes.name = input.name;
@@ -72,7 +74,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
       changes.passwordHash = await hashPassword(input.password);
       changes.passwordChangedAt = new Date(); // invalida los access tokens ya emitidos
     }
-    if (Object.keys(changes).length === 0) return toEmployee(await findEmployee(businessId, id));
+    if (Object.keys(changes).length === 0) return toEmployee(before);
 
     const updated = await db.transaction(async (tx) => {
       const [row] = await tx.update(users).set(changes).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).returning();
@@ -84,7 +86,51 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
       return row!;
     });
     await audit(request, 'PATCH /employees/:id', id, 200);
+    // Avisos de mejor esfuerzo, fuera de la transacción. Desactivar NO avisa: sus tokens ya se borraron arriba y no
+    // puede volver a iniciar sesión para verlo. El dedupeKey va atado al estado RESULTANTE (sección "no duplicar"):
+    // un reintento con el mismo cambio no repite el aviso, pero un cambio distinto (u otra reactivación más tarde) sí.
+    if (input.permissions !== undefined) {
+      const key = normalizePermissions(input.permissions).slice().sort().join(',');
+      void notifyUser(ctx, businessId, id, 'employees', { titleKey: 'push_employee_permissions_title', bodyKey: 'push_employee_permissions_body', dedupeKey: `employee_permissions:${id}:${key}`, href: '/profile' });
+    }
+    if (input.active === true && !before.active) {
+      // `users` no tiene `updatedAt`: se usa el minuto actual como parte de la clave (reintentos de la misma petición
+      // caen en el mismo minuto y se deduplican; una reactivación genuina más tarde cae en otro minuto y sí avisa).
+      void notifyUser(ctx, businessId, id, 'employees', { titleKey: 'push_employee_reactivated_title', bodyKey: 'push_employee_reactivated_body', dedupeKey: `employee_active:${id}:${new Date().toISOString().slice(0, 16)}`, href: '/profile' });
+    }
     return toEmployee(updated);
+  });
+
+  /**
+   * Foto de cuenta de un empleado, puesta por el dueño (igual que `/me/photo`, que el propio empleado ya puede usar
+   * para sí mismo): misma columna (`users.photoFile`), así que se ve en todos los mismos sitios sin importar quién
+   * la subió.
+   */
+  app.put('/employees/:id/photo', async (request) => {
+    const businessId = request.user.bid;
+    const id = uuid((request.params as { id?: string }).id);
+    const part = await request.file();
+    if (!part) throw new AppError(400, 'photo_invalid');
+    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    if (!file) throw new AppError(400, 'photo_invalid');
+    try {
+      const existing = await findEmployee(businessId, id);
+      const [row] = await db.update(users).set({ photoFile: file }).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).returning();
+      await removeMedia(config.mediaDir, existing.photoFile);
+      return toEmployee(row!);
+    } catch (error) {
+      await removeMedia(config.mediaDir, file);
+      throw error;
+    }
+  });
+
+  app.delete('/employees/:id/photo', async (request) => {
+    const businessId = request.user.bid;
+    const id = uuid((request.params as { id?: string }).id);
+    const existing = await findEmployee(businessId, id);
+    const row = existing.photoFile ? (await db.update(users).set({ photoFile: null }).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).returning())[0] : existing;
+    await removeMedia(config.mediaDir, existing.photoFile);
+    return toEmployee(row!);
   });
 
   app.get('/audit-logs', async (request): Promise<AuditLogEntry[]> => {

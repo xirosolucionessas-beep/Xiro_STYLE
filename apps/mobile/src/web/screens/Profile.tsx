@@ -1,8 +1,9 @@
 import type { User } from '@xiro/shared';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { CountryCode } from '../data/countries';
 import { DEFAULT_COUNTRY, countryByCode } from '../data/countries';
 import { Ico } from '../icons';
+import { resolveMedia } from '../media';
 import { Button, Input } from '../ui';
 import { FormMessage, OtpInput } from '../ui/auth';
 import { PhoneField } from '../ui/PhoneField';
@@ -16,6 +17,8 @@ export interface ProfileViewProps {
   user: User;
   businessName: string;
   onSaveName: (name: string) => Promise<ActionResult>;
+  onChangePhoto: (file: File) => Promise<ActionResult>;
+  onRemovePhoto: () => Promise<ActionResult>;
   onRequestPhoneChange: (phone: string) => Promise<ActionResult>;
   onConfirmPhoneChange: (code: string) => Promise<ActionResult>;
   onLogout: () => void;
@@ -23,12 +26,37 @@ export interface ProfileViewProps {
 
 type PhoneStep = 'idle' | 'enter' | 'verify';
 
-export function ProfileView({ t, user, businessName, onSaveName, onRequestPhoneChange, onConfirmPhoneChange, onLogout }: ProfileViewProps) {
+export function ProfileView({ t, user, businessName, onSaveName, onChangePhoto, onRemovePhoto, onRequestPhoneChange, onConfirmPhoneChange, onLogout }: ProfileViewProps) {
   useWebStyles();
   const [name, setName] = useState(user.name);
   const [nameError, setNameError] = useState<string>();
   const [savedName, setSavedName] = useState(false);
   const [busyName, setBusyName] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string>();
+  const photoInput = useRef<HTMLInputElement>(null);
+  const initial = user.name.trim().charAt(0).toUpperCase() || '?';
+  // resolveMedia: el servidor devuelve una ruta relativa ("/media/xxx.webp"); en el servidor de desarrollo de Expo
+  // (puerto 8081) el navegador la resolvería contra SU PROPIO origen en vez del de la API y la foto nunca cargaría.
+  const resolvedPhoto = resolveMedia(user.photoUrl);
+
+  async function pickPhoto(file: File | undefined) {
+    if (!file) return;
+    setPhotoBusy(true);
+    setPhotoError(undefined);
+    const result = await onChangePhoto(file);
+    if (!result.ok) setPhotoError(result.error);
+    setPhotoBusy(false);
+  }
+
+  async function removePhoto() {
+    if (!window.confirm(t('account_photo_remove_text'))) return;
+    setPhotoBusy(true);
+    setPhotoError(undefined);
+    const result = await onRemovePhoto();
+    if (!result.ok) setPhotoError(result.error);
+    setPhotoBusy(false);
+  }
 
   const [phoneStep, setPhoneStep] = useState<PhoneStep>('idle');
   const [phoneCountry, setPhoneCountry] = useState<CountryCode>(DEFAULT_COUNTRY);
@@ -97,6 +125,39 @@ export function ProfileView({ t, user, businessName, onSaveName, onRequestPhoneC
 
   return (
     <div className="xw-profile-content">
+      <div className="xw-profile-avatar-row">
+        <div className="xw-avatar-edit">
+          <span className="xw-avatar xw-avatar--xl" aria-hidden={!resolvedPhoto}>
+            {resolvedPhoto ? <img src={resolvedPhoto} alt="" className="xw-avatar-img" /> : initial}
+          </span>
+          <button type="button" className="xw-home-cam" aria-label={t(user.photoUrl ? 'account_photo_change' : 'account_photo_add')} disabled={photoBusy} onClick={() => photoInput.current?.click()}>
+            {photoBusy ? <span className="xw-spinner" aria-hidden="true" /> : <Ico name="camera" size={14} />}
+          </button>
+        </div>
+        <input
+          ref={photoInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="xw-sr"
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            void pickPhoto(file);
+          }}
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p className="xw-hint">{t('account_photo_hint')}</p>
+          {user.photoUrl ? (
+            <button type="button" className="xw-link-btn" disabled={photoBusy} onClick={() => void removePhoto()}>
+              {t('delete')}
+            </button>
+          ) : null}
+          {photoError ? <FormMessage>{photoError}</FormMessage> : null}
+        </div>
+      </div>
+
       <div className="xw-profile-field">
         <Input label={t('profile_name_label')} value={name} onChange={setName} error={nameError} autoComplete="name" name="name" maxLength={80} />
         <Button onPress={() => void saveName()} loading={busyName} loadingLabel={t('loading')}>

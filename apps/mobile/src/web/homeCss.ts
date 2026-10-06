@@ -9,11 +9,9 @@ export function buildHomeCss(): string {
 .xw-fab { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 50%; text-decoration: none; box-shadow: 0 10px 26px -10px rgba(0, 0, 0, .55); transition: transform var(--xw-fast); }
 .xw-fab:hover { transform: translateY(-2px); }
 .xw-fab:active { transform: scale(.94); }
-.xw-fab--whatsapp { background: var(--xw-whatsapp); animation: xw-fab-pulse 2.6s ease-in-out infinite; }
-@keyframes xw-fab-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--xw-whatsapp) 45%, transparent), 0 10px 26px -10px rgba(0, 0, 0, .55); }
-  50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--xw-whatsapp) 0%, transparent), 0 10px 26px -10px rgba(0, 0, 0, .55); }
-}
+/* Sin animación continua (solo responde a una acción, p. ej. hover/active arriba): un pulso infinito compite por
+   atención todo el tiempo, no solo cuando la persona interactúa. */
+.xw-fab--whatsapp { background: var(--xw-whatsapp); }
 /* Alto de la pila de flotantes (WhatsApp + Asistente, sección 4B/4C): 1rem del borde + 2×56px + 12px de hueco entre ellos
    = 8.75rem, más un poco de aire. Antes solo se reservaba para un botón (4.5rem): con los dos apilados tapaba contenido. */
 [data-mode='mobile'] .xw-page { padding-bottom: calc(var(--xw-space-8) + 9.5rem); }
@@ -30,7 +28,7 @@ export function buildHomeCss(): string {
 .xw-setup-text { flex: 1; min-width: 0; }
 .xw-setup-chevron { flex: none; color: var(--xw-text-muted); }
 
-.xw-actions-title { margin: 0 0 var(--xw-space-1); color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); text-transform: uppercase; letter-spacing: .04em; }
+.xw-actions-title { margin: 0 0 var(--xw-space-1); color: var(--xw-text-muted); font: ${font.weight.semibold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
 .xw-actions-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--xw-space-2); }
 @media (min-width: 860px) { .xw-actions-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--xw-space-3); } }
 /* Monitor ancho: más columnas de accesos rápidos (más densidad), no tarjetas más anchas. */
@@ -41,12 +39,12 @@ a.xw-tile, button.xw-tile { cursor: pointer; }
 .xw-tile:hover:not([aria-disabled='true']) { background: var(--xw-surface-alt); border-color: var(--xw-border); }
 .xw-tile:active:not([aria-disabled='true']) { transform: scale(.98); }
 .xw-tile[aria-disabled='true'] { cursor: not-allowed; color: var(--xw-text-muted); }
-.xw-tile-ic { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--xw-radius-md); background: var(--xw-accent-tint); color: var(--xw-accent); }
+.xw-tile-ic { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; color: var(--xw-text-muted); }
 /* flex-wrap: a 200% de zoom o en columnas muy angostas, "Próximamente" baja a su propia línea en vez de desbordar la tarjeta. */
 .xw-tile-bottom { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--xw-space-1) var(--xw-space-2); }
-.xw-tile-label { min-width: 0; overflow-wrap: anywhere; font: ${font.weight.extrabold} var(--xw-text-md)/${font.lineHeight.tight} var(--xw-font); }
-.xw-tile-soon { min-width: 0; overflow-wrap: anywhere; color: var(--xw-text-muted); font: ${font.weight.bold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
-.xw-tile-chevron { flex: none; color: var(--xw-accent); }
+.xw-tile-label { min-width: 0; overflow-wrap: anywhere; font: ${font.weight.bold} var(--xw-text-md)/${font.lineHeight.tight} var(--xw-font); }
+.xw-tile-soon { min-width: 0; overflow-wrap: anywhere; color: var(--xw-text-muted); font: ${font.weight.semibold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
+.xw-tile-chevron { flex: none; color: var(--xw-text-muted); }
 .xw-tile[aria-disabled='true'] .xw-tile-chevron { display: none; }
 
 /* ---------- Base inicial del día (modal) ---------- */
@@ -74,7 +72,7 @@ a.xw-tile, button.xw-tile { cursor: pointer; }
 .xw-gallery-dot.is-active::after { width: 18px; background: #fff; }
 .xw-gallery-count { position: absolute; z-index: 2; top: var(--xw-space-3); right: var(--xw-space-3); padding: 2px 10px; background: rgba(13, 13, 15, .55); color: #fff; border-radius: var(--xw-radius-pill); font: ${font.weight.bold} var(--xw-text-xs)/1.6 var(--xw-font); }
 
-.xw-thumbs-title { margin: var(--xw-space-5) 0 var(--xw-space-2); color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); text-transform: uppercase; letter-spacing: .04em; }
+.xw-thumbs-title { margin: var(--xw-space-5) 0 var(--xw-space-2); color: var(--xw-text-muted); font: ${font.weight.semibold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
 .xw-thumbs { display: flex; gap: var(--xw-space-2); overflow-x: auto; padding-bottom: 2px; }
 .xw-thumb { flex: 0 0 4.5rem; width: 4.5rem; height: 4.5rem; padding: 0; border: 2px solid transparent; border-radius: var(--xw-radius-md); overflow: hidden; background: var(--xw-surface-alt); cursor: pointer; }
 .xw-thumb.is-active { border-color: var(--xw-accent); }
@@ -109,7 +107,7 @@ a.xw-tile, button.xw-tile { cursor: pointer; }
 .xw-dl { margin: 0; display: flex; flex-direction: column; }
 .xw-dl-row { display: flex; flex-direction: column; gap: 2px; padding: var(--xw-space-3) 0; border-bottom: 1px solid var(--xw-border-subtle); }
 .xw-dl-row:last-child { border-bottom: 0; }
-.xw-dl-row dt { color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); text-transform: uppercase; letter-spacing: .05em; }
+.xw-dl-row dt { color: var(--xw-text-muted); font: ${font.weight.medium} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
 .xw-dl-row dd { margin: 0; color: var(--xw-text); overflow-wrap: anywhere; font: ${font.weight.semibold} var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); }
 .xw-dl-row dd a { color: var(--xw-accent); text-underline-offset: 3px; }
 
@@ -118,8 +116,5 @@ a.xw-tile, button.xw-tile { cursor: pointer; }
   .xw-actions-grid > :last-child { margin-bottom: 9.5rem; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .xw-fab--whatsapp { animation: none; }
-}
 `.trim();
 }

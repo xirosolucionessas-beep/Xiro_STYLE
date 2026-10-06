@@ -26,11 +26,17 @@ const ROUTES: Array<[pattern: RegExp, requires: Requirement]> = [
   [/^\/client\/[^/]+$/, ['clients_view']],
   [/^\/loyalty$/, ['loyalty_redeem', 'services_record']],
   [/^\/employees$/, 'owner'],
-  [/^\/agenda$/, 'owner'],
+  [/^\/agenda$/, ['agenda_own']],
+  [/^\/booking$/, ['public_page_manage']],
+  [/^\/packages$/, ['catalog_view']],
+  [/^\/review-items$/, ['catalog_manage']],
   [/^\/reports$/, 'owner'],
   [/^\/business$/, 'owner'],
   [/^\/subscription$/, 'owner'],
   [/^\/cash-opening$/, 'owner'],
+  [/^\/cash-close$/, 'owner'],
+  [/^\/sale\/new$/, ['services_record']],
+  [/^\/sales-today$/, ['services_record']],
 ];
 
 /** Requisito de una ruta de la app; `undefined` = abierta a cualquier sesión (inicio, Ajustes, perfil). */

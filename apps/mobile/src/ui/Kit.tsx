@@ -10,15 +10,17 @@ import { radius } from './theme';
 
 /* ---------- Chip ---------- */
 
-export function Chip({ label, selected, onPress }: { label: string; selected?: boolean; onPress: () => void }) {
+export function Chip({ label, selected, onPress, icon }: { label: string; selected?: boolean; onPress: () => void; /** Ícono o logo opcional antes del texto (p. ej. la forma de pago). */ icon?: ReactNode }) {
   const { colors } = useSettings();
+  // Seleccionado = superficie elevada + texto fuerte (no el color de acento: ese es para la acción primaria, el foco y la marca).
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected: !!selected }}
       onPress={onPress}
-      style={[styles.chip, { borderColor: selected ? colors.gold : colors.border, backgroundColor: selected ? colors.goldTint : 'transparent' }]}>
-      <AppText variant="small" tone={selected ? 'gold' : 'muted'} style={{ fontWeight: selected ? '800' : '500' }}>
+      style={[styles.chip, { borderColor: selected ? colors.border : colors.border, backgroundColor: selected ? colors.surfaceAlt : 'transparent' }, icon ? styles.chipWithIcon : null]}>
+      {icon}
+      <AppText variant="small" tone={selected ? 'text' : 'muted'} style={{ fontWeight: selected ? '700' : '500' }}>
         {label}
       </AppText>
     </Pressable>
@@ -49,8 +51,8 @@ export function Card({ children, style, onPress }: { children: ReactNode; style?
 
 export function SectionTitle({ children }: { children: string }) {
   return (
-    <AppText variant="label" tone="gold" style={styles.section}>
-      {children.toUpperCase()}
+    <AppText variant="bodyStrong" tone="text" style={styles.section}>
+      {children}
     </AppText>
   );
 }
@@ -60,8 +62,8 @@ export function Row({ icon, label, value, onPress, tone, right }: { icon?: keyof
   const content = (
     <View style={styles.row}>
       {icon ? (
-        <View style={[styles.rowIcon, { backgroundColor: tone === 'danger' ? 'rgba(229,101,101,0.14)' : colors.goldTint }]}>
-          <Ionicons name={icon} size={19} color={tone === 'danger' ? colors.danger : colors.gold} />
+        <View style={styles.rowIcon}>
+          <Ionicons name={icon} size={19} color={tone === 'danger' ? colors.danger : colors.textMuted} />
         </View>
       ) : null}
       <View style={styles.flex}>
@@ -117,15 +119,30 @@ export function StatusPill({ status }: { status: StockStatus }) {
 
 /* ---------- Imágenes ---------- */
 
-export function Photo({ url, size, style, icon = 'cube-outline' }: { url?: string | null; size?: number; style?: StyleProp<ViewStyle>; icon?: keyof typeof Ionicons.glyphMap }) {
+/**
+ * `initials`: para una persona (empleado, cliente) en vez del ícono genérico — si se da y no hay foto (o falla al
+ * cargar), se muestra la inicial de su nombre en lugar de `icon`. 100% opcional: sin foto ni initials, sigue
+ * mostrando el ícono de siempre.
+ */
+export function Photo({ url, size, style, icon = 'cube-outline', initials }: { url?: string | null; size?: number; style?: StyleProp<ViewStyle>; icon?: keyof typeof Ionicons.glyphMap; initials?: string }) {
   const { colors } = useSettings();
   const [failed, setFailed] = useState(false);
+  // Una foto nueva (p. ej. tras subir otra) merece su propio intento, no el fallo de la anterior — se ajusta durante
+  // el render (patrón recomendado por React) en vez de un efecto, para no disparar una vuelta de render de más.
+  const [lastUrl, setLastUrl] = useState(url);
+  if (url !== lastUrl) {
+    setLastUrl(url);
+    setFailed(false);
+  }
   const source = resolveMedia(url);
   const box = size ? { width: size, height: size } : { width: '100%' as const, aspectRatio: 4 / 3 };
+  const initial = initials?.trim().charAt(0).toUpperCase();
   return (
     <View style={[styles.photo, box, { backgroundColor: colors.surfaceAlt }, style]}>
       {source && !failed ? (
         <Image source={{ uri: source }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} onError={() => setFailed(true)} />
+      ) : initial ? (
+        <AppText style={{ color: colors.gold, fontSize: size ? size * 0.4 : 24, fontWeight: '800' }}>{initial}</AppText>
       ) : (
         <Ionicons name={icon} size={size ? size / 2.4 : 40} color={colors.gold} />
       )}
@@ -137,7 +154,7 @@ export function EmptyState({ icon, message }: { icon: keyof typeof Ionicons.glyp
   const { colors } = useSettings();
   return (
     <View style={styles.empty}>
-      <Ionicons name={icon} size={46} color={colors.gold} style={{ opacity: 0.45 }} />
+      <Ionicons name={icon} size={46} color={colors.textMuted} style={{ opacity: 0.6 }} />
       <AppText tone="muted" center style={{ marginTop: 10 }}>
         {message}
       </AppText>
@@ -148,11 +165,12 @@ export function EmptyState({ icon, message }: { icon: keyof typeof Ionicons.glyp
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   chip: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 8 },
+  chipWithIcon: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   chipRow: { gap: 8, paddingVertical: 4, paddingRight: 8 },
   card: { borderWidth: 1, borderRadius: radius.lg, padding: 16 },
   section: { marginTop: 22, marginBottom: 8 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
-  rowIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  rowIcon: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start' },
   dot: { width: 8, height: 8, borderRadius: 4 },
   photo: { borderRadius: radius.md, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },

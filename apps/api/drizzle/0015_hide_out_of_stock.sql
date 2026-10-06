@@ -1,0 +1,1 @@
+ALTER TABLE "business_settings" ADD COLUMN "hide_out_of_stock_in_catalog" boolean DEFAULT false NOT NULL;

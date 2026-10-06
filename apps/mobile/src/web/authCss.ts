@@ -6,9 +6,10 @@ export function buildAuthCss(): string {
 /* ---------- Página de autenticación ---------- */
 .xw-auth { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; justify-content: center; box-sizing: border-box; padding: var(--xw-space-8) var(--xw-space-4) var(--xw-space-12); background: var(--xw-background); color: var(--xw-text); font-family: var(--xw-font); }
 .xw-auth-in { width: 100%; max-width: 27.5rem; display: flex; flex-direction: column; gap: var(--xw-space-5); align-items: stretch; align-self: flex-start; }
-.xw-auth-logo { align-self: center; display: block; border-radius: var(--xw-radius-lg); overflow: hidden; box-shadow: 0 8px 28px -10px color-mix(in srgb, var(--xw-accent) 55%, transparent); }
+/* Sombra suave bajo el logo: referencia de marca (el dorado del logo), no un resplandor de tarjeta. */
+.xw-auth-logo { align-self: center; display: block; border-radius: var(--xw-radius-lg); overflow: hidden; box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--xw-accent) 35%, transparent); }
 .xw-acard { box-sizing: border-box; padding: var(--xw-space-8) var(--xw-space-6); background: var(--xw-surface); border: 1px solid var(--xw-border-subtle); border-radius: 1.75rem;
-  box-shadow: 0 24px 60px -30px color-mix(in srgb, var(--xw-accent) 45%, transparent); animation: xw-enter 250ms ease-out both; }
+  box-shadow: 0 24px 48px -28px rgba(0, 0, 0, .5); animation: xw-enter 250ms ease-out both; }
 .xw-atitle { margin: 0; text-align: center; font: ${font.weight.extrabold} var(--xw-text-2xl)/${font.lineHeight.tight} var(--xw-font); letter-spacing: -.015em; overflow-wrap: anywhere; }
 .xw-atitle:focus { outline: none; }
 .xw-asub { margin: var(--xw-space-2) 0 var(--xw-space-5); text-align: center; color: var(--xw-text-muted); font: var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); }
@@ -149,8 +150,7 @@ export function buildAuthCss(): string {
 
 /* ---------- Foto ---------- */
 .xw-photo { display: flex; flex-direction: column; gap: var(--xw-space-3); }
-.xw-photo-zone { overflow: hidden; background: var(--xw-surface-alt); border: 2px dashed var(--xw-border); border-radius: var(--xw-radius-xl); }
-.xw-photo-zone.has-photo { border-style: solid; }
+.xw-photo-zone { overflow: hidden; background: var(--xw-surface-alt); border: 1px solid var(--xw-border-subtle); border-radius: var(--xw-radius-xl); }
 .xw-photo-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--xw-space-2); box-sizing: border-box; width: 100%; min-height: 11rem; padding: var(--xw-space-6); background: transparent; border: 0; color: var(--xw-text); cursor: pointer; font-family: var(--xw-font); }
 .xw-photo-empty:hover { background: var(--xw-accent-tint); }
 .xw-photo-plus { display: inline-flex; align-items: center; justify-content: center; width: 3.5rem; height: 3.5rem; border-radius: 50%; background: var(--xw-accent); color: var(--xw-on-accent); }

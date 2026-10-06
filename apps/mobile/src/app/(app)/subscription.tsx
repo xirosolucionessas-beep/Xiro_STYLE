@@ -8,12 +8,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import type { PurchasesError, PurchasesOffering } from 'react-native-purchases';
+import { api } from '@/lib/api';
 import { configurePurchases, currentOffering, packageForPlan, purchasesAvailable, purchasePlan, restore } from '@/lib/purchases.native';
 import { useInvalidateSubscription, useSubscription } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
 import { useDialogs } from '@/ui/Dialogs';
+import { PlanCelebration } from '@/ui/PlanCelebration';
 import { Header, Screen } from '@/ui/Screen';
 import { AppText } from '@/ui/Text';
 import { radius, space } from '@/ui/theme';
@@ -21,7 +23,7 @@ import { radius, space } from '@/ui/theme';
 const STORE_NAME = Platform.OS === 'ios' ? 'App Store' : 'Google Play';
 
 export default function SubscriptionScreen() {
-  const { t, colors } = useSettings();
+  const { t, colors, language } = useSettings();
   const { business } = useSession();
   const router = useRouter();
   const { toast } = useDialogs();
@@ -35,9 +37,14 @@ export default function SubscriptionScreen() {
   const [offering, setOffering] = useState<PurchasesOffering | null>(null);
   const [offeringError, setOfferingError] = useState(false);
   const [busy, setBusy] = useState<'purchase' | 'restore' | null>(null);
+  const [celebrateInfo, setCelebrateInfo] = useState<{ plan: string; date: string } | null>(null);
 
   const trialEligible = subscription?.status === 'none';
-  const alreadyPremium = subscription ? subscription.hasAccess && subscription.status !== 'none' : false;
+  // "Tu plan actual" es para quien YA paga: durante la prueba gratis no se ha cobrado nada, así que se anuncia como
+  // prueba (con su fecha), nunca como si fuera un plan ya comprado.
+  const isTrialing = subscription?.status === 'trial' && subscription.hasAccess;
+  const isPaying = subscription ? subscription.hasAccess && subscription.status !== 'none' && subscription.status !== 'trial' : false;
+  const trialDate = subscription?.trialEndsAt ? new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(subscription.trialEndsAt)) : '';
 
   useEffect(() => {
     if (!business || !purchasesAvailable()) {
@@ -75,8 +82,16 @@ export default function SubscriptionScreen() {
     try {
       await purchasePlan(pkg);
       await invalidateSubscription();
-      toast(t('saved'));
-      router.back();
+      // La compra la confirma la tienda (RevenueCat) antes de llegar aquí: nunca se anuncia por un simple toque.
+      const fresh = await api.subscription();
+      if (fresh.status === 'active' && fresh.hasAccess) {
+        const planLabel = fresh.plan === 'yearly' ? t('plan_yearly') : t('plan_monthly');
+        const date = fresh.currentPeriodEnd ? new Intl.DateTimeFormat(language, { day: 'numeric', month: 'long' }).format(new Date(fresh.currentPeriodEnd)) : '';
+        setCelebrateInfo({ plan: planLabel, date });
+      } else {
+        toast(t('saved'));
+        router.back();
+      }
     } catch (error) {
       if ((error as PurchasesError)?.userCancelled) return; // el usuario cerró la hoja de compra: no es un error
       toast(t('subscription_purchase_error'));
@@ -100,7 +115,7 @@ export default function SubscriptionScreen() {
 
   return (
     <Screen header={<Header title={t('subscription_title')} subtitle={t('subscription_subtitle')} />}>
-      {alreadyPremium ? (
+      {isPaying ? (
         <View style={[styles.currentPlan, { backgroundColor: colors.goldTint, borderColor: colors.gold }]}>
           <Ionicons name="checkmark-circle" size={22} color={colors.gold} />
           <View style={styles.flex}>
@@ -108,6 +123,13 @@ export default function SubscriptionScreen() {
               {t('subscription_current_plan')}
             </AppText>
             <AppText variant="bodyStrong">{subscription?.plan === 'yearly' ? t('plan_yearly') : t('plan_monthly')}</AppText>
+          </View>
+        </View>
+      ) : isTrialing ? (
+        <View style={[styles.currentPlan, { backgroundColor: colors.goldTint, borderColor: colors.gold }]}>
+          <Ionicons name="time-outline" size={22} color={colors.gold} />
+          <View style={styles.flex}>
+            <AppText variant="bodyStrong">{t('subscription_trial_active', { plan: subscription?.plan === 'yearly' ? t('plan_yearly') : t('plan_monthly'), date: trialDate })}</AppText>
           </View>
         </View>
       ) : null}
@@ -178,6 +200,15 @@ export default function SubscriptionScreen() {
       <AppText tone="muted" variant="small" style={styles.legal}>
         {t('subscription_auto_renew_notice', { store: STORE_NAME })}
       </AppText>
+      <PlanCelebration
+        open={celebrateInfo !== null}
+        onClose={() => {
+          setCelebrateInfo(null);
+          router.back();
+        }}
+        planLabel={celebrateInfo?.plan ?? ''}
+        renewalDate={celebrateInfo?.date ?? ''}
+      />
     </Screen>
   );
 }

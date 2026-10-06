@@ -15,7 +15,8 @@ import { supportMessage, supportWhatsappUrl } from '@/lib/contact';
 import { lowStock } from '@/lib/homeMetrics';
 import { api } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
-import { keys, useCashToday, useClients, useItems, useServiceRecords } from '@/lib/queries';
+import { dayRange, formatClock, formatDay, localDate, localTime, STATUS_TONE, summarizeItems, todayIn, upcoming } from '@/lib/agenda';
+import { keys, useAppointments, useCashToday, useClassification, useClients, useItems, useServiceRecords } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { Brand } from '@/ui/Brand';
 import { useDialogs } from '@/ui/Dialogs';
@@ -24,7 +25,6 @@ import { localDateKey } from '@/web/date';
 import { DashboardView, type ActivityRowView } from '@/web/screens/Dashboard';
 import type { KpiView } from '@/web/ui/Page';
 import type { HomeAction } from '@/web/screens/Home';
-import { useAssistant } from '@/web/shell/assistantContext';
 import { photoToFormData } from '@/web/services/imageUpload.web';
 import { useBusinessGreeting } from '@/web/services/useBusinessGreeting';
 import { useNow } from '@/web/services/useNow';
@@ -51,17 +51,21 @@ function dismissToday(): void {
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 
-/** "Subió 12% frente a ayer" / "Igual que ayer"; sin base de comparación no se inventa un porcentaje. */
+/**
+ * "Subió 12% frente a ayer" / "Igual que ayer"; sin base de comparación no se inventa un porcentaje. `percent === -100`
+ * significa "hoy va en cero": el día sigue en curso, así que compararlo contra un ayer ya cerrado no es justo todavía
+ * (no se anuncia una "bajada del 100%" tan temprano, aunque matemáticamente lo sea).
+ */
 function trendView(trend: Trend, t: T): KpiView['trend'] {
   if (trend.direction === 'none') return undefined;
   if (trend.direction === 'flat') return { direction: 'flat', text: t('dash_trend_flat') };
   if (trend.percent === null) return { direction: 'up', text: t('dash_trend_up_new') };
+  if (trend.direction === 'down' && trend.percent === -100) return { direction: 'down', text: t('dash_trend_down_zero') };
   return { direction: trend.direction, text: t(trend.direction === 'up' ? 'dash_trend_up' : 'dash_trend_down', { n: Math.abs(trend.percent) }) };
 }
 
 export default function HomeWeb() {
   const router = useRouter();
-  const assistant = useAssistant();
   const { t, language } = useWebText();
   const { user, business } = useAuthed();
   const { setBusiness } = useSession();
@@ -79,6 +83,12 @@ export default function HomeWeb() {
   const canClients = meets(viewer, ['clients_view']);
   const canCatalog = meets(viewer, ['catalog_view']);
   const records = useServiceRecords(undefined, canSales);
+  const canAgenda = meets(viewer, ['agenda_own']);
+  const canReview = meets(viewer, ['catalog_manage']);
+  const todayKey = todayIn(business.timezone);
+  const week = useMemo(() => dayRange(todayKey, business.timezone, 7), [todayKey, business.timezone]);
+  const appointments = useAppointments(week, canAgenda);
+  const classification = useClassification(canReview);
   const clients = useClients('', canClients);
   const items = useItems(canCatalog);
   const currency = business.currency as Currency;
@@ -146,26 +156,50 @@ export default function HomeWeb() {
 
   const actor = actorOf(user);
   const allActions: Array<HomeAction & { requires?: Requirement }> = [
-    { id: 'new_service', icon: 'plus', label: t('new_service'), href: '/item/form', requires: ['catalog_manage'] },
-    { id: 'appointments', icon: 'calendar-days', label: t('appointments'), soon: true, requires: 'owner' },
+    { id: 'new_sale', icon: 'coins', label: t('new_sale'), href: '/sale/new', requires: ['services_record'] },
+    { id: 'appointments', icon: 'calendar-days', label: t('appointments'), href: '/agenda', requires: ['agenda_own'] },
     { id: 'catalog', icon: 'book-open', label: t('catalog'), href: '/catalog', requires: ['catalog_view'] },
     { id: 'inventory', icon: 'package', label: t('inventory'), href: '/inventory', requires: ['catalog_view'] },
-    { id: 'cash_close', icon: 'receipt', label: t('cash_close'), soon: true, requires: 'owner' },
+    { id: 'cash_close', icon: 'receipt', label: t('cash_close'), href: '/cash-close', requires: 'owner' },
     { id: 'clients', icon: 'users', label: t('clients'), href: '/clients', requires: ['clients_view'] },
   ];
   const actions: HomeAction[] = allActions.filter((action) => meets(actor, action.requires)).map((action) => ({ id: action.id, icon: action.icon, label: action.label, href: action.href, soon: action.soon }));
 
   const salesTrend = dashboard.days ? variation(dashboard.days.today.total, dashboard.days.yesterday.total) : null;
-  const servicesTrend = dashboard.days ? variation(dashboard.days.today.count, dashboard.days.yesterday.count) : null;
+  // Valor en pesos de los SERVICIOS de hoy (sin productos), no la cantidad de registros: la variación también se mide
+  // sobre ese valor, no sobre el conteo, para que la flecha de "Servicios hoy" hable del mismo dato que su cifra grande.
+  const servicesTrend = dashboard.days ? variation(dashboard.days.todayServices.total, dashboard.days.yesterdayServices.total) : null;
   const clientsTrend = dashboard.newClients ? variation(dashboard.newClients.today, dashboard.newClients.yesterday) : null;
+  const servicesCount = dashboard.days?.todayServices.count ?? 0;
   const kpis: KpiView[] = [
     ...(canSales
       ? [
-          { id: 'sales', icon: 'coins' as const, label: t('dash_kpi_sales'), value: dashboard.days ? money(dashboard.days.today.total) : '—', loading: records.isLoading, trend: salesTrend ? trendView(salesTrend, t) : undefined, onPress: () => router.push('/loyalty') },
-          { id: 'services', icon: 'scissors' as const, label: t('dash_kpi_services'), value: dashboard.days ? String(dashboard.days.today.count) : '—', loading: records.isLoading, trend: servicesTrend ? trendView(servicesTrend, t) : undefined },
+          { id: 'sales', icon: 'coins' as const, label: t('dash_kpi_sales'), value: dashboard.days ? money(dashboard.days.today.total) : '—', loading: records.isLoading, trend: salesTrend ? trendView(salesTrend, t) : undefined, onPress: () => router.push('/sales-today') },
+          {
+            id: 'services',
+            icon: 'scissors' as const,
+            label: t('dash_kpi_services'),
+            value: dashboard.days ? money(dashboard.days.todayServices.total) : '—',
+            hint: dashboard.days ? t(servicesCount === 1 ? 'dash_kpi_services_count_one' : 'dash_kpi_services_count', { n: servicesCount }) : undefined,
+            loading: records.isLoading,
+            trend: servicesTrend ? trendView(servicesTrend, t) : undefined,
+            onPress: () => router.push('/sales-today?kind=service'),
+          },
         ]
       : []),
-    ...(canClients ? [{ id: 'clients', icon: 'users' as const, label: t('dash_kpi_clients'), value: dashboard.newClients ? String(dashboard.newClients.today) : '—', loading: clients.isLoading, trend: clientsTrend ? trendView(clientsTrend, t) : undefined, onPress: () => router.navigate('/clients') }] : []),
+    ...(canAgenda
+      ? [
+          {
+            id: 'appointments',
+            icon: 'calendar-days' as const,
+            label: t('dash_kpi_appointments'),
+            value: appointments.data ? String(appointments.data.filter((a) => localDate(a.startsAt, business.timezone) === todayKey && a.status !== 'cancelled' && a.status !== 'no_show').length) : '—',
+            loading: appointments.isLoading,
+            onPress: () => router.push('/agenda'),
+          },
+        ]
+      : []),
+    ...(canClients ? [{ id: 'clients', icon: 'users' as const, label: t('dash_kpi_clients'), value: dashboard.newClients ? String(dashboard.newClients.today) : '—', loading: clients.isLoading, trend: clientsTrend ? trendView(clientsTrend, t) : undefined, onPress: () => router.push('/clients?since=today') }] : []),
     ...(isOwner ? [{ id: 'cash', icon: 'wallet' as const, label: t('available_balance'), value: opening ? money(opening.amount) : '—', loading: cash.isLoading, hint: opening ? undefined : t('cash_not_opened'), onPress: () => setManualCashOpen(true) }] : []),
   ];
 
@@ -193,6 +227,24 @@ export default function HomeWeb() {
       }
     : null;
 
+  const appointmentsPanel = canAgenda
+    ? {
+        loading: appointments.isLoading,
+        allHref: '/agenda',
+        rows: upcoming(appointments.data ?? [], new Date(nowMs), 5).map((appt) => ({
+          id: appt.id,
+          day: formatDay(localDate(appt.startsAt, business.timezone), language, { weekday: 'short', day: 'numeric' }),
+          time: formatClock(localTime(appt.startsAt, business.timezone), language),
+          client: appt.client.name,
+          detail: summarizeItems(appt.items),
+          status: t(`appt_status_${appt.status}`),
+          tone: STATUS_TONE[appt.status],
+          href: '/agenda',
+        })),
+      }
+    : null;
+  const reviewBanner = canReview && classification.data && classification.data.length > 0 ? { count: classification.data.length, href: '/review-items' } : null;
+
   const activityRows: ActivityRowView[] = dashboard.activity.map((event) => ({
     id: event.id,
     icon: event.kind === 'service' ? 'scissors' : event.kind === 'client' ? 'user' : 'package',
@@ -211,13 +263,10 @@ export default function HomeWeb() {
           t={t}
           greeting={t(greetingKey)}
           businessName={business.name}
-          userName={user.name}
-          businessSlug={business.slug}
           logo={<Brand size={72} logoUrl={business.logoUrl} />}
           heroUrl={business.logoUrl}
           onChangeLogo={() => fileInput.current?.click()}
           logoBusy={logoBusy}
-          onEditProfile={() => router.push('/profile')}
           kpis={kpis}
           actions={actions}
           needsWhatsappSetup={isOwner && !business.whatsapp}
@@ -225,7 +274,8 @@ export default function HomeWeb() {
           summary={summary}
           stock={stock}
           activity={activity}
-          onOpenAssistant={assistant.open}
+          appointments={appointmentsPanel}
+          reviewBanner={reviewBanner}
           navigate={(href) => router.navigate(href as never)}
           year={new Date(nowMs).getFullYear()}
           supportHref={supportWhatsappUrl(supportMessage(language, business.name))}

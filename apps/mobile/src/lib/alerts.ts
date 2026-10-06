@@ -1,4 +1,4 @@
-import { subscriptionNotice, type Item, type Subscription } from '@xiro/shared';
+import { subscriptionNotice, type Item, type NotificationCategory, type NotificationDto, type Subscription } from '@xiro/shared';
 import { lowStock } from './homeMetrics';
 
 /**
@@ -19,6 +19,9 @@ export interface HomeAlert {
   detailParams?: Record<string, number | string>;
   /** Pantalla existente a la que lleva. */
   href: string;
+  /** Solo en avisos reales del centro de notificaciones (backend): su id de fila, para marcarlo leído también ahí
+   * (y no solo en este dispositivo). Ausente en las 3 alertas calculadas localmente (suscripción, stock, caja). */
+  serverId?: string;
 }
 
 export interface AlertInputs {
@@ -65,6 +68,36 @@ export function buildAlerts(input: AlertInputs): HomeAlert[] {
   }
 
   return alerts.sort((a, b) => ORDER[a.priority] - ORDER[b.priority]);
+}
+
+const CATEGORY_PRIORITY: Record<NotificationCategory, AlertPriority> = {
+  billing: 'urgent',
+  security: 'urgent',
+  appointments: 'info',
+  loyalty: 'info',
+  reviews: 'info',
+  clients: 'info',
+  sales: 'info',
+  employees: 'info',
+  inventory: 'warning',
+};
+
+/**
+ * Convierte un aviso YA GUARDADO en el backend (cita nueva/cancelada/reprogramada, reseña, premio de fidelización,
+ * problema de facturación — ver push.ts) a la misma forma que las 3 alertas calculadas localmente, para que la
+ * campana, la tarjeta "Alertas" y la pantalla de Notificaciones los muestren juntos sin duplicar código de UI.
+ */
+export function serverNotificationAlert(n: NotificationDto): HomeAlert {
+  return {
+    id: `server:${n.id}`,
+    signature: `server:${n.id}`,
+    priority: CATEGORY_PRIORITY[n.category] ?? 'info',
+    titleKey: n.titleKey,
+    detailKey: n.bodyKey,
+    detailParams: n.params,
+    href: n.href ?? '/notifications',
+    serverId: n.id,
+  };
 }
 
 /* ---------- Estado local: leídas, descartadas y desde cuándo se ven ---------- */

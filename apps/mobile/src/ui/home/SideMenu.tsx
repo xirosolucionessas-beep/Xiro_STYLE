@@ -94,8 +94,8 @@ export function SideMenu(props: Props) {
                   {t(`type_${props.business.type}`)}
                 </AppText>
                 <View style={styles.userRow}>
-                  <View style={[styles.avatar, { backgroundColor: colors.goldTint, borderColor: colors.gold }]}>
-                    <AppText variant="small" tone="gold" style={{ fontWeight: '800' }}>
+                  <View style={[styles.avatar, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                    <AppText variant="small" tone="text" style={{ fontWeight: '700' }}>
                       {props.user.name.trim().charAt(0).toUpperCase()}
                     </AppText>
                   </View>
@@ -108,8 +108,8 @@ export function SideMenu(props: Props) {
 
             {props.sections.map((section) => (
               <View key={section.id}>
-                <AppText variant="label" tone="gold" style={styles.sectionTitle} accessibilityRole="header">
-                  {t(section.titleKey).toUpperCase()}
+                <AppText variant="label" tone="muted" style={styles.sectionTitle} accessibilityRole="header">
+                  {t(section.titleKey)}
                 </AppText>
                 {section.items.map((item) => {
                   const current = isCurrentItem(item, props.pathname);
@@ -121,9 +121,9 @@ export function SideMenu(props: Props) {
                       accessibilityState={{ selected: current }}
                       accessibilityLabel={`${t(item.labelKey)}${item.soon ? `, ${t('coming_soon')}` : ''}${current ? `, ${t('menu_current')}` : ''}${badge ? `, ${badge}` : ''}`}
                       onPress={() => go(item)}
-                      style={[styles.item, current && { backgroundColor: colors.goldTint }]}>
-                      <Ionicons name={item.icon as keyof typeof Ionicons.glyphMap} size={22} color={colors.gold} />
-                      <AppText variant="bodyStrong" style={{ flex: 1 }} tone={current ? 'gold' : 'text'}>
+                      style={[styles.item, current && { backgroundColor: colors.surfaceAlt }]}>
+                      <Ionicons name={item.icon as keyof typeof Ionicons.glyphMap} size={22} color={current ? colors.text : colors.textMuted} />
+                      <AppText variant="bodyStrong" style={{ flex: 1 }} tone="text">
                         {t(item.labelKey)}
                       </AppText>
                       {item.soon ? (
@@ -144,54 +144,54 @@ export function SideMenu(props: Props) {
               </View>
             ))}
 
-            <AppText variant="label" tone="gold" style={styles.sectionTitle} accessibilityRole="header">
-              {t('menu_section_prefs').toUpperCase()}
+            <AppText variant="label" tone="muted" style={styles.sectionTitle} accessibilityRole="header">
+              {t('menu_section_prefs')}
             </AppText>
             <View style={styles.item}>
-              <Ionicons name="language-outline" size={22} color={colors.gold} />
+              <Ionicons name="language-outline" size={22} color={colors.textMuted} />
               <AppText variant="bodyStrong" style={{ flex: 1 }}>
                 {t('language')}
               </AppText>
               {(['es', 'en'] as const).map((code) => (
-                <Pressable key={code} accessibilityRole="button" accessibilityState={{ selected: props.language === code }} accessibilityLabel={t(`language_${code}`)} onPress={() => props.onLanguage(code)} style={[styles.langChip, { borderColor: props.language === code ? colors.gold : colors.border, backgroundColor: props.language === code ? colors.goldTint : 'transparent' }]}>
-                  <AppText variant="small" tone={props.language === code ? 'gold' : 'muted'} style={{ fontWeight: '800' }}>
+                <Pressable key={code} accessibilityRole="button" accessibilityState={{ selected: props.language === code }} accessibilityLabel={t(`language_${code}`)} onPress={() => props.onLanguage(code)} style={[styles.langChip, { borderColor: colors.border, backgroundColor: props.language === code ? colors.surfaceAlt : 'transparent' }]}>
+                  <AppText variant="small" tone={props.language === code ? 'text' : 'muted'} style={{ fontWeight: '700' }}>
                     {code.toUpperCase()}
                   </AppText>
                 </Pressable>
               ))}
             </View>
             <View style={styles.item}>
-              <Ionicons name="moon-outline" size={22} color={colors.gold} />
+              <Ionicons name="moon-outline" size={22} color={colors.textMuted} />
               <AppText variant="bodyStrong" style={{ flex: 1 }}>
                 {t('dark_mode')}
               </AppText>
               <Toggle value={props.dark} onChange={props.onDark} label={t('dark_mode')} />
             </View>
             <Pressable accessibilityRole="button" onPress={() => { onClose(); props.onNotifications(); }} style={styles.item}>
-              <Ionicons name="notifications-outline" size={22} color={colors.gold} />
+              <Ionicons name="notifications-outline" size={22} color={colors.textMuted} />
               <AppText variant="bodyStrong" style={{ flex: 1 }}>
                 {t('notifications')}
               </AppText>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>
 
-            <AppText variant="label" tone="gold" style={styles.sectionTitle} accessibilityRole="header">
-              {t('menu_section_help').toUpperCase()}
+            <AppText variant="label" tone="muted" style={styles.sectionTitle} accessibilityRole="header">
+              {t('menu_section_help')}
             </AppText>
             <Pressable accessibilityRole="link" accessibilityLabel={`${t('support_whatsapp_label')} ${XIRO_CONTACT.whatsappDisplay}`} onPress={() => { onClose(); openUrl(supportWhatsappUrl(supportMessage(props.language))); }} style={styles.item}>
-              <Ionicons name="logo-whatsapp" size={22} color={colors.gold} />
+              <Ionicons name="logo-whatsapp" size={22} color={colors.textMuted} />
               <AppText variant="bodyStrong" style={{ flex: 1 }}>
                 {t('support_whatsapp_label')}
               </AppText>
             </Pressable>
             <Pressable accessibilityRole="link" accessibilityLabel={`${t('support_email_label')} ${XIRO_CONTACT.email}`} onPress={() => { onClose(); openUrl(supportMailtoUrl()); }} style={styles.item}>
-              <Ionicons name="mail-outline" size={22} color={colors.gold} />
+              <Ionicons name="mail-outline" size={22} color={colors.textMuted} />
               <AppText variant="bodyStrong" style={{ flex: 1 }}>
                 {t('support_email_label')}
               </AppText>
             </Pressable>
             <Pressable accessibilityRole="link" onPress={() => { onClose(); props.onNavigate('/terms'); }} style={styles.item}>
-              <Ionicons name="document-text-outline" size={22} color={colors.gold} />
+              <Ionicons name="document-text-outline" size={22} color={colors.textMuted} />
               <AppText variant="bodyStrong" style={{ flex: 1 }}>
                 {t('terms_link')}
               </AppText>

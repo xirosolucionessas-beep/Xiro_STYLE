@@ -52,7 +52,8 @@ export function buildDashboardCss(): string {
 .xw-profile-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; text-align: left; }
 .xw-profile-name { max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--xw-text); font: ${font.weight.bold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
 .xw-profile-role { color: var(--xw-text-muted); font: var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
-.xw-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--xw-accent-tint); border: 1.5px solid var(--xw-accent); color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-sm)/1 var(--xw-font); }
+.xw-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; width: 36px; height: 36px; border-radius: 50%; background: var(--xw-accent-tint); border: 1.5px solid var(--xw-accent); color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-sm)/1 var(--xw-font); }
+.xw-avatar-img { width: 100%; height: 100%; object-fit: cover; }
 .xw-avatar--lg { width: 44px; height: 44px; font-size: var(--xw-text-lg); }
 .xw-pop-panel--menu { width: min(17rem, calc(100vw - 2rem)); padding: var(--xw-space-2); }
 .xw-menu-id { display: flex; align-items: center; gap: var(--xw-space-3); padding: var(--xw-space-3); border-bottom: 1px solid var(--xw-border-subtle); margin-bottom: var(--xw-space-1); }
@@ -74,7 +75,7 @@ export function buildDashboardCss(): string {
 .xw-search-panel { left: 0; right: 0; width: auto; top: calc(100% + var(--xw-space-1)); }
 [data-mode='mobile'] .xw-search-panel { position: absolute; top: calc(100% + var(--xw-space-1)); left: 0; right: 0; }
 .xw-search-status { margin: 0; padding: var(--xw-space-2) var(--xw-space-4); color: var(--xw-text-muted); font: var(--xw-text-xs)/${font.lineHeight.normal} var(--xw-font); }
-.xw-search-group { margin: 0; padding: var(--xw-space-2) var(--xw-space-4) var(--xw-space-1); color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); text-transform: uppercase; letter-spacing: .05em; }
+.xw-search-group { margin: 0; padding: var(--xw-space-2) var(--xw-space-4) var(--xw-space-1); color: var(--xw-text-muted); font: ${font.weight.semibold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
 .xw-result-ic { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--xw-radius-sm); background: var(--xw-accent-tint); color: var(--xw-accent); }
 .xw-search-overlay { position: absolute; inset: 0; z-index: 70; display: flex; align-items: center; padding: var(--xw-space-2) var(--xw-space-2); background: var(--xw-background); }
 .xw-search-overlay .xw-search { max-width: none; }
@@ -83,21 +84,25 @@ export function buildDashboardCss(): string {
 
 /* ================= Barra lateral: tarjeta del plan ================= */
 .xw-side-extra { margin: 0 0 var(--xw-space-3); }
-.xw-plan { position: relative; overflow: hidden; box-sizing: border-box; padding: var(--xw-space-4); border-radius: var(--xw-radius-lg); border: 1px solid var(--xw-accent);
-  background: radial-gradient(120% 90% at 100% 0%, var(--xw-accent-tint), transparent 60%), var(--xw-surface-alt); }
+/* Franja compacta (punto de aviso + texto corto + enlace), no una tarjeta grande: un solo renglón que envuelve si falta ancho. */
+.xw-plan { display: flex; align-items: center; flex-wrap: wrap; box-sizing: border-box; gap: var(--xw-space-2); padding: var(--xw-space-3); border-radius: var(--xw-radius-md); border: 1px solid var(--xw-border-subtle); background: var(--xw-surface-alt); }
 .xw-plan.is-blocked, .xw-plan.is-grace { border-color: var(--xw-danger); }
-.xw-plan-ic { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--xw-radius-md); background: var(--xw-accent-tint); color: var(--xw-accent); }
-.xw-plan-title { margin: var(--xw-space-2) 0 0; font: ${font.weight.extrabold} var(--xw-text-md)/${font.lineHeight.tight} var(--xw-font); }
-.xw-plan-text { margin: var(--xw-space-1) 0 var(--xw-space-3); color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
-.xw-plan-cta { display: flex; align-items: center; justify-content: center; box-sizing: border-box; min-height: var(--xw-touch); padding: 0 var(--xw-space-3); border-radius: var(--xw-radius-md); background: var(--xw-accent); color: var(--xw-on-accent); text-decoration: none; font: ${font.weight.extrabold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
-.xw-plan-cta:hover { filter: brightness(1.08); }
+.xw-plan-ic { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex: none; color: var(--xw-text-muted); }
+.xw-plan.is-blocked .xw-plan-ic, .xw-plan.is-grace .xw-plan-ic { color: var(--xw-danger); }
+.xw-plan-title { margin: 0; font: ${font.weight.semibold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
+.xw-plan-text { margin: 0; color: var(--xw-text-muted); font: var(--xw-text-xs)/${font.lineHeight.normal} var(--xw-font); }
+.xw-plan-cta { margin-left: auto; display: inline-flex; align-items: center; box-sizing: border-box; min-height: var(--xw-touch); padding: 0 var(--xw-space-2); color: var(--xw-accent); text-decoration: underline; text-underline-offset: 3px; font: ${font.weight.semibold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
+.xw-plan-cta:hover { color: var(--xw-text); }
 
 /* ================= Tablero de Inicio ================= */
-.xw-dash { container-type: inline-size; display: flex; flex-direction: column; gap: var(--xw-space-5); padding: var(--xw-space-4) 0 7rem; }
+/* flex: 1 llena el alto de .xw-page (ver shellCss.ts): con poco contenido el pie (margin-top: auto, abajo) queda pegado al
+   fondo real de la pantalla en vez de flotar a la mitad; con mucho contenido, .xw-dash simplemente crece y el pie va justo
+   después, como cualquier otro bloque. */
+.xw-dash { container-type: inline-size; display: flex; flex-direction: column; flex: 1; gap: var(--xw-space-5); padding: var(--xw-space-4) 0; }
 
 .xw-hero { position: relative; display: flex; align-items: center; gap: var(--xw-space-5); flex-wrap: wrap; box-sizing: border-box; padding: var(--xw-space-6); border-radius: var(--xw-radius-xl); color: var(--xw-text); overflow: hidden;
-  background: radial-gradient(90% 140% at 100% 0%, rgba(217, 182, 54, .28), transparent 55%), linear-gradient(135deg, #17140a 0%, #0d0d0f 65%);
-  background-size: cover; background-position: center; border: 1px solid var(--xw-border-subtle); box-shadow: 0 24px 50px -30px rgba(217, 182, 54, .55); }
+  background: var(--xw-surface-alt);
+  background-size: cover; background-position: center; border: 1px solid var(--xw-border-subtle); box-shadow: 0 18px 40px -26px rgba(0, 0, 0, .6); }
 .xw-hero-brand { position: relative; flex: none; }
 .xw-hero-logo { display: block; width: 72px; height: 72px; border-radius: var(--xw-radius-lg); overflow: hidden; border: 2px solid rgba(217, 182, 54, .6); }
 .xw-hero-text { flex: 1 1 16rem; min-width: 0; }
@@ -108,17 +113,18 @@ export function buildDashboardCss(): string {
 .xw-hero-account:hover { background: rgba(255, 255, 255, .12); }
 .xw-hero-account-text { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; }
 
-.xw-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--xw-space-4); }
+/* Franja con separadores finos (sin ícono por métrica): una sola cifra dominante por celda, no una tarjeta por cada una. */
+.xw-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); background: var(--xw-surface); color: var(--xw-text); border: 1px solid var(--xw-border-subtle); border-radius: var(--xw-radius-lg); overflow: hidden; }
 .xw-kpi { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: var(--xw-space-1); box-sizing: border-box; min-width: 0; padding: var(--xw-space-4); text-align: left; font-family: var(--xw-font);
-  background: var(--xw-surface); color: var(--xw-text); border: 1px solid var(--xw-border-subtle); border-radius: var(--xw-radius-lg); }
-.xw-kpi--action { cursor: pointer; transition: background-color var(--xw-fast), border-color var(--xw-fast), transform var(--xw-fast); }
-.xw-kpi--action:hover { background: var(--xw-surface-alt); border-color: var(--xw-accent); }
+  background: transparent; border-right: 1px solid var(--xw-border-subtle); border-bottom: 1px solid var(--xw-border-subtle); }
+.xw-kpi:last-child { border-right: 0; }
+.xw-kpi--action { cursor: pointer; transition: background-color var(--xw-fast); }
+.xw-kpi--action:hover { background: var(--xw-surface-alt); }
 .xw-kpi--action:active { transform: scale(.99); }
-.xw-kpi-ic { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin-bottom: var(--xw-space-1); border-radius: var(--xw-radius-md); background: var(--xw-accent-tint); color: var(--xw-accent); }
 .xw-kpi-label { color: var(--xw-text-muted); font: ${font.weight.semibold} var(--xw-text-sm)/${font.lineHeight.tight} var(--xw-font); }
-.xw-kpi-value { max-width: 100%; overflow-wrap: anywhere; font: ${font.weight.extrabold} var(--xw-text-3xl)/1.1 var(--xw-font); }
+.xw-kpi-value { max-width: 100%; overflow-wrap: anywhere; font: ${font.weight.extrabold} var(--xw-text-3xl)/1.1 var(--xw-font); font-variant-numeric: tabular-nums; }
 .xw-kpi-skel { width: 60%; height: 32px; border-radius: var(--xw-radius-sm); }
-.xw-kpi-hint { color: var(--xw-accent); font: ${font.weight.bold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
+.xw-kpi-hint { color: var(--xw-text-muted); font: ${font.weight.medium} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); }
 .xw-trend { display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; font: ${font.weight.bold} var(--xw-text-xs)/${font.lineHeight.tight} var(--xw-font); color: var(--xw-text-muted); }
 .xw-trend.is-up { color: var(--xw-success); }
 .xw-trend.is-down { color: var(--xw-danger); }
@@ -170,7 +176,11 @@ export function buildDashboardCss(): string {
 .xw-assistant-text p { margin: var(--xw-space-1) 0 0; color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
 .xw-assistant-title { margin: 0; font: ${font.weight.extrabold} var(--xw-text-lg)/${font.lineHeight.tight} var(--xw-font); }
 
-.xw-dash-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--xw-space-3); padding: var(--xw-space-4) 0 var(--xw-space-2); border-top: 1px solid var(--xw-border-subtle); color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
+/* margin-top: auto lo empuja al fondo de .xw-dash cuando sobra alto; 10rem de relleno abajo (en el pie, no en toda la página)
+   deja libre el hueco de los botones flotantes (WhatsApp + asistente, ~140px) sin que tapen sus enlaces. */
+/* Sin relleno propio para los flotantes: .xw-page ya reserva ese hueco en móvil (ver homeCss.ts) para TODAS las
+   pantallas, no solo esta; duplicarlo aquí es lo que dejaba la franja vacía enorme que se seguía viendo. */
+.xw-dash-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--xw-space-3); margin-top: auto; padding: var(--xw-space-4) 0; border-top: 1px solid var(--xw-border-subtle); color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); }
 .xw-dash-footer p { margin: 0; }
 .xw-dash-footer nav { display: flex; flex-wrap: wrap; gap: var(--xw-space-1) var(--xw-space-4); }
 .xw-dash-footer a { display: inline-flex; align-items: center; min-height: var(--xw-touch); color: var(--xw-accent); text-underline-offset: 3px; }
@@ -180,7 +190,8 @@ export function buildDashboardCss(): string {
 [data-mode='mobile'] .xw-hero-account { width: 100%; justify-content: space-between; }
 [data-mode='mobile'] .xw-hero-account-text { align-items: flex-start; }
 [data-mode='mobile'] .xw-panel { padding: var(--xw-space-4); }
-[data-mode='mobile'] .xw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--xw-space-3); }
+[data-mode='mobile'] .xw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+[data-mode='mobile'] .xw-kpi:nth-child(2n) { border-right: 0; }
 [data-mode='mobile'] .xw-kpi { padding: var(--xw-space-3); }
 [data-mode='mobile'] .xw-kpi-value { font-size: var(--xw-text-2xl); }
 [data-mode='mobile'] .xw-dash { padding-bottom: 0; }

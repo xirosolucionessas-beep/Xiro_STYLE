@@ -3,8 +3,10 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ApiError } from '@/lib/api';
+import { useNotificationNavigation } from '@/lib/push';
 import { SessionProvider, useSession } from '@/lib/session';
 import { SettingsProvider, useSettings } from '@/lib/settings';
 import { WebShell } from '@/shell/WebShell';
@@ -54,16 +56,36 @@ function Gate() {
     if (status !== 'loading') void SplashScreen.hideAsync();
   }, [status]);
 
-  if (status === 'loading' && !failedBefore) return null;
+  // En nativo esto queda tapado por el splash del sistema (se oculta justo cuando 'loading' termina, ver arriba), pero
+  // en web no hay splash nativo: sin este indicador, validar la sesión guardada (una llamada real a la API) se vería
+  // como una pantalla en blanco durante ese primer instante.
+  if (status === 'loading' && !failedBefore) {
+    return (
+      <View style={[styles.boot, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.gold} size="large" />
+      </View>
+    );
+  }
 
   if (status === 'error' || status === 'loading') return <ConnectionError retrying={status === 'loading'} onRetry={retryBoot} />;
 
   return (
     <>
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+      <NotificationNavigator />
       <WebShell>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
       </WebShell>
     </>
   );
 }
+
+/** Solo monta el listener de deep linking de push (ver push.ts) una vez el router ya está listo para navegar. */
+function NotificationNavigator() {
+  useNotificationNavigation();
+  return null;
+}
+
+const styles = StyleSheet.create({
+  boot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+});

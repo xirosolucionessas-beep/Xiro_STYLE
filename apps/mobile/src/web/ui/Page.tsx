@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { TrendDirection } from '../../lib/dashboard';
 import { Ico, type IconName } from '../icons';
+import { resolveMedia } from '../media';
 import { cx, useWebStyles } from './shared';
 
 /**
@@ -24,6 +25,53 @@ export interface KpiView {
   /** Tono del valor cuando el dato es una alerta (p. ej. agotados). */
   tone?: 'success' | 'warning' | 'danger';
   onPress?: () => void;
+  /**
+   * Si se dan AMBOS, el valor cuenta progresivamente desde 0 (o desde el anterior) hasta `numeric`, formateado en
+   * cada cuadro con `format` — el "KPI Counter" de Reportes. Si falta cualquiera de los dos, se usa `value` tal cual,
+   * sin animar: ningún llamador existente pasa estos campos, así que su comportamiento no cambia en nada.
+   */
+  numeric?: number;
+  format?: (n: number) => string;
+}
+
+/** Respeta "movimiento reducido" (WCAG 2.3.3): sin animación, salta directo al valor final. */
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+}
+
+/**
+ * Cuenta progresivamente desde el valor anterior (o 0 la primera vez) hasta `target`, con desaceleración al final.
+ * El salto de `target` se detecta durante el render (patrón recomendado por React: ajustar estado mientras se
+ * renderiza, no en un efecto) — el efecto de abajo solo dispara la animación en sí vía requestAnimationFrame, un
+ * callback asíncrono, nunca una llamada directa a setState dentro del cuerpo del efecto.
+ */
+function useCountUp(target: number | undefined): number | undefined {
+  const [display, setDisplay] = useState(target);
+  const [trackedTarget, setTrackedTarget] = useState(target);
+  if (target !== trackedTarget) {
+    setTrackedTarget(target);
+    if (target === undefined || prefersReducedMotion()) setDisplay(target); // nada que animar: salta directo
+    // si no, `display` se queda en el valor anterior por ahora — el efecto de abajo lo anima hasta `target`.
+  }
+
+  useEffect(() => {
+    if (target === undefined || prefersReducedMotion() || display === target) return;
+    const from = typeof display === 'number' ? display : 0;
+    const durationMs = 650;
+    const start = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - (1 - progress) * (1 - progress);
+      setDisplay(Math.round(from + (target - from) * eased));
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debe re-animar solo cuando cambia `target`, no en cada cuadro que `display` avanza (su lectura inicial, sí, es intencional).
+  }, [target]);
+
+  return display;
 }
 
 function Trend({ trend, srSuffix }: { trend: NonNullable<KpiView['trend']>; srSuffix: string }) {
@@ -40,13 +88,13 @@ function Trend({ trend, srSuffix }: { trend: NonNullable<KpiView['trend']>; srSu
 
 export function KpiCard({ kpi, loadingLabel, trendSuffix }: { kpi: KpiView; loadingLabel: string; trendSuffix: string }) {
   useWebStyles();
+  // Siempre se llama (regla de hooks): sin `numeric`/`format`, o mientras carga, el objetivo es `undefined` y no anima nada.
+  const animated = useCountUp(!kpi.loading && kpi.numeric !== undefined && kpi.format ? kpi.numeric : undefined);
+  const displayValue = !kpi.loading && kpi.format && animated !== undefined ? kpi.format(animated) : kpi.value;
   const body = (
     <>
-      <span className={cx('xw-kpi-ic', kpi.tone && `is-${kpi.tone}`)} aria-hidden="true">
-        <Ico name={kpi.icon} size={22} />
-      </span>
       <span className="xw-kpi-label">{kpi.label}</span>
-      {kpi.loading ? <span className="xw-skeleton xw-kpi-skel" aria-hidden="true" /> : <span className="xw-kpi-value">{kpi.value}</span>}
+      {kpi.loading ? <span className="xw-skeleton xw-kpi-skel" aria-hidden="true" /> : <span className={cx('xw-kpi-value', kpi.tone && `is-${kpi.tone}`)}>{displayValue}</span>}
       {kpi.loading ? <span className="xw-sr">{loadingLabel}</span> : null}
       {!kpi.loading && kpi.trend ? <Trend trend={kpi.trend} srSuffix={trendSuffix} /> : null}
       {!kpi.loading && kpi.hint ? <span className="xw-kpi-hint">{kpi.hint}</span> : null}
@@ -133,11 +181,26 @@ export function SearchField({ label, value, onChange, placeholder }: { label: st
 
 /* ---------- Avatar e insignias ---------- */
 
-export function Avatar({ name, size = 44 }: { name: string; size?: number }) {
+/**
+ * `photoUrl` llega del servidor como ruta relativa ("/media/xxx.webp"); `resolveMedia` la ancla al origen de la API
+ * (en el servidor de desarrollo de Expo, puerto 8081, el navegador la resolvería contra SU PROPIO origen en vez del
+ * de la API y la foto nunca cargaría). Si aun así la imagen falla al cargar (archivo borrado, red…), `onError` limpia
+ * el estado para volver de inmediato al círculo con la inicial, en vez de quedarse con el ícono de imagen rota.
+ */
+export function Avatar({ name, size = 44, photoUrl }: { name: string; size?: number; photoUrl?: string | null }) {
   useWebStyles();
+  const [failed, setFailed] = useState(false);
+  // Una foto nueva (p. ej. tras subir otra) merece su propio intento, no el fallo de la anterior — se ajusta durante
+  // el render (patrón recomendado por React) en vez de un efecto, para no disparar una vuelta de render de más.
+  const [lastUrl, setLastUrl] = useState(photoUrl);
+  if (photoUrl !== lastUrl) {
+    setLastUrl(photoUrl);
+    setFailed(false);
+  }
+  const resolved = failed ? undefined : resolveMedia(photoUrl);
   return (
     <span className="xw-avatar" aria-hidden="true" style={{ width: size, height: size, fontSize: size * 0.4 }}>
-      {name.trim().charAt(0).toUpperCase() || '?'}
+      {resolved ? <img src={resolved} alt="" className="xw-avatar-img" onError={() => setFailed(true)} /> : name.trim().charAt(0).toUpperCase() || '?'}
     </span>
   );
 }

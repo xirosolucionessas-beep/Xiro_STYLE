@@ -62,7 +62,7 @@ export function DialogsProvider({ children }: { children: ReactNode }) {
       </Modal>
       {message ? (
         <View pointerEvents="none" style={styles.toastWrap}>
-          <View style={[styles.toast, { backgroundColor: colors.surfaceAlt, borderColor: colors.gold }]} accessibilityLiveRegion="polite">
+          <View style={[styles.toast, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]} accessibilityLiveRegion="polite">
             <AppText variant="bodyStrong">{message}</AppText>
           </View>
         </View>

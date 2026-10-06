@@ -7,7 +7,7 @@ import { businesses, subscriptionEvents, subscriptions } from '../db/schema';
 import { AppError, parse } from '../errors';
 import { createPayPalSubscription } from '../paypal';
 import Stripe from 'stripe';
-import { addDays, getSubscriptionRow, hasClaimedTrial, startTrial, toSubscriptionResponse } from '../subscriptions';
+import { addDays, getSubscriptionRow, hasClaimedTrial, listSubscriptionInvoices, recordSubscriptionInvoice, startTrial, toSubscriptionResponse } from '../subscriptions';
 
 const trialSchema = z.object({ plan: z.enum(SUBSCRIPTION_PLANS), platform: z.enum(SUBSCRIPTION_PLATFORMS) });
 const checkoutSchema = z.object({ plan: z.enum(SUBSCRIPTION_PLANS) });
@@ -100,6 +100,9 @@ export function subscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
     return { instructions: config.subscriptions.bankTransferInstructions, plan: input.plan };
   });
 
+  /** Historial de comprobantes (Mi Suscripción → Historial de Pagos): solo el dueño, nunca un empleado (ver POLICY en authz.ts). */
+  app.get('/subscription/invoices', async (request) => ({ invoices: await listSubscriptionInvoices(db, request.user.bid) }));
+
   /**
    * Cancela SOLO suscripciones gestionadas desde Web (Stripe): Apple y Google exigen que el usuario cancele desde
    * la propia tienda (App Store / Play Store), nunca desde una API de terceros — para iOS/Android el cliente debe
@@ -140,6 +143,14 @@ export function adminSubscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (!existing) await db.insert(subscriptions).values({ businessId: input.businessId, ...patch });
     else await db.update(subscriptions).set({ ...patch, updatedAt: now }).where(eq(subscriptions.businessId, input.businessId));
     await db.insert(subscriptionEvents).values({ businessId: input.businessId, type: 'bank_transfer_confirmed', source: 'admin', payload: { plan: input.plan } });
-    return toSubscriptionResponse(db, await getSubscriptionRow(db, input.businessId));
+    const invoiceId = await recordSubscriptionInvoice(db, {
+      businessId: input.businessId,
+      plan: input.plan,
+      paymentMethod: 'bank_transfer',
+      periodStart: now,
+      periodEnd: currentPeriodEnd,
+      externalPaymentId: `bank_transfer:${now.toISOString()}`,
+    });
+    return { subscription: await toSubscriptionResponse(db, await getSubscriptionRow(db, input.businessId)), invoiceId };
   });
 }

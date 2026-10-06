@@ -30,6 +30,12 @@ const item: Item = {
   internalNotes: '',
   photos: [],
   updatedAt: new Date().toISOString(),
+  kind: 'service',
+  durationMinutes: 30,
+  cleanupMinutes: 0,
+  bookable: true,
+  kindConfirmed: true,
+  sortOrder: 0,
 };
 
 const program: LoyaltyProgram = { enabled: true, goal: 5, resetOnRedeem: true, rewardMessage: '¡Felicidades!', itemIds: ['i1'] };

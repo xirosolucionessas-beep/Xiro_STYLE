@@ -2,9 +2,10 @@
  * Ruta /clients SOLO WEB (nativo: clients.tsx, sin cambios). Mismos datos y acciones que la nativa (búsqueda en el
  * servidor, alta y ficha de cliente); la presentación está en src/web/screens/Clients.tsx.
  */
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
+import { localDate, todayIn } from '@/lib/agenda';
 import { errorKey } from '@/lib/api';
 import { activeClients, clientRows, isTruncated, newThisMonth, RECORD_LIMIT } from '@/lib/sections';
 import { useClients, useServiceRecords } from '@/lib/queries';
@@ -25,6 +26,10 @@ export default function ClientsWeb() {
   const canRecords = meets(actor, ['services_record']);
   const canManage = meets(actor, ['clients_manage']);
   const nowMs = useNow();
+  // Llegada desde la tarjeta "Clientes nuevos hoy" del tablero de Inicio: se acota a los de hoy hasta que se quite el filtro.
+  const params = useLocalSearchParams<{ since?: string }>();
+  const sinceToday = params.since === 'today';
+  const todayKey = todayIn(business.timezone);
 
   const [search, setSearch] = useState('');
   const [applied, setApplied] = useState('');
@@ -38,19 +43,21 @@ export default function ClientsWeb() {
   const records = useServiceRecords(undefined, canRecords);
 
   const date = useMemo(() => new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', year: 'numeric', timeZone: business.timezone }), [language, business.timezone]);
+  const filteredClients = useMemo(() => (sinceToday ? (clients.data ?? []).filter((c) => localDate(c.createdAt, business.timezone) === todayKey) : clients.data), [clients.data, sinceToday, business.timezone, todayKey]);
   const rows = useMemo<ClientRowView[]>(
     () =>
-      clientRows(clients.data ?? [], canRecords ? records.data : undefined).map((row) => ({
+      clientRows(filteredClients ?? [], canRecords ? records.data : undefined).map((row) => ({
         id: row.id,
         name: row.name,
         phone: row.phone,
         email: row.email,
+        photoUrl: row.photoUrl,
         since: date.format(new Date(row.createdAt)),
         visits: row.visits === null ? null : String(row.visits),
         lastVisit: row.lastVisit ? date.format(new Date(row.lastVisit)) : null,
         href: `/client/${row.id}`,
       })),
-    [clients.data, records.data, canRecords, date],
+    [filteredClients, records.data, canRecords, date],
   );
 
   const now = new Date(nowMs);
@@ -68,14 +75,21 @@ export default function ClientsWeb() {
       header={
         <Header
           root
-          title={t('clients')}
+          title={sinceToday ? t('sec_clients_new_today') : t('clients')}
           subtitle={t('sec_clients_sub')}
           right={
-            canManage ? (
-              <Button icon={<Ico name="plus" size={18} />} onPress={addClient}>
-                {t('add')}
-              </Button>
-            ) : undefined
+            <>
+              {sinceToday ? (
+                <Button variant="secondary" onPress={() => router.push('/clients')}>
+                  {t('sec_clients_see_all')}
+                </Button>
+              ) : null}
+              {canManage ? (
+                <Button icon={<Ico name="plus" size={18} />} onPress={addClient}>
+                  {t('add')}
+                </Button>
+              ) : null}
+            </>
           }
         />
       }>

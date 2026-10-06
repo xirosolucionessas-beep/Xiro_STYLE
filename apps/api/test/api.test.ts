@@ -18,7 +18,7 @@ let dataDir: string;
 let testDb: TestDatabase;
 let cleanupConfig: () => void;
 const sentOtps: OtpMessage[] = [];
-const notifier: Notifier = { sendOtp: async (message) => void sentOtps.push(message) };
+const notifier: Notifier = { sendOtp: async (message) => void sentOtps.push(message), sendAppointmentReminder: async () => undefined };
 
 beforeAll(async () => {
   testDb = await createTestDatabase();
@@ -325,6 +325,26 @@ describe('inventory and categories', () => {
     });
     expect(foreignCategory.statusCode).toBe(400);
   });
+
+  it('bulk-publish toggles several items at once, ignores ids of another business, and reports how many changed', async () => {
+    const owner = await register();
+    const other = await register();
+    const a = await createItem(owner, { name: 'A', published: false });
+    const b = await createItem(owner, { name: 'B', published: false });
+    const foreign = await createItem(other, { name: 'Ajeno' });
+
+    const res = await app.inject({ method: 'POST', url: '/api/items/bulk-publish', headers: auth(owner), payload: { ids: [a.id, b.id, foreign.id], published: true } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ updated: 2 }); // el de otro negocio no cuenta, aunque venga en la lista
+
+    expect((await app.inject({ method: 'GET', url: `/api/items/${a.id}`, headers: auth(owner) })).json()).toMatchObject({ published: true });
+    expect((await app.inject({ method: 'GET', url: `/api/items/${b.id}`, headers: auth(owner) })).json()).toMatchObject({ published: true });
+    expect((await app.inject({ method: 'GET', url: `/api/items/${foreign.id}`, headers: auth(other) })).json()).toMatchObject({ published: true }); // sin cambios (ya nace publicado)
+
+    const unpublish = await app.inject({ method: 'POST', url: '/api/items/bulk-publish', headers: auth(owner), payload: { ids: [a.id, b.id], published: false } });
+    expect(unpublish.json()).toEqual({ updated: 2 });
+    expect((await app.inject({ method: 'GET', url: `/api/items/${a.id}`, headers: auth(owner) })).json()).toMatchObject({ published: false });
+  });
 });
 
 describe('photos', () => {
@@ -377,7 +397,7 @@ describe('public catalog', () => {
     const body = res.json<PublicCatalog>();
     expect(body.items.map((i) => i.name)).toEqual(['Visible']);
     expect(Object.keys(body.items[0]!).sort()).toEqual(
-      ['category', 'description', 'detail', 'gallery', 'id', 'image', 'name', 'price', 'shortDescription'].sort(),
+      ['category', 'description', 'detail', 'gallery', 'id', 'image', 'name', 'price', 'shortDescription', 'soldOut'].sort(),
     );
     const raw = res.body;
     for (const secret of ['NOTA-INTERNA-CONFIDENCIAL', 'SRV-SECRETO-01', 'internalUnitCost', 'stock', 'referenceCode', session.user.email!]) {
@@ -423,6 +443,28 @@ describe('public catalog', () => {
     const assets = await app.inject({ method: 'GET', url: '/catalog-assets/catalog.js' });
     expect(assets.statusCode).toBe(200);
   });
+
+  it('marks a sold-out product, and hides it entirely once the business turns that preference on', async () => {
+    const session = await register();
+    const soldOut = await createItem(session, { name: 'Agotado', kind: 'product', stock: 0 });
+    const inStock = await createItem(session, { name: 'Con stock', kind: 'product', stock: 5 });
+    const service = await createItem(session, { name: 'Servicio', kind: 'service', stock: 0 }); // un servicio nunca está "agotado"
+
+    const before = (await app.inject({ method: 'GET', url: `/api/public/catalog/${session.business.slug}` })).json<PublicCatalog>();
+    expect(before.items.find((i) => i.id === soldOut.id)).toMatchObject({ soldOut: true });
+    expect(before.items.find((i) => i.id === inStock.id)).toMatchObject({ soldOut: false });
+    expect(before.items.find((i) => i.id === service.id)).toMatchObject({ soldOut: false });
+    expect((await app.inject({ method: 'GET', url: `/api/public/catalog/${session.business.slug}/items/${soldOut.id}` })).statusCode).toBe(200);
+
+    const saved = await app.inject({ method: 'PUT', url: '/api/booking/settings', headers: auth(session), payload: { hideOutOfStockInCatalog: true } });
+    expect(saved.statusCode).toBe(200);
+
+    const after = (await app.inject({ method: 'GET', url: `/api/public/catalog/${session.business.slug}` })).json<PublicCatalog>();
+    expect(after.items.map((i) => i.id)).not.toContain(soldOut.id);
+    expect(after.items.map((i) => i.id)).toContain(inStock.id);
+    // Ni siquiera por enlace directo: oculto es oculto, igual que un artículo sin publicar.
+    expect((await app.inject({ method: 'GET', url: `/api/public/catalog/${session.business.slug}/items/${soldOut.id}` })).statusCode).toBe(404);
+  });
 });
 
 describe('account', () => {
@@ -462,6 +504,29 @@ describe('account', () => {
     expect(wildcard.json<unknown[]>()).toHaveLength(0);
     const other = await register();
     expect((await app.inject({ method: 'GET', url: '/api/clients', headers: auth(other) })).json()).toEqual([]);
+  });
+
+  it('anonymize (Ley 1581 right to erasure) clears identity fields but keeps the client row and its history', async () => {
+    const session = await register();
+    const client = await createClient(session, { name: 'Valentina Rojas', phone: '573001234567', email: 'valentina@correo.com', address: 'Calle 10', notes: 'VIP' });
+    const item = await createItem(session);
+    const record = await app.inject({ method: 'POST', url: '/api/service-records', headers: auth(session), payload: { clientId: client.id, itemId: item.id } });
+    expect(record.statusCode).toBe(201);
+
+    const anonymized = await app.inject({ method: 'POST', url: `/api/clients/${client.id}/anonymize`, headers: auth(session) });
+    expect(anonymized.statusCode).toBe(200);
+    expect(anonymized.json()).toMatchObject({ id: client.id, name: 'Cliente eliminado', email: null, phone: null, address: '', notes: '' });
+
+    const stillThere = await app.inject({ method: 'GET', url: `/api/clients/${client.id}`, headers: auth(session) });
+    expect(stillThere.json()).toMatchObject({ name: 'Cliente eliminado' });
+    // El historial de servicios (registro contable) se conserva intacto.
+    const history = await app.inject({ method: 'GET', url: `/api/service-records?clientId=${client.id}`, headers: auth(session) });
+    expect(history.json<unknown[]>()).toHaveLength(1);
+
+    // Nunca sobre el cliente de otro negocio.
+    const other = await register();
+    expect((await app.inject({ method: 'POST', url: `/api/clients/${client.id}/anonymize`, headers: auth(other) })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/clients/00000000-0000-4000-8000-000000000000/anonymize', headers: auth(session) })).statusCode).toBe(404);
   });
 });
 
@@ -603,14 +668,14 @@ describe('notifications', () => {
   it('defaults to off, with both categories on, until the business saves its own settings', async () => {
     const session = await register();
     const res = await app.inject({ method: 'GET', url: '/api/notifications/settings', headers: auth(session) });
-    expect(res.json()).toEqual({ enabled: false, loyaltyEnabled: true, billingEnabled: true });
+    expect(res.json()).toEqual({ enabled: false, loyaltyEnabled: true, billingEnabled: true, appointmentsEnabled: true, reviewsEnabled: true, clientsEnabled: true, salesEnabled: true, inventoryEnabled: true, employeesEnabled: true, securityEnabled: true });
   });
 
   it('saves settings and reloads them', async () => {
     const session = await register();
-    const saved = await app.inject({ method: 'PUT', url: '/api/notifications/settings', headers: auth(session), payload: { enabled: true, loyaltyEnabled: false, billingEnabled: true } });
+    const saved = await app.inject({ method: 'PUT', url: '/api/notifications/settings', headers: auth(session), payload: { enabled: true, loyaltyEnabled: false, billingEnabled: true, appointmentsEnabled: false, reviewsEnabled: true } });
     expect(saved.statusCode).toBe(200);
-    expect(saved.json()).toEqual({ enabled: true, loyaltyEnabled: false, billingEnabled: true });
+    expect(saved.json()).toEqual({ enabled: true, loyaltyEnabled: false, billingEnabled: true, appointmentsEnabled: false, reviewsEnabled: true, clientsEnabled: true, salesEnabled: true, inventoryEnabled: true, employeesEnabled: true, securityEnabled: true });
     const reloaded = await app.inject({ method: 'GET', url: '/api/notifications/settings', headers: auth(session) });
     expect(reloaded.json()).toEqual(saved.json());
   });
@@ -716,7 +781,7 @@ describe('notifications', () => {
 
     const b = await register();
     const bSettings = await app.inject({ method: 'GET', url: '/api/notifications/settings', headers: auth(b) });
-    expect(bSettings.json()).toEqual({ enabled: false, loyaltyEnabled: true, billingEnabled: true }); // no ve lo que A activó
+    expect(bSettings.json()).toEqual({ enabled: false, loyaltyEnabled: true, billingEnabled: true, appointmentsEnabled: true, reviewsEnabled: true, clientsEnabled: true, salesEnabled: true, inventoryEnabled: true, employeesEnabled: true, securityEnabled: true }); // no ve lo que A activó
     const bTest = await app.inject({ method: 'POST', url: '/api/notifications/test', headers: auth(b) });
     expect(bTest.json().code).toBe('push_no_devices'); // no hereda el token de A
     // B no puede borrar el token de A a ciegas (solo borra los suyos, no hay error si no encuentra nada).

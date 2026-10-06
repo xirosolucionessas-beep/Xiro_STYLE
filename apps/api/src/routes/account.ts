@@ -5,7 +5,7 @@ import type { Ctx } from '../context';
 import { isUniqueViolation } from '../db/errors';
 import { businesses, cashOpenings, phoneChanges, users } from '../db/schema';
 import { AppError, parse } from '../errors';
-import { removeMedia, saveImage } from '../media';
+import { removeMedia, saveAvatarImage, saveImage } from '../media';
 import { toBusiness, toUser } from '../serializers';
 import { hmac, safeEqualHex, sixDigitCode } from '../security';
 
@@ -52,6 +52,32 @@ export function accountRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (Object.keys(changes).length === 0) return toUser(user);
     const [updated] = await db.update(users).set(changes).where(eq(users.id, user.id)).returning();
     return toUser(updated!);
+  });
+
+  /** Foto de la propia cuenta (dueño o empleado): mismo procesamiento que la de un profesional (cuadrada, 400×400, WebP). */
+  app.put('/me/photo', async (request) => {
+    const { user } = await currentContext(request);
+    const part = await request.file();
+    if (!part) throw new AppError(400, 'photo_invalid');
+    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    if (!file) throw new AppError(400, 'photo_invalid');
+    try {
+      const [updated] = await db.update(users).set({ photoFile: file }).where(eq(users.id, user.id)).returning();
+      await removeMedia(config.mediaDir, user.photoFile);
+      return toUser(updated!);
+    } catch (error) {
+      await removeMedia(config.mediaDir, file);
+      throw error;
+    }
+  });
+
+  app.delete('/me/photo', async (request) => {
+    const { user } = await currentContext(request);
+    if (user.photoFile) {
+      await db.update(users).set({ photoFile: null }).where(eq(users.id, user.id));
+      await removeMedia(config.mediaDir, user.photoFile);
+    }
+    return toUser({ ...user, photoFile: null });
   });
 
   /**
@@ -120,6 +146,7 @@ export function accountRoutes(app: FastifyInstance, ctx: Ctx): void {
       address: input.address,
       city: input.city,
       country: input.country,
+      taxId: input.taxId,
       currency: input.currency,
       hours: input.hours,
     });

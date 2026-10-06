@@ -1,6 +1,6 @@
 import { BUSINESS_TYPES, translate } from '@xiro/shared';
 import { describe, expect, it } from 'vitest';
-import { badgeText, buildAlerts, dismissAlert, emptyAlertState, markAllRead, markRead, markSeen, parseAlertState, pendingAlerts, relativeTime, serializeAlertState, visibleAlerts } from '../src/lib/alerts';
+import { badgeText, buildAlerts, dismissAlert, emptyAlertState, markAllRead, markRead, markSeen, parseAlertState, pendingAlerts, relativeTime, serializeAlertState, serverNotificationAlert, visibleAlerts } from '../src/lib/alerts';
 import { greetingKey, msUntilNextGreeting } from '../src/lib/greeting';
 import { dayKey, formatCompactMoney, lowStock, salesToday, TEAM_LABEL_KEYS } from '../src/lib/homeMetrics';
 
@@ -172,6 +172,29 @@ describe('estado de lectura de alertas (la campana y la tarjeta usan el MISMO co
     expect(parseAlertState(serializeAlertState(state))).toEqual(state);
     for (const raw of [null, '', 'no json', '{"read":42,"seen":"x"}']) expect(() => parseAlertState(raw)).not.toThrow();
     expect(parseAlertState('{"read":[1,"a"],"dismissed":"x","seen":{"k":"no","j":3}}')).toEqual({ read: ['a'], dismissed: [], seen: { j: 3 } });
+  });
+});
+
+describe('avisos reales del backend (centro de notificaciones) convertidos a la misma forma que las alertas locales', () => {
+  it('cada categoría tiene su prioridad; facturación es urgente, el resto informativo', () => {
+    const base = { id: 'n1', titleKey: 'push_appt_new_title', bodyKey: 'push_appt_new_body', params: { client: 'Ana' }, href: '/agenda', read: false, createdAt: '2026-01-01T00:00:00Z' } as const;
+    expect(serverNotificationAlert({ ...base, category: 'billing' })).toMatchObject({ priority: 'urgent', id: 'server:n1', signature: 'server:n1', serverId: 'n1', href: '/agenda' });
+    expect(serverNotificationAlert({ ...base, category: 'appointments' })).toMatchObject({ priority: 'info' });
+    expect(serverNotificationAlert({ ...base, category: 'loyalty' })).toMatchObject({ priority: 'info' });
+    expect(serverNotificationAlert({ ...base, category: 'reviews' })).toMatchObject({ priority: 'info' });
+  });
+
+  it('sin href (nunca debería pasar, pero por si acaso) cae en la pantalla de Notificaciones, no en una ruta vacía', () => {
+    const alert = serverNotificationAlert({ id: 'n2', category: 'loyalty', titleKey: 'push_loyalty_reward_title', bodyKey: 'push_loyalty_reward_body', params: {}, href: null, read: false, createdAt: '2026-01-01T00:00:00Z' });
+    expect(alert.href).toBe('/notifications');
+  });
+
+  it('todos los titleKey/bodyKey que push.ts puede guardar existen en ES y EN (si no, se verían como la clave literal en la campana)', () => {
+    const keys = ['push_appt_new_title', 'push_appt_new_body', 'push_appt_cancelled_title', 'push_appt_cancelled_body', 'push_appt_rescheduled_title', 'push_appt_rescheduled_body', 'push_appt_reminder_title', 'push_appt_reminder_body', 'push_loyalty_reward_title', 'push_loyalty_reward_body', 'push_billing_issue_title', 'push_billing_issue_body', 'push_billing_expired_title', 'push_billing_expired_body'];
+    for (const key of keys) {
+      expect(translate('es', key), key).not.toBe(key);
+      expect(translate('en', key), key).not.toBe(key);
+    }
   });
 });
 

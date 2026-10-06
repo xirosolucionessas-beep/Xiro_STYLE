@@ -8,3 +8,5 @@ export { Icon, VisuallyHidden } from './shared';
 export { SocialButton, socialState, type SocialButtonProps } from './SocialButton';
 export { Skeleton, SkeletonGroup, type SkeletonProps } from './Skeleton';
 export { ToastProvider, useToast, type ToastApi, type ToastTone } from './Toast';
+export { VoidCashClosingModal, type VoidCashClosingModalProps, type VoidCashClosingResult } from './VoidCashClosingModal';
+export { VoidSaleModal, type VoidSaleModalProps, type VoidSaleResult } from './VoidSaleModal';

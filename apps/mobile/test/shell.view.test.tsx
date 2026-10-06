@@ -155,8 +155,8 @@ describe('ShellView — tablet (icons only)', () => {
     await user.keyboard('{Escape}');
     expect(container.querySelector('.xw-tip')).toBeNull();
 
-    await user.hover(screen.getByRole('link', { name: 'Servicios' }));
-    expect(container.querySelector('.xw-tip')?.textContent).toBe('Servicios');
+    await user.hover(screen.getByRole('link', { name: 'Catálogo' }));
+    expect(container.querySelector('.xw-tip')?.textContent).toBe('Catálogo');
     // Solo puntero (sin foco en el control): Escape también lo descarta (WCAG 1.4.13).
     (document.activeElement as HTMLElement | null)?.blur();
     await user.keyboard('{Escape}');

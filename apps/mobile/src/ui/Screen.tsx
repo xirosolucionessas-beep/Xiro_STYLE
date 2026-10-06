@@ -64,8 +64,8 @@ export function Header({ title, subtitle, onBack, right, root }: HeaderProps) {
           accessibilityRole="button"
           accessibilityLabel={t('back')}
           onPress={goBack}
-          style={[styles.back, { backgroundColor: colors.goldTint, borderColor: colors.gold }]}>
-          <Ionicons name="arrow-back" size={22} color={colors.gold} />
+          style={[styles.back, { backgroundColor: 'transparent', borderColor: colors.border }]}>
+          <Ionicons name="arrow-back" size={22} color={colors.text} />
         </Pressable>
       ) : null}
       <View style={styles.flex}>

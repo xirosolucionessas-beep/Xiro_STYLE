@@ -23,12 +23,26 @@ export interface NotificationsModel {
   enabled: boolean;
   loyalty: boolean;
   billing: boolean;
+  appointments: boolean;
+  reviews: boolean;
+  clients: boolean;
+  sales: boolean;
+  inventory: boolean;
+  employees: boolean;
+  security: boolean;
   busy: boolean;
   /** Aviso cuando el navegador no permite activarlas (bloqueadas o sin soporte). */
   note?: string;
   onToggle: (next: boolean) => void;
   onLoyalty: (next: boolean) => void;
   onBilling: (next: boolean) => void;
+  onAppointments: (next: boolean) => void;
+  onReviews: (next: boolean) => void;
+  onClients: (next: boolean) => void;
+  onSales: (next: boolean) => void;
+  onInventory: (next: boolean) => void;
+  onEmployees: (next: boolean) => void;
+  onSecurity: (next: boolean) => void;
   onTest: () => void;
 }
 
@@ -142,8 +156,15 @@ export function SettingsView({ t, accountLinks, language, onLanguage, darkMode, 
                 <SwitchRow icon="bell" title={t('notifications_enable_cta')} checked={notifications.enabled} onChange={notifications.onToggle} disabled={notifications.busy} />
                 {notifications.enabled ? (
                   <>
+                    <SwitchRow icon="calendar-days" title={t('notifications_category_appointments')} checked={notifications.appointments} onChange={notifications.onAppointments} disabled={notifications.busy} />
+                    <SwitchRow icon="message-square" title={t('notifications_category_reviews')} checked={notifications.reviews} onChange={notifications.onReviews} disabled={notifications.busy} />
                     <SwitchRow icon="star" title={t('notifications_category_loyalty')} checked={notifications.loyalty} onChange={notifications.onLoyalty} disabled={notifications.busy} />
                     <SwitchRow icon="credit-card" title={t('notifications_category_billing')} checked={notifications.billing} onChange={notifications.onBilling} disabled={notifications.busy} />
+                    <SwitchRow icon="users" title={t('notifications_category_clients')} checked={notifications.clients} onChange={notifications.onClients} disabled={notifications.busy} />
+                    <SwitchRow icon="wallet" title={t('notifications_category_sales')} checked={notifications.sales} onChange={notifications.onSales} disabled={notifications.busy} />
+                    <SwitchRow icon="package" title={t('notifications_category_inventory')} checked={notifications.inventory} onChange={notifications.onInventory} disabled={notifications.busy} />
+                    <SwitchRow icon="briefcase" title={t('notifications_category_employees')} checked={notifications.employees} onChange={notifications.onEmployees} disabled={notifications.busy} />
+                    <SwitchRow icon="shield-check" title={t('notifications_category_security')} checked={notifications.security} onChange={notifications.onSecurity} disabled={notifications.busy} />
                     <LinkRow link={{ id: 'test', icon: 'send', title: t('notifications_test_cta'), onPress: notifications.onTest }} navigate={navigate} />
                   </>
                 ) : null}

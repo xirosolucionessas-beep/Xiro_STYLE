@@ -1,15 +1,16 @@
 import { EMPLOYEE_PERMISSIONS, normalizePermissions, passwordSchema, type AuditLogEntry, type Employee, type EmployeePermission } from '@xiro/shared';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ACTION_LABELS } from '../../lib/employeesLogic';
 import { Ico } from '../icons';
 import { Button, Input } from '../ui';
 import { Checkbox, FormMessage } from '../ui/auth';
 import { Modal } from '../ui/Modal';
-import { KpiRow, type KpiView } from '../ui/Page';
+import { Avatar, KpiRow, type KpiView } from '../ui/Page';
 import { useWebStyles } from '../ui/shared';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 type ActionResult = { ok: true } | { ok: false; error: string };
+type PhotoResult = { ok: true; photoUrl: string | null } | { ok: false; error: string };
 
 export interface EmployeesViewProps {
   t: T;
@@ -17,6 +18,8 @@ export interface EmployeesViewProps {
   logs: AuditLogEntry[];
   onCreate: (input: { name: string; email?: string; phone?: string; password: string; permissions: EmployeePermission[] }) => Promise<ActionResult>;
   onUpdate: (id: string, input: { name?: string; permissions?: EmployeePermission[]; active?: boolean; password?: string }) => Promise<ActionResult>;
+  onUploadPhoto: (id: string, file: File) => Promise<PhotoResult>;
+  onRemovePhoto: (id: string) => Promise<PhotoResult>;
 }
 
 type Tab = 'team' | 'activity';
@@ -62,12 +65,50 @@ interface FormState {
 }
 
 /** Alta y edición comparten formulario; al editar la contraseña es opcional y no hay correo/celular (son el acceso de la persona). */
-function EmployeeModal({ t, employee, onClose, onSubmit }: { t: T; employee?: Employee; onClose: () => void; onSubmit: (state: FormState) => Promise<ActionResult> }) {
+function EmployeeModal({
+  t,
+  employee,
+  onClose,
+  onSubmit,
+  onUploadPhoto,
+  onRemovePhoto,
+}: {
+  t: T;
+  employee?: Employee;
+  onClose: () => void;
+  onSubmit: (state: FormState) => Promise<ActionResult>;
+  onUploadPhoto: (id: string, file: File) => Promise<PhotoResult>;
+  onRemovePhoto: (id: string) => Promise<PhotoResult>;
+}) {
   const [state, setState] = useState<FormState>({ name: employee?.name ?? '', email: '', phone: '', password: '', permissions: employee?.permissions ?? [] });
   const [errors, setErrors] = useState<Partial<Record<'name' | 'contact' | 'password', string>>>({});
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(employee?.photoUrl ?? null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string>();
+  const photoInput = useRef<HTMLInputElement>(null);
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setState((current) => ({ ...current, [key]: value }));
+
+  async function pickPhoto(file: File | undefined) {
+    if (!file || !employee) return;
+    setPhotoBusy(true);
+    setPhotoError(undefined);
+    const result = await onUploadPhoto(employee.id, file);
+    if (result.ok) setPhotoUrl(result.photoUrl);
+    else setPhotoError(result.error);
+    setPhotoBusy(false);
+  }
+
+  async function removePhoto() {
+    if (!employee || !window.confirm(t('emp_photo_remove_text'))) return;
+    setPhotoBusy(true);
+    setPhotoError(undefined);
+    const result = await onRemovePhoto(employee.id);
+    if (result.ok) setPhotoUrl(result.photoUrl);
+    else setPhotoError(result.error);
+    setPhotoBusy(false);
+  }
 
   async function submit() {
     const next: typeof errors = {};
@@ -103,6 +144,38 @@ function EmployeeModal({ t, employee, onClose, onSubmit }: { t: T; employee?: Em
         </>
       }>
       <div className="xw-form">
+        {employee ? (
+          <div className="xw-profile-avatar-row">
+            <div className="xw-avatar-edit">
+              <Avatar name={employee.name} photoUrl={photoUrl} size={84} />
+              <button type="button" className="xw-home-cam" aria-label={t(photoUrl ? 'account_photo_change' : 'account_photo_add')} disabled={photoBusy} onClick={() => photoInput.current?.click()}>
+                {photoBusy ? <span className="xw-spinner" aria-hidden="true" /> : <Ico name="camera" size={14} />}
+              </button>
+            </div>
+            <input
+              ref={photoInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="xw-sr"
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                void pickPhoto(file);
+              }}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p className="xw-hint">{t('emp_photo_hint')}</p>
+              {photoUrl ? (
+                <button type="button" className="xw-link-btn" disabled={photoBusy} onClick={() => void removePhoto()}>
+                  {t('delete')}
+                </button>
+              ) : null}
+              {photoError ? <FormMessage>{photoError}</FormMessage> : null}
+            </div>
+          </div>
+        ) : null}
         <Input label={t('emp_name_label')} value={state.name} onChange={(v) => set('name', v)} name="name" error={errors.name} required />
         {employee ? null : (
           <>
@@ -127,7 +200,7 @@ function EmployeeModal({ t, employee, onClose, onSubmit }: { t: T; employee?: Em
   );
 }
 
-function TeamTab({ t, employees, onCreate, onUpdate }: Pick<EmployeesViewProps, 't' | 'employees' | 'onCreate' | 'onUpdate'>) {
+function TeamTab({ t, employees, onCreate, onUpdate, onUploadPhoto, onRemovePhoto }: Pick<EmployeesViewProps, 't' | 'employees' | 'onCreate' | 'onUpdate' | 'onUploadPhoto' | 'onRemovePhoto'>) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -154,7 +227,10 @@ function TeamTab({ t, employees, onCreate, onUpdate }: Pick<EmployeesViewProps, 
           {employees.map((employee) => (
             <li key={employee.id} className={`xw-emp-card${employee.active ? '' : ' is-inactive'}`}>
               <div className="xw-emp-top">
-                <span className="xw-emp-name">{employee.name}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--xw-space-2)', minWidth: 0 }}>
+                  <Avatar name={employee.name} photoUrl={employee.photoUrl} size={36} />
+                  <span className="xw-emp-name">{employee.name}</span>
+                </span>
                 <span className={`xw-emp-status${employee.active ? ' is-on' : ''}`}>{employee.active ? t('emp_active') : t('emp_inactive')}</span>
               </div>
               <p className="xw-emp-contact">{employee.email ?? employee.phone}</p>
@@ -182,6 +258,8 @@ function TeamTab({ t, employees, onCreate, onUpdate }: Pick<EmployeesViewProps, 
             if (result.ok) setCreating(false);
             return result;
           }}
+          onUploadPhoto={onUploadPhoto}
+          onRemovePhoto={onRemovePhoto}
         />
       ) : null}
       {editing ? (
@@ -194,6 +272,8 @@ function TeamTab({ t, employees, onCreate, onUpdate }: Pick<EmployeesViewProps, 
             if (result.ok) setEditing(null);
             return result;
           }}
+          onUploadPhoto={onUploadPhoto}
+          onRemovePhoto={onRemovePhoto}
         />
       ) : null}
     </div>
@@ -221,7 +301,7 @@ function ActivityTab({ t, logs }: Pick<EmployeesViewProps, 't' | 'logs'>) {
   );
 }
 
-export function EmployeesView({ t, employees, logs, onCreate, onUpdate }: EmployeesViewProps) {
+export function EmployeesView({ t, employees, logs, onCreate, onUpdate, onUploadPhoto, onRemovePhoto }: EmployeesViewProps) {
   useWebStyles();
   const [tab, setTab] = useState<Tab>('team');
   const activeCount = employees.filter((employee) => employee.active).length;
@@ -246,7 +326,7 @@ export function EmployeesView({ t, employees, logs, onCreate, onUpdate }: Employ
         ))}
       </div>
       <div role="tabpanel" id="xw-emp-panel-team" aria-labelledby="xw-emp-tab-team" hidden={tab !== 'team'}>
-        {tab === 'team' ? <TeamTab t={t} employees={employees} onCreate={onCreate} onUpdate={onUpdate} /> : null}
+        {tab === 'team' ? <TeamTab t={t} employees={employees} onCreate={onCreate} onUpdate={onUpdate} onUploadPhoto={onUploadPhoto} onRemovePhoto={onRemovePhoto} /> : null}
       </div>
       <div role="tabpanel" id="xw-emp-panel-activity" aria-labelledby="xw-emp-tab-activity" hidden={tab !== 'activity'}>
         {tab === 'activity' ? <ActivityTab t={t} logs={logs} /> : null}

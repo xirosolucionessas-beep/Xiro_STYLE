@@ -3,23 +3,46 @@
  * de diseño propio de la Web (xw-*): tarjeta vía Stripe, PayPal y transferencia bancaria — los 3 métodos que ya
  * implementa el backend. Presentación en src/web/screens/Subscription.tsx.
  */
-import { SUBSCRIPTION_PLANS, type SubscriptionPlan } from '@xiro/shared';
+import { SUBSCRIPTION_PLANS, type SubscriptionInvoiceDto, type SubscriptionPlan } from '@xiro/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, ApiError } from '@/lib/api';
-import { useInvalidateSubscription, useSubscription } from '@/lib/queries';
+import { useInvalidateSubscription, useSubscription, useSubscriptionInvoices } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
-import { Brand } from '@/ui/Brand';
 import { SubscriptionView, type CheckoutPaymentMethod, type CheckoutResult } from '@/web/screens/Subscription';
+import { downloadSubscriptionInvoicePdf, downloadSubscriptionPosTicketPdf } from '@/web/services/subscriptionInvoicePdf';
 import { useWebText } from '@/web/services/useWebText';
 
 export default function SubscriptionWeb() {
-  const { t } = useWebText();
+  const { t, language } = useWebText();
   const router = useRouter();
-  const { business } = useAuthed();
+  const { user, business } = useAuthed();
   const { data: subscription } = useSubscription();
   const invalidateSubscription = useInvalidateSubscription();
+  // Un empleado no tiene permiso para esto (403): la pantalla ni la pide. Un dueño sin plan aún tampoco la necesita.
+  const showInvoices = user.role === 'owner' && subscription && subscription.status !== 'none';
+  const { data: invoices } = useSubscriptionInvoices(showInvoices);
   const { plan: requestedPlan } = useLocalSearchParams<{ plan?: string }>();
   const initialPlan = (SUBSCRIPTION_PLANS as readonly string[]).includes(requestedPlan ?? '') ? (requestedPlan as SubscriptionPlan) : undefined;
+
+  const locale = language === 'en' ? 'en-US' : 'es-CO';
+  function invoiceInput(invoice: SubscriptionInvoiceDto) {
+    const fmt = (iso: string) => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(iso));
+    const fmtDateTime = (iso: string) => `${fmt(iso)} · ${new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }).format(new Date(iso))}`;
+    return {
+      businessName: business.name,
+      businessTaxId: business.taxId,
+      businessEmail: user.email ?? '',
+      businessPhone: business.whatsapp || null,
+      paymentId: invoice.id,
+      dateLabel: fmtDateTime(invoice.createdAt),
+      planLabel: invoice.plan === 'yearly' ? t('plan_yearly') : t('plan_monthly'),
+      amount: invoice.amount,
+      currency: business.currency,
+      paymentMethodLabel: t(`pay_method_${invoice.paymentMethod}`),
+      periodStartLabel: fmt(invoice.periodStart),
+      periodEndLabel: fmt(invoice.periodEnd),
+    };
+  }
 
   async function checkout(plan: SubscriptionPlan, method: CheckoutPaymentMethod): Promise<CheckoutResult> {
     try {
@@ -46,6 +69,18 @@ export default function SubscriptionWeb() {
   const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
 
   return (
-    <SubscriptionView t={t} currency={business.currency} logo={<Brand size={56} logoUrl={business.logoUrl} />} subscription={subscription} initialPlan={initialPlan} onCheckout={checkout} onSkipTrial={skipTrial} onClose={close} />
+    <SubscriptionView
+      t={t}
+      language={language}
+      currency={business.currency}
+      subscription={subscription}
+      initialPlan={initialPlan}
+      onCheckout={checkout}
+      onSkipTrial={skipTrial}
+      onClose={close}
+      invoices={showInvoices ? invoices : undefined}
+      onDownloadInvoice={(invoice) => downloadSubscriptionInvoicePdf(invoiceInput(invoice))}
+      onViewPosTicket={(invoice) => downloadSubscriptionPosTicketPdf(invoiceInput(invoice))}
+    />
   );
 }

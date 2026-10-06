@@ -40,6 +40,18 @@ export interface Subscription {
   hasAccess: boolean;
 }
 
+/** Un comprobante de pago ya confirmado (Tarea de facturación de suscripción): monto y fechas congelados al momento del pago. */
+export interface SubscriptionInvoiceDto {
+  id: string;
+  plan: SubscriptionPlan;
+  amount: number;
+  currency: string;
+  paymentMethod: PaymentMethod;
+  periodStart: string;
+  periodEnd: string;
+  createdAt: string;
+}
+
 /** Única regla de acceso del sistema: úsala tanto en el servidor (para derivar `hasAccess`) como al decidir qué mostrar. */
 export function subscriptionHasAccess(status: SubscriptionStatus | 'none', gracePeriodEndsAt: Date | string | null, now: Date = new Date()): boolean {
   if (status === 'trial' || status === 'active') return true;
