@@ -1,5 +1,6 @@
 import { translate, type Language, type PublicBookingCatalog, type PublicBookingProfile } from '@xiro/shared';
 import { money } from '../lib/format';
+import { Icon } from '../ui/Icon';
 
 /** Productos con su imagen (recortada a proporción fija), nombre, descripción legible y precio formateado. Los agotados se ven, pero atenuados y rotulados. */
 export function ProductsSection({ profile, products, language }: { profile: PublicBookingProfile; products: PublicBookingCatalog['products']; language: Language }) {
@@ -17,7 +18,13 @@ export function ProductsSection({ profile, products, language }: { profile: Publ
           const description = product.description && product.description !== product.name && !/^[\d\s.,-]+$/.test(product.description) ? product.description : '';
           return (
             <li key={product.id} className={`xp-product${product.inStock ? '' : ' is-out'}`}>
-              {product.image ? <img className="xp-product-img" src={product.image} alt="" width={400} height={400} loading="lazy" decoding="async" /> : <span className="xp-product-img xp-product-img--empty" aria-hidden="true" />}
+              {product.image ? (
+                <img className="xp-product-img" src={product.image} alt="" width={400} height={400} loading="lazy" decoding="async" />
+              ) : (
+                <span className="xp-product-img xp-product-img--empty" aria-hidden="true">
+                  <Icon name="image" size={28} />
+                </span>
+              )}
               <div className="xp-product-body">
                 <h3 className="xp-product-name">{product.name}</h3>
                 {description ? <p className="xp-product-desc">{description}</p> : null}

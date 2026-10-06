@@ -7,6 +7,7 @@
 :root,
 :root[data-theme='dark'] {
   --bg: #15130f;
+  --bg-rgb: 21, 19, 15;
   --surface: #1c1914;
   --surface-2: #211c16;
   --surface-alt: #272019;
@@ -32,6 +33,7 @@
 }
 :root[data-theme='light'] {
   --bg: #f6f2e9;
+  --bg-rgb: 246, 242, 233;
   --surface: #ffffff;
   --surface-2: #faf6ee;
   --surface-alt: #f0e9db;
@@ -266,7 +268,7 @@ textarea {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(13, 13, 15, 0) 30%, rgba(13, 13, 15, 0.6) 68%, var(--bg) 100%);
+  background: linear-gradient(180deg, rgba(var(--bg-rgb), 0) 30%, rgba(var(--bg-rgb), 0.6) 68%, var(--bg) 100%);
   pointer-events: none;
 }
 .xp-cover-img {
@@ -297,7 +299,7 @@ textarea {
   margin-top: -28px;
   padding: var(--space-5) var(--space-4) var(--space-5);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  background: linear-gradient(180deg, rgba(23, 23, 26, 0.7), rgba(23, 23, 26, 0.94) 60%);
+  background: linear-gradient(180deg, rgba(var(--bg-rgb), 0.7), rgba(var(--bg-rgb), 0.94) 60%);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }
@@ -308,9 +310,9 @@ textarea {
 }
 
 .xp-logo {
-  width: 124px;
-  height: 124px;
-  margin-top: -74px;
+  width: 112px;
+  height: 112px;
+  margin-top: -66px;
   border-radius: 50%;
   border: 4px solid var(--bg);
   box-shadow: 0 0 0 2px var(--gold), var(--shadow-lg);
@@ -318,14 +320,26 @@ textarea {
   object-fit: cover;
   flex: none;
 }
+@media (min-width: 720px) {
+  .xp-logo {
+    width: 152px;
+    height: 152px;
+    margin-top: -88px;
+  }
+}
 .xp-logo--fallback {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--gold);
+  color: var(--text-muted);
   background: var(--surface-alt);
-  font-size: 38px;
-  font-weight: 800;
+  font-size: 34px;
+  font-weight: 700;
+}
+@media (min-width: 720px) {
+  .xp-logo--fallback {
+    font-size: 46px;
+  }
 }
 
 .xp-name {
@@ -357,18 +371,12 @@ textarea {
   align-items: center;
   gap: 8px;
   min-height: 34px;
-  padding: 4px 14px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
   color: var(--text-soft);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .xp-status.is-open {
   color: var(--success);
-  border-color: rgba(95, 208, 133, 0.5);
-  background: var(--success-tint);
 }
 .xp-status .xp-dot {
   width: 8px;
@@ -406,7 +414,7 @@ textarea {
   bottom: 0;
   z-index: 900;
   padding: var(--space-3) 0 calc(var(--space-3) + env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, rgba(13, 13, 15, 0), rgba(13, 13, 15, 0.94) 32%);
+  background: linear-gradient(180deg, rgba(var(--bg-rgb), 0), rgba(var(--bg-rgb), 0.94) 32%);
   backdrop-filter: blur(6px);
   transform: translateY(110%);
   transition: transform 0.28s var(--ease);
@@ -458,23 +466,15 @@ textarea {
 }
 
 .xp-section > h2 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: inline-block;
   margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
   font-size: 21px;
   line-height: 1.2;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--text);
-}
-.xp-section > h2::before {
-  content: '';
-  width: 4px;
-  height: 20px;
-  border-radius: 2px;
-  background: var(--gold);
-  flex: none;
 }
 
 .xp-card {
@@ -533,12 +533,8 @@ textarea {
 }
 .xp-tag--muted {
   margin-left: 0;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-alt);
   color: var(--text-muted);
-}
-.xp-service-body > .xp-tag {
-  align-self: flex-start;
-  margin-left: 0;
 }
 
 .xp-price {
@@ -578,100 +574,72 @@ img {
   height: auto;
 }
 
-.xp-service-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
-}
-@media (min-width: 640px) {
-  .xp-service-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (min-width: 1040px) {
-  .xp-service-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-.xp-service {
+/* Cartel de precios: una lista con renglón por servicio (miniatura, nombre, duración y precio con cifras
+   tabulares a la derecha), no una cuadrícula de tarjetas — es el gesto más propio de la identidad de la marca. */
+.xp-price-list {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  transition:
-    transform 0.2s var(--ease),
-    border-color 0.2s,
-    box-shadow 0.2s;
+  overflow: hidden;
 }
-.xp-service:hover {
-  transform: translateY(-2px);
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
+.xp-price-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
 }
-.xp-service--photo {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
+.xp-price-row + .xp-price-row {
+  border-top: 1px solid var(--border);
 }
-.xp-service-img {
-  display: block;
-  width: 92px;
-  height: 92px;
-  margin: var(--space-4) 0 var(--space-4) var(--space-4);
+.xp-price-thumb {
+  width: 56px;
+  height: 56px;
+  flex: none;
   border-radius: var(--radius-md);
-  aspect-ratio: 1;
   object-fit: cover;
   background: var(--surface-alt);
 }
-@media (min-width: 640px) {
-  .xp-service-img {
-    width: 112px;
-    height: 112px;
-  }
-}
-.xp-service-body {
-  display: flex;
+.xp-price-main {
   flex: 1;
-  flex-direction: column;
-  gap: 8px;
-  padding: var(--space-4);
+  min-width: 0;
 }
-.xp-service-name {
-  font-size: 17.5px;
-  line-height: 1.25;
-  font-weight: 800;
+.xp-price-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.xp-price-name {
+  font-size: 16.5px;
+  line-height: 1.3;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
-.xp-service-desc {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 14.5px;
-  line-height: 1.45;
+.xp-price-top .xp-price {
+  flex: none;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
 }
-.xp-service-meta {
+.xp-price-sub {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
-  margin-top: auto;
-  padding-top: 4px;
+  margin-top: 3px;
 }
-.xp-service-meta .xp-price {
-  font-size: 19px;
+.xp-price-desc {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
-.xp-service-book {
-  margin-top: 6px;
-}
-.xp-service--package {
-  border-color: rgba(217, 182, 54, 0.4);
-  background: linear-gradient(180deg, var(--gold-tint), transparent 55%), var(--surface);
+.xp-price-book {
+  margin-top: var(--space-3);
 }
 
 /* ---------- Profesionales ---------- */
@@ -733,9 +701,9 @@ img {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--gold);
+  color: var(--text-muted);
   font-size: 38px;
-  font-weight: 800;
+  font-weight: 700;
 }
 .xp-member-name {
   font-family: var(--font-display);
@@ -748,7 +716,7 @@ img {
   align-items: center;
   gap: 4px;
   margin-top: 6px;
-  color: var(--gold-soft);
+  color: var(--text-muted);
   font-size: 12.5px;
   font-weight: 700;
   opacity: 0.75;
@@ -953,6 +921,13 @@ img {
   object-fit: cover;
   background: var(--surface-alt);
 }
+.xp-product-img--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
 .xp-product-body {
   display: flex;
   flex: 1;
@@ -1047,30 +1022,32 @@ img {
   gap: var(--space-3);
   min-height: 48px;
   padding: 10px var(--space-4);
-  border-left: 3px solid transparent;
 }
 .xp-hours-row + .xp-hours-row {
   border-top: 1px solid var(--border);
 }
 .xp-hours-row dt {
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 500;
 }
 .xp-hours-row dd {
   margin: 0;
   color: var(--text-soft);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .xp-hours-row.is-closed dd {
   color: var(--text-muted);
 }
 .xp-hours-row.is-today {
-  border-left-color: var(--gold);
-  background: var(--gold-tint);
+  background: var(--surface-alt);
 }
 .xp-hours-row.is-today dt,
 .xp-hours-row.is-today dd {
   color: var(--text);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 /* ---------- Ubicación y contacto ---------- */
@@ -1217,7 +1194,7 @@ img {
   color: var(--text-soft);
 }
 .xp-btn--ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--surface-2);
   border-color: transparent;
   box-shadow: none;
 }
@@ -1266,7 +1243,7 @@ img {
   transition: background-color 0.2s;
 }
 .xp-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--surface-2);
 }
 
 /* ---------- Formularios ---------- */
@@ -1745,9 +1722,9 @@ img {
   background: var(--surface-alt);
 }
 .xp-pro-photo--fallback {
-  color: var(--gold);
+  color: var(--text-muted);
   font-size: 22px;
-  font-weight: 800;
+  font-weight: 700;
 }
 .xp-pro-photo--any {
   color: var(--gold);
@@ -1926,7 +1903,7 @@ img {
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-weight: 800;
+  font-weight: 700;
   text-align: left;
   text-decoration: none;
   cursor: pointer;
@@ -1936,11 +1913,11 @@ img {
     transform 0.15s var(--ease);
 }
 .xp-action .xp-icon {
-  color: var(--gold);
+  color: var(--text-muted);
 }
 .xp-action:hover {
-  border-color: var(--gold);
-  background: var(--gold-tint);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
 }
 .xp-action:active {
   transform: scale(0.98);
@@ -2101,7 +2078,7 @@ img {
   display: inline-block;
   width: 20px;
   height: 20px;
-  border: 3px solid rgba(255, 255, 255, 0.25);
+  border: 3px solid var(--border-strong);
   border-top-color: var(--on-gold);
   border-radius: 50%;
   animation: xp-spin 0.7s linear infinite;

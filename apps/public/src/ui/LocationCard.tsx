@@ -45,12 +45,12 @@ export function LocationCard({ profile, language }: { profile: PublicBookingProf
           </a>
         ) : null}
         {profile.whatsapp ? (
-          <a className="xp-btn xp-btn--auto" href={whatsappLink(profile.whatsapp, '')} target="_blank" rel="noopener noreferrer">
+          <a className="xp-btn xp-btn--secondary xp-btn--auto" href={whatsappLink(profile.whatsapp, '')} target="_blank" rel="noopener noreferrer">
             <Icon name="chat" /> {t('pub_whatsapp')}
           </a>
         ) : null}
         {profile.phone ? (
-          <a className="xp-btn xp-btn--ghost xp-btn--auto" href={phoneHref(profile.phone)}>
+          <a className="xp-btn xp-btn--secondary xp-btn--auto" href={phoneHref(profile.phone)}>
             <Icon name="phone" /> {t('call')}
           </a>
         ) : null}
