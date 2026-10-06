@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,8 +24,11 @@ const CATALOG_CSP =
 // nunca texto de un tercero); mismo trato que ya recibe el resto de la app (ver CSP de la app web en este archivo).
 // fonts.googleapis.com/fonts.gstatic.com: tipografías (Outfit/Inter) cargadas por su <link> en index.html — igual que
 // el resto del proyecto, nunca se autohospedan archivos binarios de fuentes en el repo.
-const RESERVAR_CSP =
-  "default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+// `{{THEME_SCRIPT_HASH}}`: el hash SHA-256 del script en línea de index.html que fija el tema (claro/oscuro) ANTES del
+// primer pintado (evita el parpadeo del tema equivocado) — se calcula del contenido real leído del archivo, nunca a
+// mano, así nunca queda desactualizado si ese script cambia.
+const RESERVAR_CSP_TEMPLATE =
+  "default-src 'none'; script-src 'self' {{THEME_SCRIPT_HASH}} https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /**
  * Catálogo público (HTML), fotos subidas y —si existe— la app web exportada por Expo.
@@ -86,6 +90,13 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
   if (config.publicWebDir && existsSync(path.join(config.publicWebDir, 'index.html'))) {
     const dir = config.publicWebDir;
     const reservarTemplate = readFileSync(path.join(dir, 'index.html'), 'utf8');
+    // Único <script> sin `src` del archivo: el que fija el tema antes del primer pintado (ver index.html). El hash de
+    // CSP se calcula sobre el texto YA normalizado a LF: el navegador normaliza CRLF→LF al parsear el HTML antes de
+    // hashear (es la fuente de verdad), y este archivo en disco trae CRLF (core.autocrlf de git en Windows) — sin
+    // esta normalización el hash calculado aquí nunca coincide con el que exige el navegador.
+    const inlineScript = (/<script>([\s\S]*?)<\/script>/.exec(reservarTemplate)?.[1] ?? '').replace(/\r\n?/g, '\n');
+    const themeScriptHash = `'sha256-${createHash('sha256').update(inlineScript).digest('base64')}'`;
+    const RESERVAR_CSP = RESERVAR_CSP_TEMPLATE.replace('{{THEME_SCRIPT_HASH}}', themeScriptHash);
 
     app.register(fastifyStatic, {
       root: dir,
