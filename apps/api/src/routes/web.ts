@@ -149,6 +149,10 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
     app.get<{ Params: { slug: string } }>('/reservar/:slug', reservarPage);
     // Enlace de gestión de una cita (ver, cancelar, mover, eliminar datos): misma página, el token lo procesa el cliente.
     app.get<{ Params: { slug: string } }>('/reservar/:slug/gestion/:token', reservarPage as never);
+    // Ingresar, registro, recuperar acceso y "Mi cuenta" (Entrega D): mismo cascarón de la SPA, el cliente decide qué
+    // pantalla mostrar según la ruta (ver lib/route.ts). Sin esto, abrir el enlace directo o recargar la página en
+    // cualquiera de estas vistas devolvía el 404 JSON de la API en vez de la aplicación.
+    app.get<{ Params: { slug: string; view: string } }>('/reservar/:slug/:view', reservarPage as never);
   }
 
   /* App web (Expo export) con fallback a index.html para las rutas del cliente. */

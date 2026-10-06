@@ -1,6 +1,7 @@
 import { formatClock, formatDay, localDate, localTime, translate, upperFirst, type ClientAccountDto, type Language, type PublicAppointmentDto } from '@xiro/shared';
 import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError, publicApi, type LoyaltyAccountView } from '../api';
+import { publicApi, type LoyaltyAccountView } from '../api';
+import { accountErrorMessage } from '../lib/accountErrors';
 import { useAsync, type AsyncState } from '../lib/useAsync';
 import { profilePath, navigate, accountPath } from '../lib/route';
 import { Button } from '../ui/Button';
@@ -118,7 +119,7 @@ function ForcedPasswordForm({ slug, t, onDone }: { slug: string; t: (k: string) 
       const me = await publicApi.accountMe(slug);
       if (me) onDone(me);
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : t('unknown_error'));
+      setError(accountErrorMessage(t, err));
     } finally {
       setBusy(false);
     }
@@ -155,6 +156,7 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
   const [email, setEmail] = useState(account.email ?? '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -165,15 +167,19 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   async function saveProfile(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
     setSaved(false);
+    setSaveError('');
     try {
       const updated = await publicApi.accountUpdate(slug, { name, email: email || null });
       onAccountChange(updated);
       setSaved(true);
+    } catch (err) {
+      setSaveError(accountErrorMessage(t, err));
     } finally {
       setSaving(false);
     }
@@ -190,7 +196,7 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
       setCurrentPassword('');
       setNewPassword('');
     } catch (err) {
-      setPwError(err instanceof ApiError ? err.code : t('unknown_error'));
+      setPwError(accountErrorMessage(t, err));
     } finally {
       setPwBusy(false);
     }
@@ -198,10 +204,13 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
 
   async function doDelete() {
     setDeleting(true);
+    setDeleteError('');
     try {
       await publicApi.accountDelete(slug, deletePassword);
       onLogout();
       navigate(profilePath(slug));
+    } catch (err) {
+      setDeleteError(accountErrorMessage(t, err));
     } finally {
       setDeleting(false);
     }
@@ -210,6 +219,11 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
   return (
     <div className="xp-stack">
       <form className="xp-stack" onSubmit={(e) => void saveProfile(e)}>
+        {saveError ? (
+          <p className="xp-error" role="alert">
+            {saveError}
+          </p>
+        ) : null}
         <div className="xp-field">
           <label className="xp-label" htmlFor="xp-prof-name">
             {t('pub_account_name_label')}
@@ -257,6 +271,11 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
         <div className="xp-card xp-stack">
           <h3 className="xp-subtitle">{t('pub_my_account_delete_confirm_title')}</h3>
           <p className="xp-hint">{t('pub_my_account_delete_confirm_text')}</p>
+          {deleteError ? (
+            <p className="xp-error" role="alert">
+              {deleteError}
+            </p>
+          ) : null}
           <input className="xp-input" type="password" placeholder={t('pub_account_password_label')} value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} />
           <div className="xp-btn-row">
             <Button variant="ghost" full={false} onClick={() => setConfirmDelete(false)}>
