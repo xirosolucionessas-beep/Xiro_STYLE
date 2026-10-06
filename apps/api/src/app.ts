@@ -31,6 +31,7 @@ import { messagesRoutes } from './routes/messages';
 import { notificationRoutes } from './routes/notifications';
 import { placesRoutes } from './routes/places';
 import { publicRoutes } from './routes/public';
+import { clientAccountRoutes } from './routes/clientAccounts';
 import { publicBookingRoutes } from './routes/publicBooking';
 import { realtimeRoutes } from './routes/realtime';
 import { salesRoutes } from './routes/sales';
@@ -250,6 +251,7 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
   );
   await app.register(async (scope) => publicRoutes(scope, ctx), { prefix: '/api/public' });
   await app.register(async (scope) => publicBookingRoutes(scope, ctx), { prefix: '/api/public/booking' });
+  await app.register(async (scope) => clientAccountRoutes(scope, ctx), { prefix: '/api/public/booking' });
   // Sin `authenticate`: `EventSource` no puede mandar el header de sesión. La única llave es el ticket de un solo uso
   // que emite `POST /api/booking/events/ticket`, esa sí dentro del grupo autenticado de más abajo.
   await app.register(async (scope) => realtimeRoutes(scope, ctx), { prefix: '/api' });

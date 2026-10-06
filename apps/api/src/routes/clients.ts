@@ -1,22 +1,25 @@
 import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
-import { clientInputSchema, type Client } from '@xiro/shared';
+import { clientInputSchema, resetClientPasswordSchema, type Client } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
-import { clients } from '../db/schema';
+import { clientAccounts, clientAuditLog, clientSessions, clients } from '../db/schema';
 import { anonymizeClient } from '../booking/privacy';
 import { AppError, notFound, parse, uuid } from '../errors';
 import { removeMedia, saveAvatarImage } from '../media';
 import { notifyBusiness } from '../push';
+import { hashPassword, readableTempPassword, WindowCounter } from '../security';
 import { toClient } from '../serializers';
 
 const listQuery = z.object({ q: z.string().trim().max(80).optional() });
+const TEMP_PASSWORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Escapa los comodines de LIKE para que la búsqueda sea literal (p. ej. "%" no coincide con todo). */
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (char) => `\\${char}`);
 
 export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
+  const resetLimiter = new WindowCounter(60 * 60 * 1000);
   const businessOf = (request: { user: { bid: string } }) => request.user.bid;
   const ownedBy = (businessId: string, id: string) => and(eq(clients.id, id), eq(clients.businessId, businessId));
 
@@ -35,7 +38,8 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
   app.get('/clients/:id', async (request) => {
     const [row] = await db.select().from(clients).where(ownedBy(businessOf(request), uuid((request.params as { id?: string }).id))).limit(1);
     if (!row) throw notFound();
-    return toClient(row);
+    const [account] = await db.select({ lastLoginAt: clientAccounts.lastLoginAt }).from(clientAccounts).where(eq(clientAccounts.clientId, row.id)).limit(1);
+    return { ...toClient(row), onlineAccount: account ? { lastLoginAt: account.lastLoginAt?.toISOString() ?? null } : null };
   });
 
   app.post('/clients', async (request, reply) => {
@@ -112,5 +116,36 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     await removeMedia(config.mediaDir, result.previousPhotoFile);
     const [row] = await db.select().from(clients).where(ownedBy(businessId, id)).limit(1);
     return toClient(row!);
+  });
+
+  /**
+   * Restablecer la contraseña de la cuenta en línea de un cliente (8.10 del encargo): la ÚNICA credencial que el
+   * negocio puede tocar — nunca ve la actual, y desde aquí no cambia teléfono, nombre ni foto (eso sigue siendo
+   * Clientes normal). Solo el Propietario. Genera una temporal de 7 días que obliga a elegir una propia al entrar,
+   * cierra todas las sesiones abiertas de ese cliente y deja auditoría; la temporal se devuelve UNA sola vez y
+   * nunca se guarda en claro.
+   */
+  app.post('/clients/:id/reset-password', async (request) => {
+    // El dueño es el único que puede llamar esta ruta — lo exige authz.ts (POLICY), no una comprobación aquí.
+    const id = uuid((request.params as { id?: string }).id);
+    const businessId = businessOf(request);
+    const input = parse(resetClientPasswordSchema, request.body ?? {});
+
+    const key = `client-reset-password:${id}`;
+    if (resetLimiter.hit(key) > 5) throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(resetLimiter.retryAfterSeconds(key)) });
+
+    const [client] = await db.select({ id: clients.id }).from(clients).where(ownedBy(businessId, id)).limit(1);
+    if (!client) throw notFound();
+    const [account] = await db.select().from(clientAccounts).where(eq(clientAccounts.clientId, id)).limit(1);
+    if (!account) throw new AppError(404, 'no_online_account');
+
+    const tempPassword = input.password ?? readableTempPassword(10);
+    const passwordHash = await hashPassword(tempPassword);
+    await db.transaction(async (tx) => {
+      await tx.update(clientAccounts).set({ passwordHash, mustChangePassword: true, tempPasswordExpiresAt: new Date(Date.now() + TEMP_PASSWORD_TTL_MS) }).where(eq(clientAccounts.id, account.id));
+      await tx.update(clientSessions).set({ revokedAt: new Date() }).where(eq(clientSessions.accountId, account.id));
+      await tx.insert(clientAuditLog).values({ businessId, accountId: account.id, action: 'password_reset', actorUserId: request.actor.id });
+    });
+    return { tempPassword };
   });
 }

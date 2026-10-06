@@ -23,6 +23,8 @@ import { verifyCaptcha } from '../booking/captcha';
 import { anonymizeClient } from '../booking/privacy';
 import { withBusiness, type Tx } from '../booking/scope';
 import { allSections, loadProfileRow, loadPublicCatalog, loadPublicProfile, loadPublicReviews, loadPublicTeam, resolveSlug } from '../booking/view';
+import { CLIENT_COOKIE_NAME, resolveClientAccount } from '../clientSession';
+import { parseCookies } from '../cookies';
 import type { Ctx } from '../context';
 import { appointments } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
@@ -176,6 +178,11 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
 
     if (!(await verifyCaptcha(config.booking.turnstileSecret, input.captchaToken, request.ip))) throw new AppError(400, 'captcha_failed');
 
+    // Si quien reserva inició sesión, la cita se asocia a SU cuenta (clientId estable), no al teléfono que haya
+    // escrito en este formulario — así puede cambiar el teléfono de contacto de una cita sin perder su fidelización
+    // ni su historial. Invitado: se busca o crea por teléfono, exactamente como siempre.
+    const account = await resolveClientAccount(db, config.jwtSecret, parseCookies(request.headers.cookie)[CLIENT_COOKIE_NAME], business);
+
     let created: AppointmentRow | undefined;
     let repeated = false;
     const result = await scopedTo(business, async (tx): Promise<PublicBookingResult> => {
@@ -192,7 +199,8 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         now,
         startsAt: new Date(input.startsAt),
         source: 'web',
-        client: { create: { name: `${customer.firstName} ${customer.lastName}`.trim(), phone: customer.phone, email: customer.email } },
+        client: account ? { id: account.clientId } : { create: { name: `${customer.firstName} ${customer.lastName}`.trim(), phone: customer.phone, email: customer.email } },
+        clientAccountId: account?.id ?? null,
         customerNotes: notes,
         internalNotes: '',
         createdBy: null,

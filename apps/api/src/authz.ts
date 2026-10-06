@@ -69,6 +69,8 @@ export const POLICY: Record<string, PolicyRule> = {
   'PUT /clients/:id/photo': ['clients_manage'],
   'DELETE /clients/:id/photo': ['clients_manage'],
   'POST /clients/:id/anonymize': ['clients_manage'],
+  // Restablecer la contraseña de la cuenta en línea de un cliente: solo el dueño (8.10 del encargo).
+  'POST /clients/:id/reset-password': 'owner',
 
   // Ventas (POS): registrar y consultar piden el mismo permiso que registrar un servicio; anular es solo del dueño.
   'GET /sales': ['services_record'],
