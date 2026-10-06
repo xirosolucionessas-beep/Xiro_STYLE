@@ -13,7 +13,7 @@ import { useAuthed } from '@/lib/session';
 import { Header, Screen } from '@/ui/Screen';
 import { Ico } from '@/web/icons';
 import { businessAddressLine, toDataUrl } from '@/web/services/invoicePdf';
-import { downloadCatalogPdf, toQrDataUrl, type CatalogPdfItem } from '@/web/services/catalogPdf';
+import { downloadCatalogPdf, toCompressedDataUrl, toQrDataUrl, type CatalogPdfItem } from '@/web/services/catalogPdf';
 import { CatalogView, type CatalogCardView } from '@/web/screens/Catalog';
 import { useWebText } from '@/web/services/useWebText';
 import { Button } from '@/web/ui/Button';
@@ -65,15 +65,16 @@ export default function CatalogWeb() {
       const [logoDataUrl, qrDataUrl, itemImages] = await Promise.all([
         toDataUrl(resolveMedia(business.logoUrl)),
         toQrDataUrl(bookingUrl),
-        Promise.all(published.map((item) => toDataUrl(resolveMedia(item.photos[0]?.url)))),
+        Promise.all(published.map((item) => Promise.all(item.photos.map((photo) => toCompressedDataUrl(resolveMedia(photo.url)))))),
       ]);
 
       const pdfItems: CatalogPdfItem[] = published.map((item, index) => ({
         name: item.name,
         categoryLabel: item.categoryName,
-        description: item.shortDescription,
+        description: item.description || item.shortDescription,
         priceLabel: formatMoney(item.price, currency),
-        imageDataUrl: itemImages[index] ?? null,
+        durationMinutes: item.kind === 'service' ? item.durationMinutes : null,
+        imageDataUrls: (itemImages[index] ?? []).filter((url): url is string => Boolean(url)),
       }));
 
       const social = [profile?.instagram ? `Instagram: ${profile.instagram}` : null, profile?.facebook ? `Facebook: ${profile.facebook}` : null, profile?.tiktok ? `TikTok: ${profile.tiktok}` : null, profile?.website || null].filter((line): line is string => Boolean(line));
