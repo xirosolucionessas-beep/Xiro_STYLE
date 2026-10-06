@@ -250,6 +250,38 @@ textarea {
   background: var(--surface-alt);
   color: var(--text);
 }
+.xp-topbar-login {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  width: auto;
+  padding: 0 var(--space-3);
+  color: var(--text);
+}
+.xp-topbar-account {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.xp-topbar-avatar {
+  display: block;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--gold);
+}
+.xp-topbar-avatar--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-alt);
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 700;
+}
 
 /* ---------- Cabecera del negocio ---------- */
 
@@ -2324,6 +2356,123 @@ img {
 .xp-gallery-thumb[aria-selected='true'] {
   border-color: var(--gold);
   opacity: 1;
+}
+
+/* ---------- Cuenta de cliente: ingresar, crear cuenta, recuperar ---------- */
+
+.xp-auth {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+  min-height: calc(100vh - 53px);
+}
+.xp-auth-card {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+}
+.xp-auth-logo {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--bg);
+  box-shadow: 0 0 0 1.5px var(--gold);
+  background: var(--surface);
+}
+.xp-auth-logo--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gold);
+  background: var(--surface-alt);
+  font-size: 30px;
+  font-weight: 700;
+}
+.xp-auth-name {
+  font-size: 19px;
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+}
+.xp-auth-seg {
+  margin-bottom: var(--space-4);
+}
+.xp-auth-seg .xp-seg-btn--text {
+  min-height: 40px;
+  padding: 0 var(--space-5);
+}
+.xp-auth .xp-stack {
+  width: 100%;
+  text-align: left;
+}
+.xp-auth-password-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.xp-auth-password-row .xp-input {
+  flex: 1;
+}
+.xp-auth-password-toggle {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 4px;
+  min-height: 44px;
+}
+.xp-auth-password-toggle:hover {
+  color: var(--text);
+}
+.xp-auth-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.xp-auth-remember {
+  margin: 0;
+}
+.xp-auth-forgot {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-decoration: underline;
+}
+.xp-auth-forgot:hover {
+  color: var(--text);
+}
+.xp-auth-recover-title {
+  font-size: 16px;
+  font-weight: 700;
+  align-self: flex-start;
+}
+.xp-auth-backup {
+  text-align: center;
+}
+.xp-auth-card > .xp-btn--ghost {
+  margin-top: var(--space-4);
+}
+
+.xp-loyalty-bar {
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.xp-loyalty-bar-fill {
+  height: 100%;
+  background: var(--gold);
+  border-radius: inherit;
+  transition: width 0.3s var(--ease);
 }
 
 /* ---------- Pie ---------- */

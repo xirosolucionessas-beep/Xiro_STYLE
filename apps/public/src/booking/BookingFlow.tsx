@@ -9,6 +9,7 @@ import {
   todayIn,
   translate,
   type BookingSelection,
+  type ClientAccountDto,
   type Language,
   type PublicBookingCatalog,
   type PublicBookingProfile,
@@ -44,6 +45,20 @@ export interface InitialChoice {
 const selectionOf = (chosen: Chosen): Pick<BookingSelection, 'services' | 'packages'> => ({ services: chosen.services, packages: chosen.packages });
 
 /**
+ * Con sesión, el paso "Tus datos" viene prellenado con los de la cuenta — editable para ESTA cita, sin que eso la
+ * cambie (ver sección 8.9 del encargo). `ClientAccountDto` solo guarda un nombre completo, no nombre/apellido
+ * aparte: se reparte en la primera palabra y el resto, igual que hace cualquier formulario con ese mismo dato.
+ */
+function customerFromAccount(account: ClientAccountDto | null | undefined): CustomerForm {
+  if (!account) return { firstName: '', lastName: '', phone: '', email: '', notes: '' };
+  const [firstName = '', ...rest] = account.name.trim().split(/\s+/);
+  // El teléfono se guarda normalizado (p. ej. "573001234567"); con el indicativo de Colombia se muestra en su forma
+  // local de 10 dígitos, que es la que la persona reconoce y puede corregir sin confundirse con el indicativo.
+  const phone = account.phone.startsWith('57') && account.phone.length === 12 ? account.phone.slice(2) : account.phone;
+  return { firstName, lastName: rest.join(' '), phone, email: account.email ?? '', notes: '' };
+}
+
+/**
  * Flujo de reserva sin cuenta, en pasos cortos: Servicio → Profesional (solo si hay equipo visible) → Fecha y hora → Tus datos →
  * Resumen. Con progreso nombrado, la selección siempre a la vista, "Atrás" sin perder nada y cada paso enfocado al abrirse para
  * lectores de pantalla. Confirmar es idempotente: doble clic o un reintento devuelven la misma cita.
@@ -56,6 +71,7 @@ export function BookingFlow({
   team,
   language,
   initial = {},
+  account,
   onClose,
 }: {
   slug: string;
@@ -65,6 +81,8 @@ export function BookingFlow({
   team: PublicTeamMemberDto[];
   language: Language;
   initial?: InitialChoice;
+  /** Con sesión, el formulario viene con sus datos (editables para esta cita, sin que eso cambie la cuenta). */
+  account?: ClientAccountDto | null;
   onClose: () => void;
 }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
@@ -83,7 +101,7 @@ export function BookingFlow({
   const [stepError, setStepError] = useState<string>();
   const [alternatives, setAlternatives] = useState<Array<{ time: string; startsAt: string }>>([]);
 
-  const [customer, setCustomer] = useState<CustomerForm>({ firstName: '', lastName: '', phone: '', email: '', notes: '' });
+  const [customer, setCustomer] = useState<CustomerForm>(() => customerFromAccount(account));
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [consent, setConsent] = useState({ acceptTerms: false, remindersOptIn: false });
   const [website, setWebsite] = useState(''); // campo trampa

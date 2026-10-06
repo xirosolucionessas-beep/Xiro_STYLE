@@ -1,4 +1,4 @@
-import { translate, type Language } from '@xiro/shared';
+import { translate, type ClientAccountDto, type Language } from '@xiro/shared';
 import { useEffect, useRef, useState } from 'react';
 import { publicApi } from '../api';
 import { BookingFlow, type InitialChoice } from '../booking/BookingFlow';
@@ -21,7 +21,7 @@ import { ProfileSkeleton } from '../ui/Skeleton';
  * Galería, Productos, Reseñas, Horarios y Ubicación y contacto. Una sección sin contenido, o apagada en "Mi página web",
  * no se dibuja. Sin sesión: cualquier persona puede reservar.
  */
-export function ProfilePage({ slug, language }: { slug: string; language: Language }) {
+export function ProfilePage({ slug, language, account }: { slug: string; language: Language; account?: ClientAccountDto | null }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
   const profileState = useAsync(() => publicApi.profile(slug), [slug]);
   const [booking, setBooking] = useState<InitialChoice | null>(null);
@@ -95,7 +95,7 @@ export function ProfilePage({ slug, language }: { slug: string; language: Langua
 
       {profile.acceptsBookings ? <StickyBook visible={!heroCtaVisible && !booking} language={language} onBook={() => openFlow()} /> : null}
 
-      {booking ? <BookingFlow slug={currentSlug} profile={profile} catalog={catalog ?? { services: [], packages: [], products: [] }} catalogLoading={catalogState.loading} team={teamState.data ?? []} language={language} initial={booking} onClose={() => setBooking(null)} /> : null}
+      {booking ? <BookingFlow slug={currentSlug} profile={profile} catalog={catalog ?? { services: [], packages: [], products: [] }} catalogLoading={catalogState.loading} team={teamState.data ?? []} language={language} initial={booking} account={account} onClose={() => setBooking(null)} /> : null}
       {catalogState.error ? (
         <p className="xp-sr" role="alert">
           {t(errorKey(catalogState.error))}

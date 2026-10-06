@@ -1,9 +1,12 @@
 import { translate } from '@xiro/shared';
 import { useEffect, useState } from 'react';
 import { useLanguage } from './lib/lang';
-import { parseRoute } from './lib/route';
+import { accountPath, navigate, parseRoute } from './lib/route';
+import { useClientSession } from './lib/session';
 import { useTheme } from './lib/theme';
+import { AccountPage } from './pages/AccountPage';
 import { ManagePage } from './pages/ManagePage';
+import { MyAccountPage } from './pages/MyAccountPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { TopBar } from './ui/TopBar';
 
@@ -22,8 +25,19 @@ export function App() {
   const [language, setLanguage] = useLanguage();
   const [theme, setTheme] = useTheme();
   const route = parseRoute(pathname);
+  const slug = route.name === 'not-found' ? '' : route.slug;
+  const session = useClientSession(slug);
 
-  const topBar = <TopBar language={language} onLanguageChange={setLanguage} theme={theme} onThemeChange={setTheme} />;
+  const topBar = (
+    <TopBar
+      language={language}
+      onLanguageChange={setLanguage}
+      theme={theme}
+      onThemeChange={setTheme}
+      account={slug ? session.account : null}
+      onAccountNav={slug ? (view) => navigate(accountPath(slug, view)) : undefined}
+    />
+  );
 
   if (route.name === 'not-found') {
     return (
@@ -36,10 +50,14 @@ export function App() {
       </>
     );
   }
+
   return (
     <>
       {topBar}
-      {route.name === 'manage' ? <ManagePage slug={route.slug} token={route.token} language={language} /> : <ProfilePage slug={route.slug} language={language} />}
+      {route.name === 'manage' ? <ManagePage slug={route.slug} token={route.token} language={language} /> : null}
+      {route.name === 'profile' ? <ProfilePage slug={route.slug} language={language} account={session.account} /> : null}
+      {route.name === 'account' && route.view !== 'cuenta' ? <AccountPage slug={route.slug} view={route.view} language={language} account={session.account} onAuthenticated={session.setAccount} /> : null}
+      {route.name === 'account' && route.view === 'cuenta' ? <MyAccountPage slug={route.slug} language={language} account={session.account} onAccountChange={session.setAccount} onLogout={() => void session.logout()} /> : null}
     </>
   );
 }
