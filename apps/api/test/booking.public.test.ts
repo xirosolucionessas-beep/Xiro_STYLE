@@ -179,21 +179,20 @@ describe('reservar', () => {
     expect(res.json<PublicBookingResult>().appointment.status).toBe('pending');
   });
 
-  it('valida el formulario: términos, campo trampa, correo obligatorio, celular real y horario de la cuadrícula', async () => {
+  it('valida el formulario: términos, campo trampa, celular real y horario de la cuadrícula; el correo siempre es opcional', async () => {
     const biz = await setupBiz(app, 'Valida');
     const date = workday(4);
     const noTerms = await book(app, biz, date, '10:00', { acceptTerms: false });
     expect(noTerms.statusCode).toBe(400);
     expect((await book(app, biz, date, '10:00', { website: 'https://spam.example' })).statusCode).toBe(400);
     const customer = (over: object) => ({ firstName: 'Ana', lastName: 'Pérez', email: 'ana@correo.com', phone: nextPhone(), notes: '', custom: {}, ...over });
-    expect((await book(app, biz, date, '10:00', { customer: customer({ email: undefined }) })).statusCode).toBe(400); // correo obligatorio por defecto
+    // Sin correo: se agenda igual, para cualquier negocio (no hay forma de exigirlo).
+    expect((await book(app, biz, date, '10:00', { customer: customer({ email: undefined }) })).statusCode).toBe(201);
     expect((await book(app, biz, date, '10:00', { customer: customer({ phone: '123' }) })).statusCode).toBe(400);
     expect((await book(app, biz, date, '10:00', { customer: customer({ firstName: '   ' }) })).statusCode).toBe(400);
     expect((await book(app, biz, date, '10:10')).json()).toMatchObject({ code: 'slot_not_allowed' });
-    await staffPatch(biz, '/api/booking/settings', { requireEmail: false });
-    expect((await book(app, biz, date, '10:00', { customer: customer({ email: undefined }) })).statusCode).toBe(201);
-    // Los campos personalizados obligatorios se exigen y se guardan en las notas.
-    await staffPatch(biz, '/api/booking/settings', { requireEmail: false, customFields: [{ key: 'placa', label: 'Placa', type: 'text', required: true }] });
+    // Los campos personalizados obligatorios sí se siguen exigiendo y guardando en las notas.
+    await staffPatch(biz, '/api/booking/settings', { customFields: [{ key: 'placa', label: 'Placa', type: 'text', required: true }] });
     expect((await book(app, biz, date, '12:00', { customer: customer({ custom: {} }) })).statusCode).toBe(400);
     expect((await book(app, biz, date, '12:00', { customer: customer({ custom: { placa: 'ABC123' } }) })).statusCode).toBe(201);
   });

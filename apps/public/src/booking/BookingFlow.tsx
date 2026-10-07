@@ -195,8 +195,9 @@ export function BookingFlow({
     if (!customer.firstName.trim()) found.firstName = t('required');
     if (!customer.lastName.trim()) found.lastName = t('required');
     if (!isValidPhone(customer.phone)) found.phone = t('phone_invalid');
-    if (profile.rules.requireEmail && !customer.email.trim()) found.email = t('required');
-    else if (customer.email.trim() && !looksLikeEmail(customer.email.trim())) found.email = t('email_invalid');
+    // El correo es siempre opcional al agendar (solo nombre y celular son obligatorios); si se escribe uno, debe
+    // tener forma de correo válida.
+    if (customer.email.trim() && !looksLikeEmail(customer.email.trim())) found.email = t('email_invalid');
     for (const field of profile.rules.customFields) if (field.required && !(custom[field.key] ?? '').trim()) found[`custom.${field.key}`] = t('required');
     setErrors(found);
     return Object.keys(found).length === 0;

@@ -1,9 +1,10 @@
 import { translate, type Language, type PublicBookingProfile } from '@xiro/shared';
-import type { Ref } from 'react';
+import { useState, type Ref } from 'react';
 import { initials } from '../lib/format';
 import { statusText } from '../lib/hours';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
+import { Lightbox } from '../ui/Lightbox';
 
 /**
  * Encabezado: portada con degradado oscuro abajo (el texto NUNCA va encima de la imagen), logo circular montado en su borde y,
@@ -13,10 +14,23 @@ import { Icon } from '../ui/Icon';
 export function Hero({ profile, language, onBook, ctaRef }: { profile: PublicBookingProfile; language: Language; onBook: () => void; ctaRef: Ref<HTMLDivElement> }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
   const showRating = profile.sections.reviews && profile.rating.count > 0;
+  const [expanded, setExpanded] = useState(false);
   return (
     <header className="xp-hero">
       <div className="xp-cover">
-        {profile.coverUrl ? <img className="xp-cover-img" src={profile.coverUrl} alt="" width={1200} height={480} fetchPriority="high" decoding="async" /> : <div className="xp-cover-fallback" aria-hidden="true" />}
+        {profile.coverUrl ? (
+          <>
+            {/* Fondo desenfocado de la MISMA foto: con `contain` (nunca se recorta nada de la imagen) el espacio
+                sobrante se rellena con la propia portada en vez de un color plano — se ve igual de bien en claro y
+                en oscuro, sin el marco/borde desproporcionado de un fondo liso. */}
+            <div className="xp-cover-backdrop" style={{ backgroundImage: `url(${profile.coverUrl})` }} aria-hidden="true" />
+            <button type="button" className="xp-cover-trigger" aria-label={t('pub_gallery_open', { n: 1, total: 1 })} onClick={() => setExpanded(true)}>
+              <img className="xp-cover-img" src={profile.coverUrl} alt="" width={1200} height={480} fetchPriority="high" decoding="async" />
+            </button>
+          </>
+        ) : (
+          <div className="xp-cover-fallback" aria-hidden="true" />
+        )}
       </div>
       <div className="xp-container xp-identity">
         {profile.logoUrl ? (
@@ -48,6 +62,7 @@ export function Hero({ profile, language, onBook, ctaRef }: { profile: PublicBoo
           </div>
         ) : null}
       </div>
+      {expanded && profile.coverUrl ? <Lightbox photos={[profile.coverUrl]} index={0} onChange={() => {}} onClose={() => setExpanded(false)} language={language} /> : null}
     </header>
   );
 }

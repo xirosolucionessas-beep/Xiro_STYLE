@@ -200,9 +200,9 @@ describe('BookingFlow', () => {
     expect(book).not.toHaveBeenCalled();
   });
 
-  it('pide correo cuando el negocio lo exige, y no lo pide cuando no', async () => {
+  it('el correo siempre es opcional: sin escribirlo, la reserva avanza y se envía sin correo', async () => {
     const user = userEvent.setup();
-    renderFlow({ rules: { ...profile.rules, requireEmail: false } });
+    renderFlow();
     await goToReview(user, '');
     await accept(user);
     book.mockResolvedValue({ appointment: appointmentFixture, token: 'tok123' });
@@ -211,13 +211,13 @@ describe('BookingFlow', () => {
     expect(book.mock.calls[0]![1]).toMatchObject({ customer: { email: undefined } });
   });
 
-  it('con correo obligatorio, sin correo no avanza', async () => {
+  it('si se escribe un correo con formato inválido, sí avisa (el formato se valida aunque no sea obligatorio)', async () => {
     const user = userEvent.setup();
     renderFlow();
     await pickService(user);
     await pickSlot(user);
-    await fillDetails(user, '');
-    expect(screen.getAllByText('Este campo es obligatorio.')).toHaveLength(1);
+    await fillDetails(user, 'no-es-un-correo');
+    expect(screen.getByText('Ingresa un correo válido.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Confirmar reserva' })).toBeNull();
   });
 

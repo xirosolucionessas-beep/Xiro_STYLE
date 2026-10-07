@@ -210,7 +210,7 @@ export function DetailsStep({
         {field('xp-last', `${t('pub_last_name')} *`, <input id="xp-last" className={cls('lastName')} value={customer.lastName} onChange={(e) => onCustomer({ lastName: e.target.value })} maxLength={50} autoComplete="family-name" aria-invalid={Boolean(errors.lastName)} />, errors.lastName)}
       </div>
       {field('xp-phone', `${t('phone')} *`, <input id="xp-phone" className={cls('phone')} type="tel" inputMode="tel" value={customer.phone} onChange={(e) => onCustomer({ phone: e.target.value })} maxLength={30} autoComplete="tel" aria-invalid={Boolean(errors.phone)} />, errors.phone, t('pub_phone_hint'))}
-      {field('xp-email', `${t('email')} ${profile.rules.requireEmail ? '*' : ''}`.trim(), <input id="xp-email" className={cls('email')} type="email" inputMode="email" value={customer.email} onChange={(e) => onCustomer({ email: e.target.value })} maxLength={254} autoComplete="email" aria-invalid={Boolean(errors.email)} />, errors.email)}
+      {field('xp-email', t('pub_account_email_label'), <input id="xp-email" className={cls('email')} type="email" inputMode="email" value={customer.email} onChange={(e) => onCustomer({ email: e.target.value })} maxLength={254} autoComplete="email" aria-invalid={Boolean(errors.email)} />, errors.email)}
       {profile.rules.customFields.map((f) =>
         field(
           `xp-custom-${f.key}`,
