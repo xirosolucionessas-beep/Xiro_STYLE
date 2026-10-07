@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { ReportPeriod } from '@xiro/shared';
+import type { ReportPeriod } from '@/lib/sections';
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSettings } from '@/lib/settings';

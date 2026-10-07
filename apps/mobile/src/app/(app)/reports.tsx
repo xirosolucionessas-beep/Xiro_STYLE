@@ -5,7 +5,7 @@
  * `@xiro/shared/reports`). El PDF y el Excel salen del MISMO generador que la web (`lib/exports`); en el teléfono se
  * guardan o comparten desde la hoja del sistema. También comparte un resumen en texto (WhatsApp, correo, notas…).
  */
-import { addDays, formatMoney, todayIn, type Currency, type ReportPeriod } from '@xiro/shared';
+import { addDays, formatMoney, todayIn, type Currency } from '@xiro/shared';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Share } from 'react-native';
@@ -31,6 +31,7 @@ import {
   salesSummary,
   topSaleClients,
   topSaleItems,
+  type ReportPeriod,
 } from '@/lib/sections';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
