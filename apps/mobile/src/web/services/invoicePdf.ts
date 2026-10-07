@@ -34,10 +34,8 @@ export interface InvoiceInput {
   currency: Currency;
 }
 
-/** "Calle 10 #5-20, Bogotá, Colombia" a partir de los campos sueltos del negocio; omite los que estén vacíos. */
-export function businessAddressLine(address: string, city: string, country: string): string {
-  return [address, city, country].map((part) => part.trim()).filter(Boolean).join(', ');
-}
+/** Compartida con Android/iOS (ver @/lib/exports/address). */
+export { businessAddressLine } from '@/lib/exports/address';
 
 const GOLD: [number, number, number] = [176, 141, 62];
 const INK: [number, number, number] = [26, 24, 21];

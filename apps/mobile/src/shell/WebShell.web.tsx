@@ -24,7 +24,7 @@ import { applyTheme } from '@/web/styles';
 /** Estructura de la web: sidebar/drawer, migas, <main>, títulos de página y foco al navegar. Solo web. */
 export function WebShell({ children }: { children: ReactNode }) {
   const { status, business, user } = useSession();
-  const { theme } = useSettings();
+  const { theme, aiFab } = useSettings();
   const pathname = usePathname();
   const params = useGlobalSearchParams<{ id?: string }>();
   const router = useRouter();
@@ -97,8 +97,12 @@ export function WebShell({ children }: { children: ReactNode }) {
           route.hideFloating ? null : (
             <>
               <FloatingWhatsApp language={language} businessName={business?.name} label={t('whatsapp_float_label')} />
-              <FloatingAssistant label={t('assistant_float_label')} open={assistantOpen} onPress={() => setAssistantOpen((value) => !value)} />
-              <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} t={t} />
+              {aiFab ? (
+                <>
+                  <FloatingAssistant label={t('assistant_float_label')} open={assistantOpen} onPress={() => setAssistantOpen((value) => !value)} />
+                  <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} t={t} />
+                </>
+              ) : null}
             </>
           )
         }>

@@ -1,8 +1,9 @@
-import { whatsappLink, type Language } from '@xiro/shared';
+import type { Language } from '@xiro/shared';
 import { useRouter } from 'expo-router';
 import { Linking, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
 import { api } from '@/lib/api';
+import { supportMessage, supportWhatsappUrl } from '@/lib/contact';
 import { useEmployees, useLoyaltyProgram, useSubscription } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
@@ -13,11 +14,9 @@ import { Header, Screen } from '@/ui/Screen';
 import { AppText } from '@/ui/Text';
 
 
-const SUPPORT_WHATSAPP = process.env.EXPO_PUBLIC_SUPPORT_WHATSAPP;
-
 export default function More() {
   const router = useRouter();
-  const { t, language, setLanguage, theme, setTheme } = useSettings();
+  const { t, language, setLanguage, theme, setTheme, aiFab, setAiFab } = useSettings();
   const { user, business, signOut } = useSession();
   const { confirm } = useDialogs();
   const { data: subscription } = useSubscription();
@@ -69,15 +68,16 @@ export default function More() {
           </View>
         </View>
         <ToggleRow icon="moon-outline" label={t('dark_mode')} value={theme === 'dark'} onChange={changeTheme} />
+        {/* Preferencia de este dispositivo: el botón aparece o desaparece de Inicio al instante y se recuerda al reabrir. */}
+        <ToggleRow icon="sparkles-outline" label={t('ai_show_fab')} value={aiFab} onChange={setAiFab} />
       </Card>
 
       {isOwner ? <NotificationsSection /> : null}
 
       <SectionTitle>{t('account')}</SectionTitle>
       <Card>
-        {SUPPORT_WHATSAPP ? (
-          <Row icon="logo-whatsapp" label={t('support_whatsapp')} onPress={() => void Linking.openURL(whatsappLink(SUPPORT_WHATSAPP, 'Hola, necesito ayuda con Xiro Style.'))} />
-        ) : null}
+        {/* Mismo contacto oficial que la web y el menú lateral (lib/contact), con el mensaje en el idioma de la persona. */}
+        <Row icon="logo-whatsapp" label={t('support_whatsapp')} onPress={() => void Linking.openURL(supportWhatsappUrl(supportMessage(language, business?.name))).catch(() => undefined)} />
         <Row icon="log-out-outline" label={t('logout')} value={t('logout_sub')} tone="danger" onPress={logout} />
       </Card>
     </Screen>

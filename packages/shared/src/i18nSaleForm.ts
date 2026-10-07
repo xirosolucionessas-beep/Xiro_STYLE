@@ -1,4 +1,4 @@
-/** Textos web de "Registrar venta" (POS): cliente, catálogo, carrito y pago — ES/EN. */
+/** Textos (web y Android/iOS) de "Registrar venta" (POS): cliente, catálogo, carrito y pago — ES/EN. */
 export const saleFormEs = {
   sale_new_title: 'Registrar venta',
   sale_new_subtitle: 'Cliente, servicios o productos y el pago — todo en una sola pantalla.',

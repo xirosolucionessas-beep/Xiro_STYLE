@@ -4,10 +4,12 @@ import { formatMoney, type Currency } from '@xiro/shared';
 import { useFocusEffect, usePathname, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { actorOf, meets, type Requirement } from '@/lib/access';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { actorOf, meets } from '@/lib/access';
 import { dayRange, localDate, todayIn, upcoming } from '@/lib/agenda';
+import { relativeTime } from '@/lib/alerts';
 import { api } from '@/lib/api';
+import { buildActivity, daySummary, lowStockList } from '@/lib/dashboard';
 import { formatCompactMoney, lowStock, salesToday, TEAM_LABEL_KEYS } from '@/lib/homeMetrics';
 import { menuFor } from '@/lib/menu';
 import { keys, useAppointments, useCashToday, useClassification, useClients, useEmployees, useItems, useServiceRecords } from '@/lib/queries';
@@ -18,10 +20,11 @@ import { useCookieConsent } from '@/lib/useCookieConsent';
 import { useHomeAlerts } from '@/lib/useHomeAlerts';
 import { useDialogs } from '@/ui/Dialogs';
 import { AlertsCard } from '@/ui/home/AlertsCard';
-import { GradientCard } from '@/ui/home/GradientCard';
+import { AssistantChat } from '@/ui/home/AssistantChat';
+import { ActivityCard, DaySummaryCard, StockAlertsCard, type ActivityRow, type SummaryStat } from '@/ui/home/DashboardCards';
 import { HomeHeader } from '@/ui/home/HomeHeader';
 import { MetricCards, type Metric } from '@/ui/home/MetricCards';
-import { QuickAddFab, type FabAction } from '@/ui/home/QuickAddFab';
+import { FabSecondary, QuickAddFab, type FabAction } from '@/ui/home/QuickAddFab';
 import { SideMenu } from '@/ui/home/SideMenu';
 import { UpcomingList } from '@/ui/home/UpcomingList';
 import { AppText } from '@/ui/Text';
@@ -33,21 +36,23 @@ type IconName = keyof typeof Ionicons.glyphMap;
 const TAB_ROUTES = new Set(['/', '/clients', '/catalog', '/inventory', '/more']);
 
 /**
- * Inicio nativo. Es solo presentación y navegación: usa las consultas y pantallas que ya existen (caja, clientes,
- * inventario, servicios registrados, empleados, suscripción) y no inventa datos. Lo que depende de un módulo que aún no
- * existe (Citas) muestra "—" y "Próximamente"; lo que la persona no puede ver por su rol también muestra "—".
+ * Inicio nativo. Es solo presentación y navegación: usa las consultas y pantallas que ya existen (caja, ventas, clientes,
+ * inventario, citas, equipo) y no inventa datos. Arriba, la fila de indicadores del día (citas, ventas, clientes y equipo,
+ * cada uno lleva a su sección); debajo, los paneles Resumen del día (con la base de caja), Alertas de inventario y
+ * Actividad reciente, calculados con las mismas funciones que el tablero web.
+ * Todas las secciones siguen en el menú lateral; el "+" registra una venta (y conserva nuevo servicio y nuevo cliente).
  */
 export default function Home() {
   const router = useRouter();
   const pathname = usePathname();
   const queryClient = useQueryClient();
-  const { colors, t, language, setLanguage, theme, setTheme } = useSettings();
+  const { colors, t, language, setLanguage, theme, setTheme, aiFab } = useSettings();
   const { user, business } = useAuthed();
   const { signOut } = useSession();
   const { toast, confirm } = useDialogs();
-  const { width } = useWindowDimensions();
   const greeting = useGreetingKey();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const actor = actorOf(user);
   const isOwner = user.role === 'owner';
@@ -58,8 +63,8 @@ export default function Home() {
   const cash = useCashToday(isOwner);
   const clients = useClients('', canClients);
   const items = useItems(canCatalog);
-  const employees = useEmployees(isOwner);
   const records = useServiceRecords(undefined, canSales);
+  const employees = useEmployees(isOwner);
   const canAgenda = meets(actor, ['agenda_own']);
   const canReview = meets(actor, ['catalog_manage']);
   const today = todayIn(business.timezone);
@@ -89,46 +94,64 @@ export default function Home() {
 
   const go = (href: string) => (TAB_ROUTES.has(href.split('?')[0]!) ? router.navigate(href) : router.push(href));
   const soon = () => toast(`${t('coming_soon')} · ${t('menu_soon_notice')}`);
+  const money = (amount: number) => formatMoney(amount, business.currency as Currency);
   const opening = cash.data?.opening;
 
-  /* ---------- Indicadores del día ---------- */
+  /* ---------- Paneles del día (mismas funciones que el tablero web) ---------- */
+  const dashboard = useMemo(() => {
+    const now = new Date();
+    return {
+      summary: records.data ? daySummary(records.data, business.timezone, now) : null,
+      lowStock: items.data ? lowStockList(items.data, 4) : [],
+      stockCounts: items.data ? lowStock(items.data) : null,
+      activity: buildActivity({ records: records.data, clients: clients.data, items: items.data, limit: 6 }),
+    };
+  }, [records.data, clients.data, items.data, business.timezone]);
+
+  // Citas de HOY: las concretadas (completadas) frente a las que siguen en pie (sin canceladas ni inasistencias).
+  const todayAppointments = canAgenda && appointments.data ? appointments.data.filter((a) => localDate(a.startsAt, business.timezone) === today && a.status !== 'cancelled' && a.status !== 'no_show') : null;
+  const completedToday = todayAppointments?.filter((a) => a.status === 'completed').length;
+
+  /* ---------- Fila de indicadores: lo que no puede ver por su rol se muestra "—" (y la tarjeta no navega) ---------- */
   const activeEmployees = employees.data?.filter((employee) => employee.active).length;
   const metrics: Metric[] = [
-    {
-      id: 'appointments',
-      icon: 'calendar-outline',
-      value: canAgenda && appointments.data ? String(appointments.data.filter((a) => localDate(a.startsAt, business.timezone) === today && a.status !== 'cancelled' && a.status !== 'no_show').length) : '—',
-      label: t('metric_appointments'),
-      loading: canAgenda && appointments.isLoading,
-      onPress: canAgenda ? () => go('/agenda') : undefined,
-    },
-    {
-      id: 'sales',
-      icon: 'cash-outline',
-      value: canSales && records.data ? formatCompactMoney(salesToday(records.data, business.timezone), business.currency as Currency) : '—',
-      label: t('metric_sales'),
-      loading: canSales && records.isLoading,
-      onPress: canSales ? () => go('/sales-today') : undefined,
-    },
+    { id: 'appointments', icon: 'calendar-outline', value: todayAppointments ? String(todayAppointments.length) : '—', label: t('metric_appointments'), loading: canAgenda && appointments.isLoading, onPress: canAgenda ? () => go('/agenda') : undefined },
+    { id: 'sales', icon: 'cash-outline', value: canSales && records.data ? formatCompactMoney(salesToday(records.data, business.timezone), business.currency as Currency) : '—', label: t('metric_sales'), loading: canSales && records.isLoading, onPress: canSales ? () => go('/sales-today') : undefined },
     { id: 'clients', icon: 'people-outline', value: canClients && clients.data ? String(clients.data.length) : '—', label: t('metric_clients'), loading: canClients && clients.isLoading, onPress: canClients ? () => go('/clients') : undefined },
     { id: 'team', icon: 'cut-outline', value: activeEmployees !== undefined ? String(activeEmployees) : '—', label: t(TEAM_LABEL_KEYS[business.type]), loading: isOwner && employees.isLoading, onPress: isOwner ? () => go('/employees') : undefined },
   ];
 
-  /* ---------- Accesos rápidos: los de siempre (mismo destino) + Equipo y Fidelización ---------- */
-  const shortcuts: Array<{ id: string; icon: IconName; label: string; onPress: () => void; requires?: Requirement }> = [
-    { id: 'new_sale', icon: 'cash-outline', label: t('new_sale'), onPress: () => router.push('/sale/new'), requires: ['services_record'] },
-    { id: 'appointments', icon: 'calendar-outline', label: t('appointments'), onPress: () => router.push('/agenda'), requires: ['agenda_own'] },
-    { id: 'catalog', icon: 'book-outline', label: t('catalog'), onPress: () => router.navigate('/catalog'), requires: ['catalog_view'] },
-    { id: 'inventory', icon: 'cube-outline', label: t('inventory'), onPress: () => router.navigate('/inventory'), requires: ['catalog_view'] },
-    { id: 'cash_close', icon: 'wallet-outline', label: t('cash_close'), onPress: () => router.push('/cash-close'), requires: 'owner' },
-    { id: 'clients', icon: 'people-outline', label: t('clients'), onPress: () => router.navigate('/clients'), requires: ['clients_view'] },
-    { id: 'team', icon: 'people-circle-outline', label: t('team'), onPress: () => router.push('/employees'), requires: 'owner' },
-    { id: 'loyalty', icon: 'gift-outline', label: t('loyalty_title'), onPress: () => router.push('/loyalty'), requires: ['loyalty_redeem', 'services_record'] },
+  const summary = dashboard.summary;
+  const summaryStats: SummaryStat[] = [
+    { id: 'sales', label: t('home_summary_sales'), value: summary ? String(summary.count) : '—' },
+    { id: 'average', label: t('home_summary_average'), value: summary?.average != null ? money(summary.average) : '—' },
+    ...(canAgenda
+      ? [{ id: 'appointments', label: t('home_summary_appointments'), value: todayAppointments ? t('home_summary_appointments_of', { done: completedToday ?? 0, total: todayAppointments.length }) : '—' }]
+      : []),
   ];
-  const visibleShortcuts = shortcuts.filter((shortcut) => meets(actor, shortcut.requires));
-  const columns = width >= 600 ? 3 : 2;
 
+  const stockRows = dashboard.lowStock.map((item) => ({
+    id: item.id,
+    name: item.name,
+    out: item.stockStatus === 'out_of_stock',
+    badge: item.stockStatus === 'out_of_stock' ? t('home_stock_out') : t('home_stock_units', { n: item.stock }),
+    onPress: () => router.push(`/item/${item.id}`),
+  }));
+
+  const nowMs = Date.now();
+  const activityRows: ActivityRow[] = dashboard.activity.map((event) => ({
+    id: event.id,
+    icon: event.kind === 'service' ? 'cut-outline' : event.kind === 'client' ? 'person-add-outline' : 'cube-outline',
+    title: event.kind === 'service' ? t('home_activity_service', { name: event.primary }) : event.primary,
+    detail: event.kind === 'service' ? event.secondary : event.kind === 'client' ? t('home_activity_client') : `${t('home_activity_stock')} · ${t('home_stock_units', { n: event.units ?? 0 })}`,
+    time: relativeTime(event.at, nowMs, language),
+    amount: event.amount !== undefined ? money(event.amount) : undefined,
+  }));
+  const activityLoading = (canSales && records.isLoading) || (canClients && clients.isLoading) || (canCatalog && items.isLoading);
+
+  /* ---------- Botón "+": Registrar venta es la acción principal; nuevo servicio y nuevo cliente se conservan ---------- */
   const fabActions: FabAction[] = [
+    ...(canSales ? [{ id: 'sale', label: t('home_fab_sale'), icon: 'cash-outline' as IconName, onPress: () => router.push('/sale/new'), primary: true }] : []),
     ...(meets(actor, ['catalog_manage']) ? [{ id: 'service', label: t('home_fab_service'), icon: 'add-circle-outline' as IconName, onPress: () => router.push('/item/form') }] : []),
     ...(meets(actor, ['clients_manage']) ? [{ id: 'client', label: t('home_fab_client'), icon: 'person-add-outline' as IconName, onPress: () => router.push('/client/form') }] : []),
   ];
@@ -156,7 +179,6 @@ export default function Home() {
           photoUrl={business.logoUrl}
           greeting={t(greeting)}
           tagline={t('home_tagline')}
-          slogan={t('home_brand_slogan')}
           pendingAlerts={pending.length}
           onMenu={() => setMenuOpen(true)}
           onBell={() => router.push('/notifications')}
@@ -165,28 +187,26 @@ export default function Home() {
         <View style={styles.body}>
           <MetricCards metrics={metrics} />
 
-          {isOwner ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${t('available_balance')}: ${opening ? formatMoney(opening.amount, business.currency) : t('cash_not_opened')}`}
-              onPress={() => router.push('/cash-opening')}
-              style={[styles.balance, { backgroundColor: colors.surfaceAlt, borderColor: colors.gold }]}>
-              <View style={[styles.wallet, { backgroundColor: colors.goldTint }]}>
-                <Ionicons name="wallet-outline" size={26} color={colors.gold} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <AppText tone="muted" variant="small">
-                  {t('available_balance')}
-                </AppText>
-                <AppText variant="display">{opening ? formatMoney(opening.amount, business.currency) : '—'}</AppText>
-                {!opening && cash.isSuccess ? (
-                  <AppText variant="small" tone="gold">
-                    {t('cash_not_opened')}
-                  </AppText>
-                ) : null}
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.gold} />
-            </Pressable>
+          {canSales || isOwner ? (
+            <DaySummaryCard
+              title={t('home_summary_title')}
+              revenueLabel={t('home_summary_revenue')}
+              revenue={canSales ? (summary ? money(summary.total) : '—') : '—'}
+              stats={summaryStats}
+              note={summary?.topLabel ? t('home_summary_top', { name: summary.topLabel }) : undefined}
+              loading={canSales && records.isLoading}
+              seeAll={canSales ? { label: t('home_see_all'), onPress: () => router.push('/sales-today') } : undefined}
+              cash={
+                isOwner
+                  ? {
+                      label: t('available_balance'),
+                      value: opening ? money(opening.amount) : '—',
+                      note: !opening && cash.isSuccess ? t('cash_not_opened') : undefined,
+                      onPress: () => router.push('/cash-opening'),
+                    }
+                  : undefined
+              }
+            />
           ) : null}
 
           {canReview && classification.data && classification.data.length > 0 ? (
@@ -206,6 +226,16 @@ export default function Home() {
             </Pressable>
           ) : null}
 
+          {canCatalog ? (
+            <StockAlertsCard
+              title={t('home_stock_title')}
+              rows={stockRows}
+              loading={items.isLoading}
+              emptyText={t('home_stock_all_good')}
+              seeAll={{ label: t('home_stock_see_all'), onPress: () => go(`/inventory?status=${dashboard.stockCounts && dashboard.stockCounts.outOfStock > 0 ? 'out_of_stock' : 'reorder'}`) }}
+            />
+          ) : null}
+
           {canAgenda ? (
             <>
               <View style={styles.sectionHead}>
@@ -222,6 +252,8 @@ export default function Home() {
             </>
           ) : null}
 
+          {canSales || canClients || canCatalog ? <ActivityCard title={t('home_activity_title')} rows={activityRows} loading={activityLoading} emptyText={t('home_activity_empty')} /> : null}
+
           <AlertsCard
             alerts={pending}
             loading={alertsLoading}
@@ -230,26 +262,12 @@ export default function Home() {
               go(alert.href);
             }}
           />
-
-          <AppText variant="heading" accessibilityRole="header" style={styles.quickTitle}>
-            {t('home_quick_access')}
-          </AppText>
-          <View style={styles.grid}>
-            {visibleShortcuts.map((shortcut) => (
-              <GradientCard key={shortcut.id} onPress={shortcut.onPress} accessibilityLabel={shortcut.label} style={{ width: `${100 / columns - 2.5}%` }} innerStyle={styles.tile}>
-                <View style={[styles.tileIcon, { backgroundColor: colors.goldTint }]}>
-                  <Ionicons name={shortcut.icon} size={24} color={colors.gold} />
-                </View>
-                <AppText variant="bodyStrong" style={{ marginTop: 12 }}>
-                  {shortcut.label}
-                </AppText>
-              </GradientCard>
-            ))}
-          </View>
         </View>
       </ScrollView>
 
-      <QuickAddFab actions={fabActions} label={t('home_fab_label')} />
+      <QuickAddFab actions={fabActions} label={t('home_fab_label')} above={aiFab ? <FabSecondary icon="sparkles" label={t('ai_fab_label')} onPress={() => setAssistantOpen(true)} /> : undefined} />
+
+      <AssistantChat open={assistantOpen} onClose={() => setAssistantOpen(false)} />
 
       <SideMenu
         open={menuOpen}
@@ -257,7 +275,7 @@ export default function Home() {
         sections={menuFor(actor)}
         pathname={pathname}
         business={{ name: business.name, type: business.type, logoUrl: business.logoUrl }}
-        user={{ name: user.name, role: user.role }}
+        user={{ name: user.name, role: user.role, photoUrl: user.photoUrl }}
         badges={{ inventory: items.data ? lowStock(items.data).count : undefined }}
         language={language}
         dark={theme === 'dark'}
@@ -265,6 +283,7 @@ export default function Home() {
         onDark={changeTheme}
         onNavigate={go}
         onSoon={soon}
+        onAssistant={() => setAssistantOpen(true)}
         onAccount={() => router.push('/profile')}
         onNotifications={() => router.push('/notifications')}
         onLogout={() => void logout()}
@@ -275,15 +294,9 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingBottom: 150 },
+  scroll: { paddingBottom: 170 },
   body: { paddingHorizontal: 16, marginTop: -6, gap: 14 },
-  balance: { flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: radius.xl, borderWidth: 1, padding: 16 },
-  wallet: { width: 52, height: 52, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
   seeAll: { minHeight: 44, justifyContent: 'center' },
   review: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: radius.lg, padding: 14 },
-  quickTitle: { marginTop: 8 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between' },
-  tile: { minHeight: 122, padding: 14, justifyContent: 'space-between' },
-  tileIcon: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
 });
