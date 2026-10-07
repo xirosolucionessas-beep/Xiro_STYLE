@@ -1,4 +1,4 @@
-/** Textos web de las pantallas de sección: Clientes, Servicios, Inventario, Citas, Reportes y Ajustes (ES/EN). */
+/** Textos (web y Android/iOS) de las pantallas de sección: Clientes, Servicios, Inventario, Citas, Reportes y Ajustes (ES/EN). */
 export const sectionsEs = {
   // Comunes
   sec_no_results: 'Sin resultados para "{q}".',
@@ -106,8 +106,6 @@ export const sectionsEs = {
   sec_rep_stock_low: 'Por reponer o agotados',
   sec_rep_empty: 'Aún no hay servicios registrados en este periodo.',
   sec_rep_truncated: 'Se muestran tus últimos {n} registros: el historial más antiguo puede no aparecer en este reporte.',
-  sec_rep_times: '{n} veces',
-  sec_rep_time_one: '1 vez',
   sec_rep_visits: '{n} servicios',
   sec_rep_visit_one: '1 servicio',
   sec_trend_up: 'Subió {n}% frente al periodo anterior',
@@ -123,6 +121,7 @@ export const sectionsEs = {
   sec_set_notifs: 'Notificaciones',
   sec_set_support: 'Ayuda y sesión',
   sec_set_dark_desc: 'Cambia entre el tema oscuro y el claro.',
+  sec_set_ai_desc: 'Muestra u oculta el botón del asistente en este dispositivo.',
   sec_set_language_desc: 'Idioma de la aplicación.',
   sec_set_notifs_desc: 'Recibe avisos de tu negocio en este navegador.',
   sec_set_notifs_blocked: 'Las notificaciones están bloqueadas en este navegador. Actívalas desde los permisos del sitio.',
@@ -275,8 +274,6 @@ export const sectionsEn: Record<SectionsStringKey, string> = {
   sec_rep_stock_low: 'Low or sold out',
   sec_rep_empty: 'No services logged in this period yet.',
   sec_rep_truncated: 'Showing your latest {n} records: older history may not appear in this report.',
-  sec_rep_times: '{n} times',
-  sec_rep_time_one: '1 time',
   sec_rep_visits: '{n} services',
   sec_rep_visit_one: '1 service',
   sec_trend_up: 'Up {n}% from the previous period',
@@ -291,6 +288,7 @@ export const sectionsEn: Record<SectionsStringKey, string> = {
   sec_set_notifs: 'Notifications',
   sec_set_support: 'Help and session',
   sec_set_dark_desc: 'Switch between the dark and light theme.',
+  sec_set_ai_desc: 'Show or hide the assistant button on this device.',
   sec_set_language_desc: 'App language.',
   sec_set_notifs_desc: 'Get business alerts in this browser.',
   sec_set_notifs_blocked: 'Notifications are blocked in this browser. Enable them from the site permissions.',

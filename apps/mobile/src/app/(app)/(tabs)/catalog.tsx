@@ -1,25 +1,105 @@
+import { formatMoney, type Currency } from '@xiro/shared';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
-import { errorKey } from '@/lib/api';
-import { useCategories, useItems } from '@/lib/queries';
+import { actorOf, meets } from '@/lib/access';
+import { errorKey, publicBaseUrl, resolveMedia } from '@/lib/api';
+import { businessAddressLine } from '@/lib/exports/address';
+import { buildCatalogPdf, catalogPdfFileName, type CatalogPdfItem } from '@/lib/exports/catalogPdf';
+import { imageDataUrl, shareGeneratedFile } from '@/lib/exports/nativeFiles';
+import { qrPngDataUrl } from '@/lib/exports/qrPng';
+import { useBookingSettings, useCategories, useItems } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
+import { useDialogs } from '@/ui/Dialogs';
 import { CatalogCard, ItemGrid } from '@/ui/ItemCards';
 import { Chip, ChipRow, EmptyState } from '@/ui/Kit';
 import { Header, Screen } from '@/ui/Screen';
 import { AppText } from '@/ui/Text';
 
+/** Ejecuta `task` sobre cada elemento con como mucho `limit` a la vez (las fotos se procesan sin saturar la memoria del teléfono). */
+async function mapLimit<T, R>(list: readonly T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(list.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < list.length) {
+      const index = next++;
+      results[index] = await task(list[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, list.length) }, worker));
+  return results;
+}
+
+/**
+ * Catálogo en Android/iOS (en la Web: catalog.web.tsx). Mismas acciones que la web: filtro por categoría, enviar el
+ * catálogo, descargar el catálogo en PDF (mismo generador que la web, `lib/exports/catalogPdf`, con el mismo filtro y solo
+ * lo publicado) y, con permiso de gestionar el catálogo, agregar artículos y administrar categorías.
+ */
 export default function Catalog() {
   const router = useRouter();
   const { colors, t } = useSettings();
-  const { business } = useAuthed();
+  const { user, business } = useAuthed();
+  const { toast } = useDialogs();
+  const canManage = meets(actorOf(user), ['catalog_manage']);
   const items = useItems();
   const categories = useCategories();
+  const bookingSettings = useBookingSettings();
   const [category, setCategory] = useState<string | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const currency = business.currency as Currency;
 
   const visible = useMemo(() => (items.data ?? []).filter((item) => !category || item.categoryId === category), [items.data, category]);
+
+  /**
+   * Mismo criterio que la web: EXACTAMENTE el filtro de categoría de la pantalla y solo artículos publicados (lo que el
+   * dueño ya decidió mostrar afuera). El archivo se guarda o comparte desde la hoja del sistema.
+   */
+  async function exportCatalogPdf() {
+    setExportingPdf(true);
+    try {
+      const categoryLabel = category ? (categories.data ?? []).find((c) => c.id === category)?.name : undefined;
+      const published = (items.data ?? []).filter((item) => item.published && (!category || item.categoryId === category));
+      const profile = bookingSettings.data?.profile;
+      const bookingUrl = profile?.published ? `${publicBaseUrl()}/catalog/${business.slug}` : null;
+
+      const logoDataUrl = await imageDataUrl(resolveMedia(business.logoUrl), 600);
+      const photos = published.flatMap((item, itemIndex) => item.photos.map((photo) => ({ itemIndex, url: resolveMedia(photo.url) })));
+      const loaded = await mapLimit(photos, 3, (photo) => imageDataUrl(photo.url));
+      const pdfItems: CatalogPdfItem[] = published.map((item, index) => ({
+        name: item.name,
+        categoryLabel: item.categoryName,
+        description: item.description || item.shortDescription,
+        priceLabel: formatMoney(item.price, currency),
+        durationMinutes: item.kind === 'service' ? item.durationMinutes : null,
+        imageDataUrls: photos.map((photo, at) => (photo.itemIndex === index ? loaded[at] : null)).filter((url): url is string => Boolean(url)),
+      }));
+
+      const social = [profile?.instagram ? `Instagram: ${profile.instagram}` : null, profile?.facebook ? `Facebook: ${profile.facebook}` : null, profile?.tiktok ? `TikTok: ${profile.tiktok}` : null, profile?.website || null].filter((line): line is string => Boolean(line));
+      const filterLabel = categoryLabel ? t('catalog_pdf_filter', { category: categoryLabel }) : null;
+
+      const doc = buildCatalogPdf({
+        businessName: business.name,
+        tagline: profile?.tagline ?? '',
+        logoDataUrl,
+        whatsapp: business.whatsapp,
+        phone: profile?.phone || null,
+        address: businessAddressLine(business.address, business.city, business.country),
+        social,
+        filterLabel,
+        items: pdfItems,
+        bookingUrl,
+        qrDataUrl: qrPngDataUrl(bookingUrl),
+      });
+      const result = await shareGeneratedFile(catalogPdfFileName(business.name, filterLabel), new Uint8Array(doc.output('arraybuffer')), 'pdf', t('catalog_export_pdf'));
+      if (result === 'unavailable') toast(t('rep_share_unavailable'));
+    } catch {
+      toast(t('rep_export_failed'));
+    } finally {
+      setExportingPdf(false);
+    }
+  }
 
   return (
     <Screen
@@ -31,11 +111,13 @@ export default function Catalog() {
           title={t('catalog')}
           subtitle={t('catalog_sub')}
           right={
-            <Pressable accessibilityRole="button" onPress={() => router.push('/categories')} hitSlop={8}>
-              <AppText variant="label" tone="gold">
-                {t('categories')}
-              </AppText>
-            </Pressable>
+            canManage ? (
+              <Pressable accessibilityRole="button" onPress={() => router.push('/categories')} hitSlop={8}>
+                <AppText variant="label" tone="gold">
+                  {t('categories')}
+                </AppText>
+              </Pressable>
+            ) : undefined
           }
         />
       }
@@ -47,7 +129,10 @@ export default function Catalog() {
         ))}
       </ChipRow>
 
-      <Button label={t('add_to_catalog')} variant="secondary" icon="add" onPress={() => router.push('/item/form')} style={styles.add} />
+      <View style={styles.actions}>
+        <Button label={t('catalog_export_pdf')} variant="secondary" icon="document-text-outline" loading={exportingPdf} disabled={!items.data || items.data.length === 0} onPress={() => void exportCatalogPdf()} />
+        {canManage ? <Button label={t('add_to_catalog')} variant="secondary" icon="add" onPress={() => router.push('/item/form')} /> : null}
+      </View>
 
       {items.isPending ? (
         <ActivityIndicator color={colors.gold} style={{ marginTop: 32 }} />
@@ -72,5 +157,5 @@ export default function Catalog() {
 }
 
 const styles = StyleSheet.create({
-  add: { marginVertical: 14 },
+  actions: { gap: 10, marginVertical: 14 },
 });

@@ -1,4 +1,4 @@
-/** Textos web de "Ventas de hoy" (tabla de ventas del día, filtros y anulación) — ES/EN. */
+/** Textos (web y Android/iOS) de "Ventas de hoy" (tabla de ventas del día, filtros y anulación) — ES/EN. */
 export const salesTodayEs = {
   nav_sales_today: 'Ventas de hoy',
   sale_today_kpis: 'Indicadores de hoy',

@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Linking, Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, Animated, Linking, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supportMailtoUrl, supportMessage, supportWhatsappUrl, XIRO_CONTACT } from '@/lib/contact';
 import { isCurrentItem, type MenuItem, type MenuSection } from '@/lib/menu';
 import { useSettings } from '@/lib/settings';
 import type { BusinessType, Language } from '@xiro/shared';
-import { Toggle } from '../Kit';
+import { Photo, Toggle } from '../Kit';
 import { Brand } from '../Brand';
 import { AppText } from '../Text';
 import { radius } from '../theme';
@@ -17,7 +17,7 @@ interface Props {
   sections: MenuSection[];
   pathname: string;
   business: { name: string; type: BusinessType; logoUrl: string | null };
-  user: { name: string; role: 'owner' | 'employee' };
+  user: { name: string; role: 'owner' | 'employee'; photoUrl: string | null };
   /** Insignias de conteo por ítem (p. ej. inventario con bajo stock). */
   badges: Partial<Record<string, number>>;
   language: Language;
@@ -26,6 +26,8 @@ interface Props {
   onDark: (dark: boolean) => void;
   onNavigate: (href: string) => void;
   onSoon: () => void;
+  /** Abre el chat del asistente de IA (la opción "Asistente IA" del menú no tiene ruta propia). */
+  onAssistant?: () => void;
   onAccount: () => void;
   onNotifications: () => void;
   onLogout: () => void;
@@ -34,6 +36,10 @@ interface Props {
 const WIDTH_RATIO = 0.86;
 const MAX_WIDTH = 340;
 const MIN_TOUCH = 48;
+/** Aire bajo la barra de estado para el bloque de perfil: que no quede aplastado contra el borde superior. */
+const TOP_GAP = 20;
+/** Foto de cuenta en la cabecera del menú. */
+const AVATAR = 32;
 
 /**
  * Menú lateral (tres rayitas) con todas las funciones. Solo navega a pantallas existentes y no duplica lógica: cada
@@ -46,6 +52,8 @@ export function SideMenu(props: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const panelWidth = Math.min(MAX_WIDTH, Math.round(width * WIDTH_RATIO));
+  // El modal es translúcido bajo la barra de estado: si en Android la zona segura llega en 0, se usa la altura real de la barra.
+  const statusTop = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0);
   const progress = useRef(new Animated.Value(0)).current;
   const [mounted, setMounted] = useState(open);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -68,6 +76,7 @@ export function SideMenu(props: Props) {
 
   const go = (item: MenuItem) => {
     onClose();
+    if (item.id === 'assistant' && props.onAssistant) return props.onAssistant();
     if (item.soon || !item.href) return props.onSoon();
     props.onNavigate(item.href);
   };
@@ -82,7 +91,7 @@ export function SideMenu(props: Props) {
           <Pressable accessibilityRole="button" accessibilityLabel={t('menu_close')} style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
 
-        <Animated.View style={[styles.panel, { width: panelWidth, backgroundColor: colors.background, borderRightColor: colors.border, paddingTop: insets.top, paddingBottom: insets.bottom, transform: [{ translateX }] }]}>
+        <Animated.View style={[styles.panel, { width: panelWidth, backgroundColor: colors.background, borderRightColor: colors.border, paddingTop: statusTop + TOP_GAP, paddingBottom: insets.bottom, transform: [{ translateX }] }]}>
           <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
             <Pressable accessibilityRole="button" accessibilityLabel={`${props.user.name}. ${props.business.name}`} onPress={() => { onClose(); props.onAccount(); }} style={styles.header}>
               <Brand size={52} logoUrl={props.business.logoUrl} />
@@ -94,11 +103,8 @@ export function SideMenu(props: Props) {
                   {t(`type_${props.business.type}`)}
                 </AppText>
                 <View style={styles.userRow}>
-                  <View style={[styles.avatar, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                    <AppText variant="small" tone="text" style={{ fontWeight: '700' }}>
-                      {props.user.name.trim().charAt(0).toUpperCase()}
-                    </AppText>
-                  </View>
+                  {/* Foto de cuenta (la de Perfil); sin foto o si no carga, la inicial del nombre. */}
+                  <Photo url={props.user.photoUrl} size={AVATAR} initials={props.user.name} icon="person-outline" style={[styles.avatar, { borderColor: colors.border }]} />
                   <AppText variant="small" numberOfLines={1} style={{ flex: 1 }}>
                     {props.user.name} · {t('account')}
                   </AppText>
@@ -215,7 +221,7 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 12, paddingBottom: 24 },
   header: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 16, paddingHorizontal: 4, minHeight: MIN_TOUCH },
   userRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  avatar: { width: 24, height: 24, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  avatar: { borderRadius: AVATAR / 2, borderWidth: 1, overflow: 'hidden' },
   sectionTitle: { marginTop: 16, marginBottom: 4, paddingHorizontal: 8 },
   item: { flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: MIN_TOUCH, paddingHorizontal: 8, borderRadius: radius.md },
   badge: { minWidth: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },

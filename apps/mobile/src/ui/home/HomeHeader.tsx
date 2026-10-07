@@ -6,7 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { resolveMedia } from '@/lib/api';
 import { badgeText } from '@/lib/alerts';
 import { useSettings } from '@/lib/settings';
-import { Brand } from '../Brand';
 import { AppText } from '../Text';
 import { useLuxury } from '../luxuryTokens';
 
@@ -15,16 +14,17 @@ interface Props {
   photoUrl?: string | null;
   greeting: string;
   tagline: string;
-  slogan: string;
   pendingAlerts: number;
   onMenu: () => void;
   onBell: () => void;
 }
 
 const HERO_HEIGHT = 250;
+/** Aire entre la barra de estado y la fila menú/campana: el saludo nunca queda pegado arriba. */
+const TOP_GAP = 18;
 
-/** Barra superior (menú · marca · campana) y saludo sobre la foto del negocio; sin foto, un degradado dorado. */
-export function HomeHeader({ businessName, photoUrl, greeting, tagline, slogan, pendingAlerts, onMenu, onBell }: Props) {
+/** Barra superior (menú · campana) y saludo sobre la foto del negocio; sin foto, un degradado dorado. */
+export function HomeHeader({ businessName, photoUrl, greeting, tagline, pendingAlerts, onMenu, onBell }: Props) {
   const { t } = useSettings();
   const tk = useLuxury();
   const insets = useSafeAreaInsets();
@@ -34,7 +34,7 @@ export function HomeHeader({ businessName, photoUrl, greeting, tagline, slogan, 
   const badge = badgeText(pendingAlerts);
 
   return (
-    <View style={{ height: HERO_HEIGHT + insets.top }}>
+    <View style={{ height: HERO_HEIGHT + insets.top + TOP_GAP }}>
       {photo ? (
         <>
           <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} contentFit="cover" accessibilityIgnoresInvertColors />
@@ -44,17 +44,11 @@ export function HomeHeader({ businessName, photoUrl, greeting, tagline, slogan, 
         <LinearGradient colors={tk.heroFallback} style={StyleSheet.absoluteFill} />
       )}
 
-      <View style={[styles.content, { paddingTop: insets.top + 6 }]}>
+      <View style={[styles.content, { paddingTop: insets.top + TOP_GAP }]}>
         <View style={styles.bar}>
           <Pressable accessibilityRole="button" accessibilityLabel={t('menu_open')} onPress={onMenu} hitSlop={6} style={styles.iconButton}>
             <Ionicons name="menu" size={30} color={text} />
           </Pressable>
-          <View style={styles.brand} accessible accessibilityLabel={`Xiro Style. ${slogan}`}>
-            <Brand size={38} />
-            <AppText variant="small" style={{ color: muted, marginTop: 2 }}>
-              {slogan}
-            </AppText>
-          </View>
           <Pressable accessibilityRole="button" accessibilityLabel={pendingAlerts > 0 ? t('notif_bell_label', { n: pendingAlerts }) : t('notif_bell_none')} onPress={onBell} hitSlop={6} style={styles.iconButton}>
             <Ionicons name={pendingAlerts > 0 ? 'notifications' : 'notifications-outline'} size={26} color={text} />
             {badge ? (
@@ -85,7 +79,6 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 16, paddingBottom: 12, justifyContent: 'space-between' },
   bar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   iconButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-  brand: { alignItems: 'center' },
   badge: { position: 'absolute', top: 4, right: 2, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
   badgeText: { color: '#ffffff', fontWeight: '800', fontSize: 11, lineHeight: 14 },
   greeting: { paddingBottom: 4 },

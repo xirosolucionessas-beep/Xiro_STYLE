@@ -153,14 +153,36 @@ export const dismissAlert = (state: AlertState, signature: string): AlertState =
 /** Texto de la insignia de la campana: "9+" si pasa de 9; vacío (se oculta) en 0. */
 export const badgeText = (count: number): string => (count <= 0 ? '' : count > 9 ? '9+' : String(count));
 
-/** "hace 10 min" / "10 min ago" (sin depender de zonas horarias). */
+type RelativeUnit = 'minute' | 'hour' | 'day';
+
+/** Unidad en singular y plural por idioma. */
+const RELATIVE_UNITS: Record<'es' | 'en', Record<RelativeUnit, readonly [string, string]>> = {
+  es: { minute: ['minuto', 'minutos'], hour: ['hora', 'horas'], day: ['día', 'días'] },
+  en: { minute: ['minute', 'minutes'], hour: ['hour', 'hours'], day: ['day', 'days'] },
+};
+
+/**
+ * "hace 10 minutos" / "10 minutes ago" (sin depender de zonas horarias).
+ *
+ * Hecho a mano a propósito: Hermes (el motor de JavaScript de Android/iOS) no trae `Intl.RelativeTimeFormat`, y usarlo
+ * rompía Inicio, Mensajes y Notificaciones en el teléfono ("undefined cannot be used as a constructor"). El resultado es
+ * idéntico al de `Intl.RelativeTimeFormat(lang, { numeric: 'auto' })` (ver test/alerts.logic.test.ts), así que la web no cambia.
+ */
 export function relativeTime(fromMs: number, nowMs: number, language: 'es' | 'en'): string {
+  const lang = language === 'en' ? 'en' : 'es';
   const seconds = Math.max(0, Math.round((nowMs - fromMs) / 1000));
-  const format = new Intl.RelativeTimeFormat(language === 'en' ? 'en' : 'es', { numeric: 'auto' });
-  if (seconds < 60) return format.format(0, 'second');
+  if (seconds < 60) return lang === 'en' ? 'now' : 'ahora';
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return format.format(-minutes, 'minute');
+  if (minutes < 60) return ago(minutes, 'minute', lang);
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return format.format(-hours, 'hour');
-  return format.format(-Math.floor(hours / 24), 'day');
+  if (hours < 24) return ago(hours, 'hour', lang);
+  const days = Math.floor(hours / 24);
+  if (days === 1) return lang === 'en' ? 'yesterday' : 'ayer';
+  if (days === 2 && lang === 'es') return 'anteayer';
+  return ago(days, 'day', lang);
+}
+
+function ago(n: number, unit: RelativeUnit, lang: 'es' | 'en'): string {
+  const word = RELATIVE_UNITS[lang][unit][n === 1 ? 0 : 1];
+  return lang === 'en' ? `${n} ${word} ago` : `hace ${n} ${word}`;
 }

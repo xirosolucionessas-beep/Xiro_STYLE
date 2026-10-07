@@ -59,7 +59,8 @@
           "photosPermission": "Xiro Style accede a tus fotos para el logo y el catálogo.",
           "cameraPermission": "Xiro Style usa la cámara para fotografiar tus productos y servicios."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "extra": {
       "router": {},

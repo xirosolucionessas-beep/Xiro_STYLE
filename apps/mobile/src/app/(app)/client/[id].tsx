@@ -1,20 +1,24 @@
-import { whatsappLink } from '@xiro/shared';
+import { formatMoney, whatsappLink, type Currency } from '@xiro/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { ActivityIndicator, Linking, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
+import { actorOf, meets } from '@/lib/access';
 import { api, errorKey } from '@/lib/api';
-import { useClient, useInvalidateClients } from '@/lib/queries';
+import { useClient, useInvalidateClients, useServiceRecords } from '@/lib/queries';
+import { clientHistory } from '@/lib/sections';
+import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
 import { useDialogs } from '@/ui/Dialogs';
-import { Card, EmptyState } from '@/ui/Kit';
+import { Card, EmptyState, SectionTitle } from '@/ui/Kit';
 import { Header, Screen } from '@/ui/Screen';
 import { AppText } from '@/ui/Text';
+import { radius } from '@/ui/theme';
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <View style={{ paddingVertical: 8 }}>
-      <AppText variant="label" tone="gold">
+      <AppText variant="label" tone="muted">
         {label}
       </AppText>
       <AppText variant="bodyStrong" style={{ marginTop: 2 }}>
@@ -24,15 +28,27 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * Ficha de cliente en Android/iOS (en la Web la sirve client/[id].web.tsx). Mismos datos y acciones que la web: contacto,
+ * WhatsApp y llamada; con permiso de registrar servicios, sus indicadores (servicios, total cobrado, último) y su historial
+ * real; y solo con permiso de gestionar clientes, editar, anonimizar y eliminar (el servidor impone lo mismo).
+ */
 export default function ClientDetail() {
   const router = useRouter();
-  const { t } = useSettings();
+  const { t, colors, language } = useSettings();
+  const { user, business } = useAuthed();
   const { confirm, toast } = useDialogs();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const actor = actorOf(user);
+  const canRecords = meets(actor, ['services_record']);
+  const canManage = meets(actor, ['clients_manage']);
   const { data: client, isPending } = useClient(id);
+  const records = useServiceRecords(id, canRecords && Boolean(id));
   const invalidate = useInvalidateClients();
   const [busy, setBusy] = useState(false);
   const [anonymizing, setAnonymizing] = useState(false);
+  const currency = business.currency as Currency;
+  const date = useMemo(() => new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', year: 'numeric', timeZone: business.timezone }), [language, business.timezone]);
 
   if (isPending) return <Screen header={<Header title={t('clients')} />}><ActivityIndicator style={{ marginTop: 40 }} /></Screen>;
   if (!client) return <Screen header={<Header title={t('clients')} />}><EmptyState icon="people-outline" message={t('not_found')} /></Screen>;
@@ -66,8 +82,16 @@ export default function ClientDetail() {
     }
   }
 
+  const summary = records.data ? clientHistory(records.data) : null;
+  const kpis = [
+    { id: 'count', label: t('sec_cd_kpi_services'), value: summary ? String(summary.count) : '—' },
+    { id: 'spent', label: t('sec_cd_kpi_spent'), value: summary ? formatMoney(summary.total, currency) : '—' },
+    { id: 'last', label: t('sec_cd_kpi_last'), value: summary?.last ? date.format(new Date(summary.last)) : '—' },
+  ];
+  const history = (records.data ?? []).slice().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+
   return (
-    <Screen header={<Header title={client.name} />}>
+    <Screen header={<Header title={client.name} subtitle={t('sec_cd_since', { date: date.format(new Date(client.createdAt)) })} />}>
       <Card>
         <Detail label={t('phone')} value={client.phone ? `+${client.phone}` : ''} />
         <Detail label={t('email')} value={client.email ?? ''} />
@@ -80,9 +104,70 @@ export default function ClientDetail() {
           <Button label={t('call')} icon="call-outline" variant="secondary" onPress={() => void Linking.openURL(`tel:+${client.phone}`)} style={{ marginTop: 10 }} />
         </>
       ) : null}
-      <Button label={t('edit')} icon="create-outline" variant="secondary" onPress={() => router.push({ pathname: '/client/form', params: { id: client.id } })} style={{ marginTop: 10 }} />
-      <Button label={t('client_anonymize')} icon="eye-off-outline" variant="secondary" loading={anonymizing} onPress={anonymize} style={{ marginTop: 10 }} />
-      <Button label={t('delete')} icon="trash-outline" variant="danger" loading={busy} onPress={remove} style={{ marginTop: 10 }} />
+
+      {canRecords ? (
+        <>
+          <View style={styles.kpis}>
+            {kpis.map((kpi) => (
+              <View key={kpi.id} style={[styles.kpi, { backgroundColor: colors.surface, borderColor: colors.border }]} accessible accessibilityLabel={`${kpi.label}: ${records.isLoading ? '' : kpi.value}`}>
+                <AppText variant="small" tone="muted" numberOfLines={1}>
+                  {kpi.label}
+                </AppText>
+                {records.isLoading ? (
+                  <ActivityIndicator size="small" color={colors.gold} style={{ alignSelf: 'flex-start' }} />
+                ) : (
+                  <AppText variant="bodyStrong" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                    {kpi.value}
+                  </AppText>
+                )}
+              </View>
+            ))}
+          </View>
+
+          <SectionTitle>{t('sec_cd_history')}</SectionTitle>
+          <Card>
+            {records.isLoading ? (
+              <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} />
+            ) : history.length === 0 ? (
+              <AppText tone="muted" style={{ paddingVertical: 8 }}>
+                {t('sec_cd_history_empty')}
+              </AppText>
+            ) : (
+              history.map((record, index) => (
+                <View
+                  key={record.id}
+                  style={[styles.historyRow, index > 0 && { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }]}
+                  accessible
+                  accessibilityLabel={[record.label, record.note, formatMoney(record.amount, currency), date.format(new Date(record.createdAt))].filter(Boolean).join('. ')}>
+                  <View style={{ flex: 1 }}>
+                    <AppText variant="bodyStrong" numberOfLines={1}>
+                      {record.label}
+                    </AppText>
+                    <AppText variant="small" tone="muted" numberOfLines={2}>
+                      {[date.format(new Date(record.createdAt)), record.note].filter(Boolean).join(' · ')}
+                    </AppText>
+                  </View>
+                  <AppText variant="bodyStrong">{formatMoney(record.amount, currency)}</AppText>
+                </View>
+              ))
+            )}
+          </Card>
+        </>
+      ) : null}
+
+      {canManage ? (
+        <>
+          <Button label={t('edit')} icon="create-outline" variant="secondary" onPress={() => router.push({ pathname: '/client/form', params: { id: client.id } })} style={{ marginTop: 18 }} />
+          <Button label={t('client_anonymize')} icon="eye-off-outline" variant="secondary" loading={anonymizing} onPress={anonymize} style={{ marginTop: 10 }} />
+          <Button label={t('delete')} icon="trash-outline" variant="danger" loading={busy} onPress={remove} style={{ marginTop: 10 }} />
+        </>
+      ) : null}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  kpis: { flexDirection: 'row', gap: 8, marginTop: 18 },
+  kpi: { flex: 1, borderWidth: 1, borderRadius: radius.md, padding: 10, gap: 4 },
+  historyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingVertical: 6 },
+});

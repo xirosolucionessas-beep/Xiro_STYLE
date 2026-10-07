@@ -46,6 +46,8 @@ export const MENU_SECTIONS: MenuSection[] = [
     id: 'cash',
     titleKey: 'menu_section_cash',
     items: [
+      { id: 'new_sale', labelKey: 'new_sale', icon: 'add-circle-outline', href: '/sale/new', requires: ['services_record'] },
+      { id: 'sales_today', labelKey: 'nav_sales_today', icon: 'receipt-outline', href: '/sales-today', requires: ['services_record'] },
       { id: 'cash_base', labelKey: 'menu_cash_base', icon: 'wallet-outline', href: '/cash-opening', requires: 'owner' },
       { id: 'cash_close', labelKey: 'cash_close', icon: 'cash-outline', href: '/cash-close', requires: 'owner' },
     ],

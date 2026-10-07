@@ -1,6 +1,8 @@
-/** Textos web de "Cierre de caja": resumen del día, gastos, cerrar y anular — ES/EN. */
+/** Textos (web y Android/iOS) de "Cierre de caja": resumen del día, gastos, cerrar y anular — ES/EN. */
 export const cashCloseEs = {
   nav_cash_close: 'Cierre de caja',
+  sec_rep_times: '{n} veces',
+  sec_rep_time_one: '1 vez',
   cash_close_go_today: 'Ir a hoy',
   cash_close_summary_title: 'Resumen del cierre',
   cash_close_status_completed: 'Completado',
@@ -64,6 +66,8 @@ export type CashCloseStringKey = keyof typeof cashCloseEs;
 
 export const cashCloseEn: Record<CashCloseStringKey, string> = {
   nav_cash_close: 'Cash close',
+  sec_rep_times: '{n} times',
+  sec_rep_time_one: '1 time',
   cash_close_go_today: 'Go to today',
   cash_close_summary_title: 'Close summary',
   cash_close_status_completed: 'Completed',
