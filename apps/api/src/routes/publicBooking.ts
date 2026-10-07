@@ -188,7 +188,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
     const result = await scopedTo(business, async (tx): Promise<PublicBookingResult> => {
       const context = await loadContext(tx, business.id);
       const { customer } = input;
-      if (context.settings.requireEmail && !customer.email) throw new AppError(400, 'validation_error');
+      // El correo siempre es opcional al agendar: solo nombre y celular son obligatorios, sin excepción por negocio.
       const custom = context.settings.customFields.map((field) => ({ field, value: (customer.custom[field.key] ?? '').trim() }));
       if (custom.some(({ field, value }) => field.required && value === '')) throw new AppError(400, 'validation_error');
       const notes = [customer.notes, ...custom.filter(({ value }) => value !== '').map(({ field, value }) => `${field.label}: ${value}`)].filter(Boolean).join('\n');

@@ -247,7 +247,8 @@ export const appointmentsQuerySchema = z.object({
 const customerSchema = z.object({
   firstName: required(50),
   lastName: required(50),
-  email: emailSchema.optional(),
+  // Siempre opcional (ver sección 3): una cadena vacía cuenta como "no dio correo", no como un formato inválido.
+  email: emailSchema.or(z.literal('').transform(() => undefined)).optional(),
   phone: phoneSchema,
   notes: trimmed(500).default(''),
   custom: z.record(z.string().max(40), z.string().trim().max(200)).default({}),

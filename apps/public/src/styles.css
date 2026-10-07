@@ -309,10 +309,11 @@ textarea {
   position: relative;
 }
 
-/* La portada va SOLA: ningún texto se dibuja encima. El degradado oscuro de abajo la funde con el fondo y sirve de base al logo. */
+/* La portada va SOLA: ningún texto se dibuja encima. El degradado oscuro de abajo la funde con el fondo y sirve de base al logo.
+   Más grande que antes (pedido explícito: "que se vea completo y prominente"), con el mismo tope por vw para no desbordar en pantallas anchas. */
 .xp-cover {
   position: relative;
-  height: clamp(190px, 38vw, 420px);
+  height: clamp(260px, 50vw, 560px);
   overflow: hidden;
   background: var(--surface-alt);
 }
@@ -323,13 +324,34 @@ textarea {
   background: linear-gradient(180deg, rgba(var(--bg-rgb), 0) 30%, rgba(var(--bg-rgb), 0.6) 68%, var(--bg) 100%);
   pointer-events: none;
 }
+/* Relleno del espacio que `contain` deja libre: la MISMA foto, desenfocada y oscurecida — nunca un marco de color
+   plano (se veía como un borde blanco desproporcionado en tema claro). `inset` negativo + `scale` de sobra para que
+   el desenfoque nunca deje ver un borde nítido del recorte. */
+.xp-cover-backdrop {
+  position: absolute;
+  inset: -24px;
+  background-size: cover;
+  background-position: center;
+  filter: blur(32px) brightness(0.6) saturate(1.15);
+  transform: scale(1.2);
+}
+.xp-cover-trigger {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: zoom-in;
+}
 .xp-cover-img {
   display: block;
   width: 100%;
   height: 100%;
   /* `contain`, no `cover`: una portada alta o con texto cerca del borde (un negocio real lo reportó) quedaba
-     recortada por arriba y por abajo. Con `contain` nunca se pierde nada de la imagen — el fondo de `.xp-cover`
-     (`--surface-alt`) rellena el espacio sobrante en vez de cortar. */
+     recortada por arriba y por abajo. Con `contain` nunca se pierde nada de la imagen. */
   object-fit: contain;
 }
 .xp-cover-fallback {

@@ -2,8 +2,10 @@ import { formatClock, formatDay, formatMoney, localDate, localTime, translate, p
 import { useState } from 'react';
 import { ApiError, publicApi } from '../api';
 import { errorKey, useAsync } from '../lib/useAsync';
+import { navigate, profilePath } from '../lib/route';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
+import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
 import { SchedulePicker } from '../ui/SchedulePicker';
 import { StarRating } from '../ui/StarRating';
@@ -134,6 +136,9 @@ export function ManagePage({ slug, token, language }: { slug: string; token: str
     <div className="xp-page">
       <main className="xp-main xp-container">
         <div className="xp-section xp-stack">
+          <button type="button" className="xp-back-to-business" onClick={() => navigate(profilePath(slug))}>
+            <Icon name="back" size={16} /> {t('pub_my_account_back_to_business')}
+          </button>
           <h1>{t('pub_manage_title')}</h1>
           <div className="xp-row">
             <Alert tone={STATUS_TONE[current.status] === 'danger' ? 'danger' : STATUS_TONE[current.status] === 'success' ? 'success' : 'info'}>{t(`appt_status_${current.status}`)}</Alert>
@@ -181,6 +186,9 @@ export function ManagePage({ slug, token, language }: { slug: string; token: str
                 </a>
               ) : null}
             </div>
+            <Button variant="ghost" full={false} onClick={() => navigate(profilePath(slug))}>
+              <Icon name="back" size={16} /> {t('pub_my_account_back_to_business')}
+            </Button>
           </div>
 
           {current.canCancel || current.canReschedule ? (

@@ -148,7 +148,6 @@ export function RulesTab({ data }: { data: BookingAdminSettings }) {
         <AppText variant="small" tone="muted">
           {settings.autoConfirm ? t('rules_auto_confirm_on') : t('rules_auto_confirm_off')}
         </AppText>
-        <ToggleRow label={t('rules_require_email')} value={settings.requireEmail ?? true} onChange={(v) => patch({ requireEmail: v })} />
       </Card>
 
       <SectionTitle>{t('rules_catalog_title')}</SectionTitle>
