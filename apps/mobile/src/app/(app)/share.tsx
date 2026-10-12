@@ -1,8 +1,8 @@
-import { formatMoney, normalizePhone, whatsappLink, type Client } from '@xiro/shared';
+import { buildItemShareText, normalizePhone, whatsappLink, type Client } from '@xiro/shared';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
-import { publicBaseUrl } from '@/lib/api';
+import { publicBaseUrl, publicItemUrl } from '@/lib/api';
 import { useClientSearch, useItem } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
@@ -16,7 +16,7 @@ import { radius } from '@/ui/theme';
 type Target = 'client' | 'number' | 'any';
 
 export default function Share() {
-  const { t, colors } = useSettings();
+  const { t, colors, language } = useSettings();
   const { business } = useAuthed();
   const { mode, id } = useLocalSearchParams<{ mode?: 'catalog' | 'item'; id?: string }>();
   const item = useItem(mode === 'item' ? id : undefined).data;
@@ -38,11 +38,13 @@ export default function Share() {
   const base = `${publicBaseUrl()}/catalog/${business.slug}`;
   const greeting = target === 'client' && client ? `${t('hello')} ${client.name},` : `${t('hello')},`;
 
-  const body =
+  // Un artículo: mensaje distinto para producto (consulta) y servicio (reserva), con la dirección canónica del artículo.
+  const message =
     mode === 'item' && item
-      ? t('share_message_item', { business: business.name, title: item.name, short: item.shortDescription, price: formatMoney(item.price, business.currency), url: `${base}/item/${item.id}` })
-      : t('share_message_catalog', { business: business.name, url: base });
-  const message = `${greeting} ${body}`;
+      ? `${greeting}
+
+${buildItemShareText(item, { businessName: business.name, publicUrl: publicItemUrl(business.slug, item.id), currency: business.currency, language })}`
+      : `${greeting} ${t('share_message_catalog', { business: business.name, url: base })}`;
 
   function open() {
     let phone = '';

@@ -11,7 +11,7 @@ import {
   type ReviewDto,
   type ScheduleBlock,
 } from '@xiro/shared';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { DbExecutor } from '../db/client';
 import {
   businessPublicProfiles,
@@ -49,6 +49,29 @@ export async function resolveSlug(db: DbExecutor, slug: string): Promise<{ busin
   if (!old) return null;
   const [moved] = await db.select().from(businesses).where(eq(businesses.id, old.businessId)).limit(1);
   return moved ? { business: moved, redirected: true } : null;
+}
+
+/**
+ * ¿Este artículo se ve en la página pública moderna (/reservar)? Misma regla que `loadPublicCatalog`: página publicada, sección
+ * visible, artículo publicado y reservable, y —si el negocio oculta los agotados— con existencias. Decide a dónde lleva un
+ * enlace de artículo (Fase 2): la página moderna si se ve ahí; si no, el catálogo de siempre (/catalog), que muestra todo lo
+ * publicado. Ambas rutas usan ESTA función, así que nunca se redirigen entre sí en bucle.
+ */
+export async function itemOnPublicPage(db: DbExecutor, businessId: string, itemId: string): Promise<boolean> {
+  const profile = await loadProfileRow(db, businessId);
+  if (!profile?.published) return false;
+  const [item] = await db
+    .select({ kind: items.kind, stock: items.stock })
+    .from(items)
+    .where(and(eq(items.businessId, businessId), eq(items.id, itemId), eq(items.published, true), eq(items.bookable, true)))
+    .limit(1);
+  if (!item) return false;
+  const sections = allSections(profile.sections);
+  if (item.kind === 'service') return sections.services;
+  if (item.kind !== 'product' || !sections.products) return false;
+  if (item.stock > 0) return true;
+  const [settings] = await db.select({ hide: businessSettings.hideOutOfStockInCatalog }).from(businessSettings).where(eq(businessSettings.businessId, businessId)).limit(1);
+  return !settings?.hide;
 }
 
 export const allSections = (stored: Partial<Record<PublicSection, boolean>> | null | undefined): Record<PublicSection, boolean> =>
@@ -122,6 +145,20 @@ export async function loadReadiness(tx: Tx, ctx: BookingContext, published: bool
   return { published, bookableServices, bookableProfessionals, openDays, ready: published && bookableServices > 0 && bookableProfessionals > 0 && openDays > 0 };
 }
 
+/**
+ * ¿Se pueden pedir productos sin cita? El negocio lo activó, la página y la sección de productos están visibles y hay al menos un
+ * producto que se puede pedir (publicado, reservable y con existencias). Misma regla que valida el servidor al crear el pedido.
+ */
+async function acceptsProductOrders(tx: Tx, ctx: BookingContext, sections: Record<PublicSection, boolean>, published: boolean): Promise<boolean> {
+  if (!published || !ctx.settings.productOrdersEnabled || !sections.products) return false;
+  const [row] = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(and(eq(items.businessId, ctx.business.id), eq(items.kind, 'product'), eq(items.bookable, true), eq(items.published, true), gt(items.stock, 0)))
+    .limit(1);
+  return Boolean(row);
+}
+
 /** Lista blanca del perfil público: aquí se decide, campo por campo, lo que sale a Internet. */
 export async function loadPublicProfile(tx: Tx, ctx: BookingContext, now: Date, captchaSiteKey: string | null, mapsEnabled = false): Promise<PublicBookingProfile> {
   const { business } = ctx;
@@ -130,7 +167,11 @@ export async function loadPublicProfile(tx: Tx, ctx: BookingContext, now: Date, 
   const hasPin = sections.map && profile?.latitude != null && profile.longitude != null;
   // `v` cambia con el pin: el navegador guarda la imagen un rato y así no enseña el mapa del pin anterior tras moverlo.
   const mapImageUrl = mapsEnabled && hasPin ? `/api/public/booking/${business.slug}/map.png?v=${roundCoord(profile.latitude!)},${roundCoord(profile.longitude!)}` : null;
-  const [rating, readiness] = await Promise.all([sections.reviews ? ratingOf(tx, business.id) : Promise.resolve({ average: null, count: 0 }), loadReadiness(tx, ctx, profile?.published ?? false)]);
+  const [rating, readiness, productOrders] = await Promise.all([
+    sections.reviews ? ratingOf(tx, business.id) : Promise.resolve({ average: null, count: 0 }),
+    loadReadiness(tx, ctx, profile?.published ?? false),
+    acceptsProductOrders(tx, ctx, sections, profile?.published ?? false),
+  ]);
   return {
     slug: business.slug,
     name: profile?.displayName || business.name,
@@ -163,6 +204,7 @@ export async function loadPublicProfile(tx: Tx, ctx: BookingContext, now: Date, 
     openStatus: openStatus(ctx, now),
     // Sin servicios o sin quien atienda la página no ofrece "Reservar" (y lo dice); `published` ya es cierto si se llegó hasta aquí.
     acceptsBookings: readiness.ready,
+    acceptsProductOrders: productOrders,
     rating,
     rules: {
       slotIntervalMinutes: ctx.settings.slotIntervalMinutes,

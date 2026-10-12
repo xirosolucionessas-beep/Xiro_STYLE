@@ -17,6 +17,8 @@ export function ServicesStep({
   chosen,
   currency,
   t,
+  acceptsProductOrders = false,
+  orderMode = false,
   onToggleService,
   onSetVariant,
   onTogglePackage,
@@ -27,6 +29,10 @@ export function ServicesStep({
   chosen: Chosen;
   currency: string;
   t: T;
+  /** El negocio acepta pedidos de solo productos (sin cita). */
+  acceptsProductOrders?: boolean;
+  /** Lo elegido es solo productos: se pedirá sin profesional ni horario. */
+  orderMode?: boolean;
   onToggleService: (id: string, on: boolean) => void;
   onSetVariant: (id: string, variantId: string | null) => void;
   onTogglePackage: (id: string, on: boolean) => void;
@@ -36,7 +42,13 @@ export function ServicesStep({
   const products = catalog.products.filter((p) => p.inStock);
   return (
     <div className="xp-stack">
-      <p className="xp-hint">{t('pub_services_pick_hint')}</p>
+      {/* Un negocio que solo vende productos no tiene servicios que sumar: la pista habla de productos. */}
+      <p className="xp-hint">{t(acceptsProductOrders && catalog.services.length + catalog.packages.length === 0 ? 'pub_order_pick_hint' : 'pub_services_pick_hint')}</p>
+      {orderMode ? (
+        <p className="xp-hint" role="status">
+          <Icon name="bag" size={14} /> {t('pub_order_mode_note')}
+        </p>
+      ) : null}
       {catalog.services.map((service) => {
         const picked = chosen.services.find((s) => s.itemId === service.id);
         const description = service.description && service.description !== service.name ? service.description : '';
@@ -227,6 +239,7 @@ export function DetailsStep({
 /* ---------- 5. Resumen ---------- */
 
 export function ReviewStep({
+  orderMode = false,
   profile,
   catalog,
   chosen,
@@ -244,11 +257,13 @@ export function ReviewStep({
   onWebsite,
   onCaptcha,
 }: {
+  /** Pedido de solo productos: sin profesional ni horario; se recoge y paga en el local. */
+  orderMode?: boolean;
   profile: PublicBookingProfile;
   catalog: PublicBookingCatalog;
   chosen: Chosen;
   professionalName: string;
-  slot: string;
+  slot: string | null;
   customer: CustomerForm;
   totals: { minutes: number; price: number };
   language: Language;
@@ -274,8 +289,8 @@ export function ReviewStep({
       return { key: p.itemId, name: `${product?.name ?? ''} ×${p.quantity}`, price: (product?.price ?? 0) * p.quantity };
     }),
   ];
-  const day = upperFirst(formatDay(localDate(slot, profile.timezone), language));
-  const time = formatClock(localTime(slot, profile.timezone), language);
+  const day = slot ? upperFirst(formatDay(localDate(slot, profile.timezone), language)) : '';
+  const time = slot ? formatClock(localTime(slot, profile.timezone), language) : '';
   const address = [profile.mapAddress || profile.address, profile.mapAddress ? '' : profile.city].filter(Boolean).join(', ');
 
   return (
@@ -283,7 +298,7 @@ export function ReviewStep({
       <div className="xp-summary">
         <dl>
           <div>
-            <dt>{t('pub_summary_services')}</dt>
+            <dt>{t(orderMode ? 'pub_order_summary_products' : 'pub_summary_services')}</dt>
             <dd>
               <ul className="xp-summary-lines">
                 {lines.map((line) => (
@@ -295,17 +310,26 @@ export function ReviewStep({
               </ul>
             </dd>
           </div>
-          <div>
-            <dt>{t('pub_summary_professional')}</dt>
-            <dd>{professionalName}</dd>
-          </div>
-          <div>
-            <dt>{t('pub_summary_when')}</dt>
-            <dd>
-              {t('pub_done_when', { day, time })}
-              <span className="xp-muted xp-nowrap"> · {t('pub_minutes', { minutes: totals.minutes })}</span>
-            </dd>
-          </div>
+          {orderMode ? (
+            <div>
+              <dt>{t('pub_order_pickup')}</dt>
+              <dd>{t('pub_order_pickup_value')}</dd>
+            </div>
+          ) : (
+            <>
+              <div>
+                <dt>{t('pub_summary_professional')}</dt>
+                <dd>{professionalName}</dd>
+              </div>
+              <div>
+                <dt>{t('pub_summary_when')}</dt>
+                <dd>
+                  {t('pub_done_when', { day, time })}
+                  <span className="xp-muted xp-nowrap"> · {t('pub_minutes', { minutes: totals.minutes })}</span>
+                </dd>
+              </div>
+            </>
+          )}
           {address ? (
             <div>
               <dt>{t('pub_summary_where')}</dt>

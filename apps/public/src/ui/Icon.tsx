@@ -48,6 +48,12 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M8 20h8M12 16.5V20" />
     </>
   ),
+  bag: (
+    <>
+      <path d="M5 8h14l-1.2 11.2a1.5 1.5 0 0 1-1.5 1.3H7.7a1.5 1.5 0 0 1-1.5-1.3L5 8Z" />
+      <path d="M9 10V7a3 3 0 0 1 6 0v3" />
+    </>
+  ),
   image: (
     <>
       <rect x="3.5" y="5" width="17" height="14" rx="2" />

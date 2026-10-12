@@ -6,7 +6,7 @@ import { meets, type Requirement } from './access';
  * están disponibles (`soon`) muestran un aviso corto en vez de llevar a una pantalla vacía. Lo que cada persona puede ver
  * sale de `requires` (mismo criterio que el guardián de rutas y que el servidor: ver src/lib/access.ts).
  */
-export type MenuBadge = 'low_stock';
+export type MenuBadge = 'low_stock' | 'open_orders';
 
 export interface MenuItem {
   id: string;
@@ -34,6 +34,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       { id: 'home', labelKey: 'home', icon: 'home-outline', href: '/' },
       { id: 'messages', labelKey: 'messages_title', icon: 'chatbubbles-outline', href: '/messages' },
       { id: 'appointments', labelKey: 'appointments', icon: 'calendar-outline', href: '/agenda', requires: ['agenda_own'] },
+      { id: 'orders', labelKey: 'nav_orders', icon: 'bag-handle-outline', href: '/orders', requires: ['services_record'], badge: 'open_orders' },
       { id: 'booking', labelKey: 'booking_title', icon: 'globe-outline', href: '/booking', requires: ['public_page_manage'] },
       { id: 'clients', labelKey: 'clients', icon: 'people-outline', href: '/clients', requires: ['clients_view'] },
       { id: 'catalog', labelKey: 'catalog', icon: 'book-outline', href: '/catalog', requires: ['catalog_view'] },

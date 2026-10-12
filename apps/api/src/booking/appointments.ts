@@ -39,7 +39,7 @@ interface ClientInput {
  * Busca al cliente por su celular dentro del negocio o lo crea. NUNCA modifica lo que ya existe (ni el nombre) y la
  * respuesta pública es idéntica en ambos casos: quien reserva no puede averiguar si ese número ya era cliente.
  */
-async function findOrCreateClient(tx: Tx, businessId: string, input: ClientInput): Promise<string> {
+export async function findOrCreateClient(tx: Tx, businessId: string, input: ClientInput): Promise<string> {
   if (input.phone) {
     // Dos reservas simultáneas con el mismo celular en el mismo negocio no deben crear dos clientes: el candado se libera solo al
     // terminar la transacción y es por (negocio, celular), así que no frena a nadie más.

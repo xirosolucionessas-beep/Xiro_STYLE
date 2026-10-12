@@ -28,9 +28,12 @@ export function SelectionBar({ summary, language }: { summary: SelectionSummary;
       {!empty ? (
         <div className="xp-selbar-total">
           <span className="xp-price">{money(summary.price, summary.currency)}</span>
-          <span className="xp-meta">
-            <Icon name="clock" size={14} /> {t('pub_minutes', { minutes: summary.minutes })}
-          </span>
+          {/* Un pedido de solo productos no ocupa tiempo: sin "0 min". */}
+          {summary.minutes > 0 ? (
+            <span className="xp-meta">
+              <Icon name="clock" size={14} /> {t('pub_minutes', { minutes: summary.minutes })}
+            </span>
+          ) : null}
         </div>
       ) : null}
     </div>

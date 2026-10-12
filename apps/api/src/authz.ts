@@ -80,6 +80,13 @@ export const POLICY: Record<string, PolicyRule> = {
   'POST /sales': ['services_record'],
   'POST /sales/:id/void': 'owner',
 
+  // Pedidos de productos de la página pública: los atiende quien registra ventas (entregar = registrar la venta).
+  'GET /orders': ['services_record'],
+  'GET /orders/summary': ['services_record'],
+  'GET /orders/:id': ['services_record'],
+  'POST /orders/:id/ready': ['services_record'],
+  'POST /orders/:id/cancel': ['services_record'],
+
   // Servicios realizados y fidelización (la configuración del programa es del dueño)
   'GET /service-records': ['services_record'],
   'GET /service-records/summary': ['services_record'],

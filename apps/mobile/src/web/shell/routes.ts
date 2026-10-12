@@ -1,7 +1,7 @@
 /** Metadatos de cada ruta de la app: título, migas de pan, sección activa y ancho de contenido. Puro (sin React). */
 import type { IconName } from '../icons';
 
-export type SectionId = 'home' | 'notifications' | 'messages' | 'agenda' | 'booking' | 'reports' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
+export type SectionId = 'home' | 'notifications' | 'messages' | 'agenda' | 'orders' | 'booking' | 'reports' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
 
 export interface Crumb {
   /** Clave de traducción. */
@@ -54,6 +54,8 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
       return { titleKey: 'notifications', section: 'notifications', trail: [HOME, { labelKey: 'notifications' }], auth: false, width: 'wide', needsHeading: false };
     case '/messages':
       return { titleKey: 'messages_title', section: 'messages', trail: [HOME, { labelKey: 'messages_title' }], auth: false, width: 'wide', needsHeading: false };
+    case '/orders':
+      return { titleKey: 'nav_orders', section: 'orders', trail: [HOME, { labelKey: 'nav_orders' }], auth: false, width: 'wide', needsHeading: false };
     case '/agenda':
       return { titleKey: 'nav_agenda', section: 'agenda', trail: [HOME, { labelKey: 'nav_agenda' }], auth: false, width: 'wide', needsHeading: false };
     case '/booking':

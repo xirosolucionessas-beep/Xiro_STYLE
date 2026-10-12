@@ -14,7 +14,7 @@ export function VisuallyHidden({ children }: { children: ReactNode }) {
 }
 
 /** Icono decorativo (aria-hidden): nunca es la única señal de estado, siempre va con texto. */
-export type IconName = 'alert' | 'check' | 'info' | 'eye' | 'eye-off' | 'chevron-down' | 'chevron-right' | 'close' | 'inbox' | 'home' | 'calendar' | 'users' | 'book' | 'box' | 'briefcase' | 'chart' | 'sliders' | 'menu' | 'chevrons-left' | 'chevrons-right' | 'arrow-left' | 'star' | 'globe';
+export type IconName = 'alert' | 'check' | 'info' | 'eye' | 'eye-off' | 'chevron-down' | 'chevron-right' | 'close' | 'inbox' | 'home' | 'calendar' | 'users' | 'book' | 'box' | 'briefcase' | 'chart' | 'sliders' | 'menu' | 'chevrons-left' | 'chevrons-right' | 'arrow-left' | 'star' | 'globe' | 'bag';
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<typeof name, ReactNode> = {
@@ -105,6 +105,12 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
       </>
     ),
     star: <path d="m12 3 2.6 5.9 6.4.6-4.8 4.3 1.4 6.3L12 17l-5.6 3 1.4-6.3-4.8-4.3 6.4-.6L12 3Z" />,
+    bag: (
+      <>
+        <path d="M5 8h14l-1.2 11.2a1.5 1.5 0 0 1-1.5 1.3H7.7a1.5 1.5 0 0 1-1.5-1.3L5 8Z" />
+        <path d="M9 10V7a3 3 0 0 1 6 0v3" />
+      </>
+    ),
     globe: (
       <>
         <circle cx="12" cy="12" r="9" />

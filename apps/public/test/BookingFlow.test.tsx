@@ -50,6 +50,7 @@ const profile: PublicBookingProfile = {
   openNow: true,
   openStatus: { open: true, changesAt: '2026-10-06T00:00:00.000Z' },
   acceptsBookings: true,
+  acceptsProductOrders: false,
   rating: { average: null, count: 0 },
   rules: { slotIntervalMinutes: 30, maxDaysAhead: 60, cancelUntilHours: 2, maxModifications: 2, requireEmail: true, customFields: [] },
   captchaSiteKey: null,

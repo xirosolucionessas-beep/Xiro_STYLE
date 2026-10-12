@@ -1,11 +1,14 @@
 import {
   availabilityQuerySchema,
+  formatMoney,
   daysQuerySchema,
   publicBookingInputSchema,
   publicCancelInputSchema,
+  publicProductOrderInputSchema,
   publicReviewInputSchema,
   publicRescheduleInputSchema,
   type AvailabilityResponse,
+  type Currency,
   type DaySummary,
   type PublicAppointmentDto,
   type PublicBookingCatalog,
@@ -21,15 +24,16 @@ import { assertClientMayChange, createAppointment, findByIdempotency, hashToken,
 import { loadContext, prepare, slotsForDays, toPublicSlot } from '../booking/availability';
 import { verifyCaptcha } from '../booking/captcha';
 import { anonymizeClient } from '../booking/privacy';
+import { createProductOrder, toPublicProductOrder, type ProductOrderRow } from '../booking/orders';
 import { withBusiness, type Tx } from '../booking/scope';
 import { allSections, loadProfileRow, loadPublicCatalog, loadPublicProfile, loadPublicReviews, loadPublicTeam, resolveSlug } from '../booking/view';
 import { CLIENT_COOKIE_NAME, resolveClientAccount } from '../clientSession';
 import { parseCookies } from '../cookies';
 import type { Ctx } from '../context';
-import { appointments, businessPublicProfiles, businesses } from '../db/schema';
+import { appointments, businessPublicProfiles, businesses, productOrders } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
 import { cancelReminder, scheduleReminder } from '../jobs/reminders';
-import { formatPushMoment, notifyAppointment } from '../push';
+import { formatPushMoment, notifyAppointment, notifyBusiness } from '../push';
 import { deriveToken } from '../security';
 import type { BusinessRow } from '../serializers';
 import { selectionFromQuery } from './booking';
@@ -38,6 +42,8 @@ const slugParams = z.object({ slug: z.string().min(1).max(60) });
 const TOKEN = /^[A-Za-z0-9_-]{20,100}$/;
 /** Reservas nuevas por IP y por hora: un cliente real hace una o dos; un bot, cientos. */
 const CREATES_PER_IP_PER_HOUR = 20;
+/** Pedidos de productos nuevos por IP y por hora (mismo criterio que las reservas). */
+const ORDERS_PER_IP_PER_HOUR = 20;
 /** El perfil dice si el negocio está "abierto ahora": se guarda poco (lo mismo que ya lo guarda el navegador). */
 const PROFILE_CACHE_SECONDS = 15;
 
@@ -52,9 +58,10 @@ const PROFILE_CACHE_SECONDS = 15;
 export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
   const createLimiter = ctx.rates.limiter('booking-create-ip', 3_600_000);
+  const orderLimiter = ctx.rates.limiter('order-create-ip', 3_600_000);
 
   app.addHook('onSend', async (request, reply) => {
-    const dynamic = /\/(availability|days|appointments)/.test(request.url);
+    const dynamic = /\/(availability|days|appointments|orders)/.test(request.url);
     // El mapa lo guarda el navegador una hora (cambia solo si mueven el pin, y para eso la URL lleva `?v=`): cada vista de la página
     // sin esto sería una consulta facturada a Google.
     if (/\/map\.png(\?|$)/.test(request.url)) return void reply.header('Cache-Control', 'public, max-age=3600');
@@ -252,6 +259,68 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       void scheduleReminder(ctx.boss, business.id, created.id, created.startsAt);
     }
     return reply.status(repeated ? 200 : 201).send(result);
+  });
+
+  /* ---------- Pedir productos sin cita ---------- */
+
+  /**
+   * Pedido de SOLO productos (recoger y pagar en el local), si el negocio lo activó. Mismas defensas que una reserva: campo
+   * trampa, límite por IP y por negocio, captcha e idempotencia. Precios, total y existencias los decide el servidor.
+   */
+  app.post('/:slug/orders', async (request, reply) => {
+    const { slug } = parse(slugParams, request.params);
+    const input = parse(publicProductOrderInputSchema, request.body);
+    if (input.website.trim() !== '') throw new AppError(400, 'validation_error');
+    if (config.rateLimit.enabled && (await orderLimiter.hit(request.ip)) > ORDERS_PER_IP_PER_HOUR) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await orderLimiter.retryAfterSeconds(request.ip)) });
+    }
+    const business = await publishedBusiness(slug);
+    const now = new Date();
+
+    // Un reintento del MISMO envío devuelve el pedido ya creado, antes de pedir otra vez el captcha (de un solo uso).
+    if (input.idempotencyKey) {
+      const key = input.idempotencyKey;
+      const replay = await scopedTo(business, async (tx) => {
+        const prior = await tx.select().from(productOrders).where(and(eq(productOrders.businessId, business.id), eq(productOrders.idempotencyHash, idempotencyHash(business.id, `order:${key}`)))).limit(1);
+        return prior[0] ? toPublicProductOrder(tx, business, prior[0], await loadProfileRow(tx, business.id)) : null;
+      });
+      if (replay) return reply.status(200).send({ order: replay });
+    }
+
+    if (!(await verifyCaptcha(config.booking.turnstileSecret, input.captchaToken, request.ip))) throw new AppError(400, 'captcha_failed');
+    const account = await resolveClientAccount(db, config.jwtSecret, parseCookies(request.headers.cookie)[CLIENT_COOKIE_NAME], business);
+    const name = `${input.customer.firstName} ${input.customer.lastName}`.trim();
+
+    let created: ProductOrderRow | undefined;
+    const order = await scopedTo(business, async (tx) => {
+      const context = await loadContext(tx, business.id);
+      const profile = await loadProfileRow(tx, business.id);
+      // El negocio no los activó (o ocultó sus productos): igual que una ruta inexistente para quien pregunta.
+      if (!context.settings.productOrdersEnabled || !allSections(profile?.sections).products) throw new AppError(403, 'orders_disabled');
+      const result = await createProductOrder(tx, business.id, context, {
+        now,
+        lines: input.products,
+        customer: { name, phone: input.customer.phone, email: input.customer.email, notes: input.customer.notes },
+        account: account ? { id: account.id, clientId: account.clientId } : null,
+        termsIp: request.ip,
+        idempotencyKey: input.idempotencyKey,
+      });
+      if (!result.replayed) created = result.row;
+      return toPublicProductOrder(tx, business, result.row, profile);
+    });
+
+    // Aviso de mejor esfuerzo al negocio (y a NINGÚN otro), fuera de la transacción. El panel web además se refresca solo
+    // por el aviso en tiempo real del trigger de `product_orders`.
+    if (created) {
+      void notifyBusiness({ db, config }, business.id, 'sales', {
+        titleKey: 'push_order_new_title',
+        bodyKey: 'push_order_new_body',
+        params: { name, amount: formatMoney(created.totalPrice, business.currency as Currency) },
+        dedupeKey: `order_new:${created.id}`,
+        href: '/orders',
+      });
+    }
+    return reply.status(created ? 201 : 200).send({ order });
   });
 
   /* ---------- Gestión de la cita con el enlace personal ---------- */

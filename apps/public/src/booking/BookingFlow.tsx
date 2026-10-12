@@ -6,6 +6,7 @@ import {
   localTime,
   looksLikeEmail,
   publicBookingInputSchema,
+  publicProductOrderInputSchema,
   todayIn,
   translate,
   type BookingSelection,
@@ -14,6 +15,7 @@ import {
   type PublicBookingCatalog,
   type PublicBookingProfile,
   type PublicBookingResult,
+  type PublicProductOrderDto,
   type PublicTeamMemberDto,
 } from '@xiro/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -25,6 +27,7 @@ import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
 import { SchedulePicker } from '../ui/SchedulePicker';
 import { DoneStep } from './DoneStep';
+import { OrderDoneStep } from './OrderDoneStep';
 import { SelectionBar, type SelectionSummary } from './SelectionBar';
 import { Stepper, type StepId } from './Stepper';
 import { DetailsStep, ProfessionalStep, ReviewStep, ServicesStep, type CustomerForm } from './steps';
@@ -86,15 +89,22 @@ export function BookingFlow({
   onClose: () => void;
 }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
-  const steps: StepId[] = useMemo(() => ['services', ...(team.length > 0 ? (['professional'] as const) : []), 'schedule', 'details', 'review'], [team.length]);
-  const [stepIndex, setStepIndex] = useState(0);
-  const step = steps[stepIndex]!;
-
   const [chosen, setChosen] = useState<Chosen>(() => ({
     services: initial.serviceId ? [{ itemId: initial.serviceId, variantId: null }] : [],
     packages: initial.packageId ? [initial.packageId] : [],
     products: initial.productId ? [{ itemId: initial.productId, quantity: 1 }] : [],
   }));
+  // Pedido de SOLO productos (el negocio lo activó y no se eligió ningún servicio ni paquete): no hay profesional ni horario,
+  // así que esos pasos se omiten. En cuanto se agrega un servicio vuelve a ser una cita, con todos sus pasos y sin perder nada.
+  const hasBookable = chosen.services.length + chosen.packages.length > 0;
+  const orderMode = profile.acceptsProductOrders && !hasBookable && chosen.products.length > 0;
+  const steps: StepId[] = useMemo(
+    () => (orderMode ? ['services', 'details', 'review'] : ['services', ...(team.length > 0 ? (['professional'] as const) : []), 'schedule', 'details', 'review']),
+    [orderMode, team.length],
+  );
+  const [stepIndex, setStepIndex] = useState(0);
+  // La selección solo cambia en el primer paso, pero por si acaso el índice nunca queda fuera de los pasos vigentes.
+  const step = steps[Math.min(stepIndex, steps.length - 1)]!;
   const [professionalId, setProfessionalId] = useState('any');
   const [date, setDate] = useState(() => todayIn(profile.timezone));
   const [slot, setSlot] = useState<string | null>(null);
@@ -110,6 +120,7 @@ export function BookingFlow({
   const [submitError, setSubmitError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<PublicBookingResult>();
+  const [orderResult, setOrderResult] = useState<PublicProductOrderDto>();
   const heading = useRef<HTMLHeadingElement>(null);
   const body = useRef<HTMLDivElement>(null);
 
@@ -155,7 +166,8 @@ export function BookingFlow({
     return { price, minutes };
   }, [chosen, catalog]);
 
-  const hasSelection = chosen.services.length + chosen.packages.length > 0;
+  // Se puede seguir con un servicio o paquete (cita), o solo con productos si el negocio acepta pedidos.
+  const hasSelection = hasBookable || orderMode;
   const professionalName = professionalId === 'any' ? t('pub_sel_professional_any') : (team.find((m) => m.id === professionalId)?.name ?? '');
   const slotLabel = slot ? `${formatDay(localDate(slot, profile.timezone), language, { weekday: 'short', day: 'numeric', month: 'short' })} · ${formatClock(localTime(slot, profile.timezone), language)}` : null;
 
@@ -163,8 +175,13 @@ export function BookingFlow({
     names: [
       ...chosen.services.map((s) => catalog.services.find((i) => i.id === s.itemId)?.name ?? ''),
       ...chosen.packages.map((id) => catalog.packages.find((p) => p.id === id)?.name ?? ''),
+      // Los productos también cuentan como "elegido": antes la barra decía "Aún no has elegido nada" con productos marcados.
+      ...chosen.products.map((p) => {
+        const name = catalog.products.find((i) => i.id === p.itemId)?.name ?? '';
+        return name && p.quantity > 1 ? `${name} ×${p.quantity}` : name;
+      }),
     ].filter(Boolean),
-    professional: stepIndex > steps.indexOf('professional') && team.length > 0 ? professionalName : null,
+    professional: !orderMode && stepIndex > steps.indexOf('professional') && team.length > 0 ? professionalName : null,
     when: slotLabel,
     minutes: totals.minutes,
     price: totals.price,
@@ -206,7 +223,11 @@ export function BookingFlow({
   function goNext() {
     setStepError(undefined);
     setSubmitError(undefined);
-    if (step === 'services' && !hasSelection) return setStepError(t('pub_err_selection'));
+    if (step === 'services' && !hasSelection) {
+      // Solo productos en un negocio que no recibe pedidos: los productos van como complemento de una cita.
+      if (chosen.products.length > 0 && !profile.acceptsProductOrders) return setStepError(t('pub_err_products_need_service'));
+      return setStepError(t(profile.acceptsProductOrders ? 'pub_err_selection_any' : 'pub_err_selection'));
+    }
     if (step === 'schedule' && !slot) return setStepError(t('pub_err_slot'));
     if (step === 'details' && !validateDetails()) return setStepError(t('pub_err_fix'));
     setAlternatives([]);
@@ -222,6 +243,7 @@ export function BookingFlow({
     setSubmitError(undefined);
     if (!consent.acceptTerms) return setErrors({ acceptTerms: t('terms_required') });
     setErrors({});
+    if (orderMode) return submitOrder();
     const payload = {
       selection: { services: chosen.services, packages: chosen.packages, products: chosen.products },
       professionalId,
@@ -254,19 +276,51 @@ export function BookingFlow({
     }
   }
 
+  /** Pedido de solo productos: mismo formulario y mismas garantías (idempotente, campo trampa, captcha); el servidor pone precios. */
+  async function submitOrder() {
+    const payload = {
+      products: chosen.products,
+      customer: { firstName: customer.firstName.trim(), lastName: customer.lastName.trim(), phone: customer.phone.trim(), email: customer.email.trim() || undefined, notes: customer.notes.trim(), custom: {} },
+      acceptTerms: true as const,
+      website,
+      captchaToken,
+      idempotencyKey,
+    };
+    const parsed = publicProductOrderInputSchema.safeParse(payload);
+    if (!parsed.success) return setSubmitError(t('pub_err_fix'));
+    setSubmitting(true);
+    try {
+      setOrderResult((await publicApi.order(slug, parsed.data)).order);
+    } catch (error) {
+      if (error instanceof ApiError && (error.code === 'out_of_stock' || error.code === 'product_unavailable')) {
+        // Se agotó o se retiró algo mientras elegía: de vuelta a la selección, diciendo QUÉ, para quitarlo o cambiar la cantidad.
+        const ids = (error.extra.itemIds as string[] | undefined) ?? [];
+        const names = ids.map((id) => catalog.products.find((p) => p.id === id)?.name).filter(Boolean).join(', ');
+        setStepIndex(0);
+        setStepError(names ? t('pub_order_unavailable', { names }) : t(error.code));
+      } else {
+        setSubmitError(t(errorKey(error)));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (orderResult) return <OrderDoneStep order={orderResult} profile={profile} language={language} customer={{ name: `${customer.firstName.trim()} ${customer.lastName.trim()}`.trim(), phone: customer.phone.trim() }} onClose={onClose} />;
   if (result) return <DoneStep result={result} profile={profile} language={language} customerName={customer.firstName.trim()} onClose={onClose} />;
 
   const isLast = step === 'review';
   const title = t(`pub_step_${step}`);
+  const flowTitle = t(orderMode ? 'pub_order_flow_title' : 'pub_flow_title');
 
   return (
-    <div className="xp-overlay" role="dialog" aria-modal="true" aria-label={t('pub_flow_title')}>
+    <div className="xp-overlay" role="dialog" aria-modal="true" aria-label={flowTitle}>
       <div className="xp-overlay-head">
         <button type="button" className="xp-icon-btn" aria-label={t('close')} onClick={onClose}>
           <Icon name="close" size={22} />
         </button>
         <div className="xp-overlay-title">
-          <strong>{t('pub_flow_title')}</strong>
+          <strong>{flowTitle}</strong>
           <span className="xp-muted">{profile.name}</span>
         </div>
       </div>
@@ -278,7 +332,7 @@ export function BookingFlow({
 
       <div className="xp-overlay-body" ref={body}>
         <h2 className="xp-step-title" ref={heading} tabIndex={-1}>
-          {step === 'schedule' ? t('pub_schedule_step_title') : step === 'professional' ? t('pub_professional_step_title') : step === 'services' ? t('pub_services_step_title') : step === 'details' ? t('pub_confirm_step_title') : t('pub_summary_title')}
+          {step === 'schedule' ? t('pub_schedule_step_title') : step === 'professional' ? t('pub_professional_step_title') : step === 'services' ? t('pub_services_step_title') : step === 'details' ? t('pub_confirm_step_title') : t(orderMode ? 'pub_order_summary_title' : 'pub_summary_title')}
           <span className="xp-sr"> — {title}</span>
         </h2>
         {stepError ? (
@@ -306,7 +360,19 @@ export function BookingFlow({
         ) : null}
 
         {step === 'services' ? (
-          <ServicesStep catalog={catalog} loading={catalogLoading} chosen={chosen} currency={profile.currency} t={t} onToggleService={toggleService} onSetVariant={setVariant} onTogglePackage={togglePackage} onSetProductQty={setProductQty} />
+          <ServicesStep
+            catalog={catalog}
+            loading={catalogLoading}
+            chosen={chosen}
+            currency={profile.currency}
+            t={t}
+            acceptsProductOrders={profile.acceptsProductOrders}
+            orderMode={orderMode}
+            onToggleService={toggleService}
+            onSetVariant={setVariant}
+            onTogglePackage={togglePackage}
+            onSetProductQty={setProductQty}
+          />
         ) : null}
 
         {step === 'professional' ? (
@@ -341,8 +407,9 @@ export function BookingFlow({
 
         {step === 'details' ? <DetailsStep profile={profile} customer={customer} custom={custom} errors={errors} t={t} onCustomer={(patch) => setCustomer((c) => ({ ...c, ...patch }))} onCustom={(key, value) => setCustom((c) => ({ ...c, [key]: value }))} /> : null}
 
-        {step === 'review' && slot ? (
+        {step === 'review' && (slot || orderMode) ? (
           <ReviewStep
+            orderMode={orderMode}
             profile={profile}
             catalog={catalog}
             chosen={chosen}
@@ -373,7 +440,7 @@ export function BookingFlow({
           </Button>
           {isLast ? (
             <Button loading={submitting} loadingLabel={t('loading')} onClick={() => void submit()}>
-              {t('pub_submit_cta')}
+              {t(orderMode ? 'pub_order_submit_cta' : 'pub_submit_cta')}
             </Button>
           ) : (
             <Button onClick={goNext} disabled={catalogLoading}>

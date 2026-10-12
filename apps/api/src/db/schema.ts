@@ -660,6 +660,8 @@ export const businessSettings = pgTable(
     customFields: jsonb('custom_fields').$type<CustomField[]>().notNull().default(sql`'[]'::jsonb`),
     /** Un producto publicado en 0 existencias: true = se oculta del catálogo público; false = sigue visible, marcado "Agotado". */
     hideOutOfStockInCatalog: boolean('hide_out_of_stock_in_catalog').notNull().default(false),
+    /** Pedidos de solo productos desde la página pública (recoger y pagar en el local). Apagado por defecto: cada negocio decide. */
+    productOrdersEnabled: boolean('product_orders_enabled').notNull().default(false),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -1258,5 +1260,68 @@ export const cashClosings = pgTable(
     foreignKey({ columns: [t.voidedBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'cash_closings_voided_by_fk' }),
     index('cash_closings_business_idx').on(t.businessId, t.day.desc()),
     check('cash_closings_status_ck', sql`${t.status} in ('completed','voided')`),
+  ],
+);
+
+/* ---------- Pedidos de solo productos (página pública) ---------- */
+
+/**
+ * Un cliente pide productos para recoger y pagar en el local, sin cita (sin hora ni profesional). Los precios y el total
+ * los fija el servidor al crear el pedido. El inventario NO se toca aquí: se descuenta cuando el negocio lo entrega,
+ * registrándolo como una venta normal (`saleId`), igual que los productos apartados en una cita.
+ * Estados: pending (nuevo) → ready (listo para recoger) → delivered (entregado, con venta) | cancelled.
+ */
+export const productOrders = pgTable(
+  'product_orders',
+  {
+    id: id(),
+    businessId: businessRef(),
+    clientId: uuid('client_id').notNull(),
+    /** Cuenta de cliente de la página pública con la que se pidió, si inició sesión; null = invitado. */
+    clientAccountId: uuid('client_account_id').references(() => clientAccounts.id, { onDelete: 'set null' }),
+    status: text('status').notNull().default('pending'),
+    customerName: text('customer_name').notNull(),
+    customerPhone: text('customer_phone').notNull(),
+    customerEmail: text('customer_email'),
+    customerNotes: text('customer_notes').notNull().default(''),
+    totalPrice: integer('total_price').notNull(),
+    idempotencyHash: text('idempotency_hash'),
+    termsAcceptedAt: ts('terms_accepted_at'),
+    termsAcceptedIp: text('terms_accepted_ip'),
+    /** Venta con la que se entregó (descuenta el inventario); null mientras no se entrega. */
+    saleId: uuid('sale_id').references(() => sales.id, { onDelete: 'set null' }),
+    cancelReason: text('cancel_reason').notNull().default(''),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    unique('product_orders_id_business_uq').on(t.id, t.businessId),
+    foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'product_orders_client_business_fk' }).onDelete('cascade'),
+    uniqueIndex('product_orders_idem_uq').on(t.businessId, t.idempotencyHash).where(sql`${t.idempotencyHash} is not null`),
+    index('product_orders_business_created_idx').on(t.businessId, t.createdAt.desc(), t.id.desc()),
+    index('product_orders_business_status_idx').on(t.businessId, t.status),
+    check('product_orders_status_ck', sql`${t.status} in ('pending','ready','delivered','cancelled')`),
+    check('product_orders_total_ck', sql`${t.totalPrice} between 0 and 1000000000`),
+    check('product_orders_delivered_sale_ck', sql`${t.status} <> 'delivered' or ${t.saleId} is not null`),
+  ],
+);
+
+export const productOrderItems = pgTable(
+  'product_order_items',
+  {
+    id: id(),
+    businessId: businessRef(),
+    orderId: uuid('order_id').notNull(),
+    /** El producto del catálogo; si luego se borra del catálogo, el pedido conserva nombre y precio. */
+    itemId: uuid('item_id').references(() => items.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    unitPrice: integer('unit_price').notNull(),
+    quantity: integer('quantity').notNull(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.orderId, t.businessId], foreignColumns: [productOrders.id, productOrders.businessId], name: 'product_order_items_order_fk' }).onDelete('cascade'),
+    index('product_order_items_order_idx').on(t.orderId),
+    check('product_order_items_qty_ck', sql`${t.quantity} between 1 and 20`),
+    check('product_order_items_price_ck', sql`${t.unitPrice} between 0 and 1000000000`),
   ],
 );

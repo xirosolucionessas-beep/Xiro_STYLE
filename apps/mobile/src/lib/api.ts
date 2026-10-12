@@ -67,7 +67,7 @@ import type {
   SubscriptionPlatform,
   User,
 } from '@xiro/shared';
-import { HTTP_TIMEOUT_MS, withRetry, type ClientsQuery, type ClientVisits, type ClientsSummary, type ItemsQuery, type ItemsSummary, type LoyaltySummary, type Page, type PageParams, type ServiceRecordsQuery, type ServiceRecordsSummary } from '@xiro/shared';
+import { HTTP_TIMEOUT_MS, withRetry, type ClientsQuery, type ClientVisits, type ClientsSummary, type ItemsQuery, type ItemsSummary, type LoyaltySummary, type Page, type PageParams, type ProductOrderDto, type ProductOrdersQuery, type ProductOrdersSummary, type ServiceRecordsQuery, type ServiceRecordsSummary } from '@xiro/shared';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -116,6 +116,15 @@ export function apiBaseUrl(): string {
 /** URL base pública para enlaces compartidos con clientes. */
 export function publicBaseUrl(): string {
   return (process.env.EXPO_PUBLIC_PUBLIC_URL ?? apiBaseUrl()).replace(/\/$/, '');
+}
+
+/**
+ * Dirección pública CANÓNICA de un servicio o producto (Fase 2): la página de reservas moderna con su detalle abierto. Si ese
+ * artículo no se ve allí (página sin publicar, no reservable…), el servidor lleva solo al catálogo de siempre — la app no
+ * necesita saberlo, así que el mismo enlace sirve siempre ("Ver página pública", compartir).
+ */
+export function publicItemUrl(slug: string, itemId: string): string {
+  return `${publicBaseUrl()}/reservar/${encodeURIComponent(slug)}/articulo/${encodeURIComponent(itemId)}`;
 }
 
 export function resolveMedia(url: string | null | undefined): string | undefined {
@@ -358,6 +367,12 @@ export const api = {
   sales: (query: { from: string; to: string }) => request<SaleDto[]>(`/api/sales?${new URLSearchParams({ from: query.from, to: query.to, limit: '200' }).toString()}`),
   createSale: (body: SaleInput) => request<SaleDto & { rewardJustEarned: boolean }>('/api/sales', { method: 'POST', body }),
   voidSale: (id: string, reason: string) => request<SaleDto>(`/api/sales/${id}/void`, { method: 'POST', body: { reason } }),
+  /* Pedidos de solo productos de la página pública (entregar = registrar la venta con `productOrderId`). */
+  orders: (params: ProductOrdersQuery = {}) => request<Page<ProductOrderDto>>(`/api/orders${query(params)}`),
+  ordersSummary: () => request<ProductOrdersSummary>('/api/orders/summary'),
+  order: (id: string) => request<ProductOrderDto>(`/api/orders/${id}`),
+  orderReady: (id: string) => request<ProductOrderDto>(`/api/orders/${id}/ready`, { method: 'POST', body: {} }),
+  orderCancel: (id: string, reason = '') => request<ProductOrderDto>(`/api/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
 
   notificationSettings: () => request<NotificationSettings>('/api/notifications/settings'),
   updateNotificationSettings: (body: NotificationSettingsUpdateInput) => request<NotificationSettings>('/api/notifications/settings', { method: 'PUT', body }),

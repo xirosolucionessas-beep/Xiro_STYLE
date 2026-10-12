@@ -19,6 +19,8 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { id: 'home', labelKey: 'nav_home', icon: 'home', section: 'home', href: '/' },
   { id: 'agenda', labelKey: 'nav_agenda', icon: 'calendar', section: 'agenda', href: '/agenda', requires: ['agenda_own'] },
+  // Pedidos de solo productos de la página pública: los atiende quien registra ventas (entregar = registrar la venta).
+  { id: 'orders', labelKey: 'nav_orders', icon: 'bag', section: 'orders', href: '/orders', requires: ['services_record'] },
   { id: 'booking', labelKey: 'nav_booking', icon: 'globe', section: 'booking', href: '/booking', requires: ['public_page_manage'] },
   { id: 'clients', labelKey: 'nav_clients', icon: 'users', section: 'clients', href: '/clients', requires: ['clients_view'] },
   { id: 'services', labelKey: 'nav_catalog', icon: 'book', section: 'services', href: '/catalog', requires: ['catalog_view'] },

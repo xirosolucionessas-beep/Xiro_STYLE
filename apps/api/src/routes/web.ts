@@ -6,7 +6,7 @@ import fastifyStatic from '@fastify/static';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Ctx } from '../context';
 import { eq } from 'drizzle-orm';
-import { resolveSlug, loadProfileRow } from '../booking/view';
+import { itemOnPublicPage, resolveSlug, loadProfileRow } from '../booking/view';
 import { businesses } from '../db/schema';
 import { isUuid } from '../errors';
 import { loadItems } from '../serializers';
@@ -38,6 +38,10 @@ const RESERVAR_CSP_TEMPLATE =
 export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
   const { db, config } = ctx;
   const template = readFileSync(path.join(catalogDir, 'index.html'), 'utf8');
+  // ¿Se sirve la página pública moderna (/reservar)? Sin ese build, los enlaces de artículo se quedan en el catálogo de siempre.
+  const modernPage = Boolean(config.publicWebDir && existsSync(path.join(config.publicWebDir, 'index.html')));
+  /** Redirección CONDICIONAL (depende de lo que el negocio publique en cada momento): temporal y sin guardar en caché. */
+  const redirectTo = (reply: FastifyReply, location: string) => reply.header('Cache-Control', 'no-store').redirect(location, 302);
 
   app.register(fastifyStatic, {
     root: catalogDir,
@@ -91,6 +95,15 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
 
   async function catalogPage(request: FastifyRequest<{ Params: { slug: string; id?: string } }>, reply: FastifyReply) {
     const { slug, id } = request.params;
+    // Enlace de un artículo (Fase 2): si el artículo se ve en la página moderna, se lleva allí (con la dirección vigente del
+    // negocio). Si no —página sin publicar, artículo no reservable, sección oculta—, este catálogo lo sigue mostrando como
+    // siempre: ningún enlace ya compartido deja de funcionar.
+    if (modernPage && id && isUuid(id)) {
+      const resolved = await resolveSlug(db, slug.slice(0, 60));
+      if (resolved && (await itemOnPublicPage(db, resolved.business.id, id.toLowerCase()))) {
+        return redirectTo(reply, `/reservar/${encodeURIComponent(resolved.business.slug)}/articulo/${id.toLowerCase()}`);
+      }
+    }
     const tags = await ogTags(request, slug, id ?? null);
     return reply
       .header('Content-Security-Policy', CATALOG_CSP)
@@ -127,7 +140,7 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
       },
     });
 
-    async function ogTagsForBooking(request: FastifyRequest, slug: string): Promise<string> {
+    async function ogTagsForBooking(request: FastifyRequest, slug: string, itemId?: string): Promise<string> {
       const generic = '<title>Reserva tu cita | Xiro Style</title><meta name="robots" content="noindex">';
       const resolved = await resolveSlug(db, slug.slice(0, 60));
       if (!resolved) return generic;
@@ -135,8 +148,11 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
       // Sin publicar se trata igual que si no existiera: no se filtra ni su nombre por esta vía.
       if (!profile?.published) return generic;
       const origin = `${request.protocol}://${request.host}`;
-      const title = `Reserva tu cita | ${profile.displayName || resolved.business.name}`;
-      const description = profile.tagline || profile.description || 'Agenda tu cita en línea, cuando quieras.';
+      const businessName = profile.displayName || resolved.business.name;
+      // Enlace de un artículo: la vista previa (WhatsApp, redes) muestra ESE artículo — nombre, descripción y su foto.
+      const item = itemId ? (await loadItems(db, resolved.business.id, { id: itemId, publishedOnly: true }))[0] : undefined;
+      const title = item ? `${item.name} | ${businessName}` : `Reserva tu cita | ${businessName}`;
+      const description = (item ? item.shortDescription || item.description : '') || profile.tagline || profile.description || 'Agenda tu cita en línea, cuando quieras.';
       const tags = [
         `<title>${escapeHtml(title)}</title>`,
         `<meta property="og:type" content="website">`,
@@ -144,9 +160,11 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
         `<meta property="og:description" content="${escapeHtml(description.slice(0, 200))}">`,
         `<meta name="description" content="${escapeHtml(description.slice(0, 200))}">`,
       ];
+      const itemPhoto = item?.photos[0]?.url;
+      if (itemPhoto) tags.push(`<meta property="og:image" content="${escapeHtml(origin + itemPhoto)}">`);
       if (resolved.business.logoFile) {
         const logoUrl = escapeHtml(`${origin}/media/${resolved.business.logoFile}`);
-        tags.push(`<meta property="og:image" content="${logoUrl}">`);
+        if (!itemPhoto) tags.push(`<meta property="og:image" content="${logoUrl}">`);
         // Favicon dinámico (Tarea 4): el logo del negocio si lo tiene; si no, la etiqueta estática del propio HTML
         // (favicon.png de Xiro, ver index.html) queda como único <link rel="icon">, sin nada que pisarla aquí.
         tags.push(`<link rel="icon" sizes="16x16" href="${logoUrl}">`, `<link rel="icon" sizes="32x32" href="${logoUrl}">`, `<link rel="apple-touch-icon" sizes="180x180" href="${logoUrl}">`);
@@ -166,6 +184,21 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
     app.get<{ Params: { slug: string } }>('/reservar/:slug', reservarPage);
     // Enlace de gestión de una cita (ver, cancelar, mover, eliminar datos): misma página, el token lo procesa el cliente.
     app.get<{ Params: { slug: string } }>('/reservar/:slug/gestion/:token', reservarPage as never);
+    // Enlace directo a un artículo (Fase 2): la página del negocio con su detalle abierto. Si ese artículo NO se ve en la página
+    // moderna, al catálogo de siempre, que muestra todo lo publicado (regla única: itemOnPublicPage, sin bucles).
+    app.get<{ Params: { slug: string; id: string } }>('/reservar/:slug/articulo/:id', async (request, reply) => {
+      const { slug, id } = request.params;
+      const resolved = isUuid(id) ? await resolveSlug(db, slug.slice(0, 60)) : null;
+      if (!resolved || !(await itemOnPublicPage(db, resolved.business.id, id.toLowerCase()))) {
+        return redirectTo(reply, `/catalog/${encodeURIComponent(resolved?.business.slug ?? slug)}${isUuid(id) ? `/item/${id.toLowerCase()}` : ''}`);
+      }
+      const tags = await ogTagsForBooking(request, slug, id.toLowerCase());
+      return reply
+        .header('Content-Security-Policy', RESERVAR_CSP)
+        .header('Cache-Control', 'no-cache')
+        .type('text/html; charset=utf-8')
+        .send(reservarTemplate.replace('<!--OG_TAGS-->', () => tags));
+    });
     // Ingresar, registro, recuperar acceso y "Mi cuenta" (Entrega D): mismo cascarón de la SPA, el cliente decide qué
     // pantalla mostrar según la ruta (ver lib/route.ts). Sin esto, abrir el enlace directo o recargar la página en
     // cualquiera de estas vistas devolvía el 404 JSON de la API en vez de la aplicación.

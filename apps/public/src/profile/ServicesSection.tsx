@@ -20,19 +20,24 @@ export function ServicesSection({
   loading,
   language,
   onBook,
+  initialOpenId,
+  onDetailClose,
 }: {
   profile: PublicBookingProfile;
   catalog: PublicBookingCatalog | null;
   loading: boolean;
   language: Language;
   onBook: (choice: { serviceId?: string; packageId?: string }) => void;
+  /** Enlace directo a un servicio: su detalle abre solo en cuanto llega el catálogo. */
+  initialOpenId?: string;
+  onDetailClose?: () => void;
 }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
   const canBook = profile.acceptsBookings;
   const services = catalog?.services ?? [];
   const packages = catalog?.packages ?? [];
   const groups = groupByCategory(services);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   const openService = openId ? services.find((s) => s.id === openId) : null;
 
   return (
@@ -137,7 +142,10 @@ export function ServicesSection({
           currency={profile.currency}
           language={language}
           canBook={canBook}
-          onClose={() => setOpenId(null)}
+          onClose={() => {
+            setOpenId(null);
+            onDetailClose?.();
+          }}
           onBook={() => {
             setOpenId(null);
             onBook({ serviceId: openService.id });

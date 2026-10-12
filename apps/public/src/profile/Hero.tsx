@@ -54,10 +54,11 @@ export function Hero({ profile, language, onBook, ctaRef }: { profile: PublicBoo
             </span>
           ) : null}
         </div>
-        {profile.acceptsBookings ? (
+        {profile.acceptsBookings || profile.acceptsProductOrders ? (
           <div ref={ctaRef} className="xp-hero-cta">
             <Button size="lg" onClick={onBook}>
-              {t('pub_book_cta')}
+              {/* Sin citas en línea pero con pedidos (p. ej. un negocio que solo vende productos): "Pedir productos". */}
+              {t(profile.acceptsBookings ? 'pub_book_cta' : 'pub_order_cta')}
             </Button>
           </div>
         ) : null}

@@ -38,6 +38,7 @@ import { publicRoutes } from './routes/public';
 import { clientAccountRoutes } from './routes/clientAccounts';
 import { publicBookingRoutes } from './routes/publicBooking';
 import { realtimeRoutes } from './routes/realtime';
+import { orderRoutes } from './routes/orders';
 import { salesRoutes } from './routes/sales';
 import { serviceRecordRoutes } from './routes/serviceRecords';
 import type { RealtimeBus } from './realtime';
@@ -411,6 +412,7 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
       clientRoutes(scope, ctx);
       subscriptionRoutes(scope, ctx);
       salesRoutes(scope, ctx);
+      orderRoutes(scope, ctx);
       cashRoutes(scope, ctx);
       serviceRecordRoutes(scope, ctx);
       loyaltyRoutes(scope, ctx);

@@ -24,7 +24,7 @@ export interface DetailItem {
  * (nunca el botón "Reservar" de la lista, que conserva su acción de siempre). El botón "Reservar" de aquí adentro
  * llama al mismo manejador que el de la lista, con este servicio o producto ya elegido.
  */
-export function ItemDetailModal({ item, currency, language, canBook, onBook, onClose }: { item: DetailItem; currency: string; language: Language; canBook: boolean; onBook: () => void; onClose: () => void }) {
+export function ItemDetailModal({ item, currency, language, canBook, ctaLabel, onBook, onClose }: { item: DetailItem; currency: string; language: Language; canBook: boolean; ctaLabel?: string; onBook: () => void; onClose: () => void }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
   return (
     <Modal title={item.name} closeLabel={t('close')} onClose={onClose} size="lg" hideTitle>
@@ -43,7 +43,7 @@ export function ItemDetailModal({ item, currency, language, canBook, onBook, onC
             <span className="xp-price xp-price--lg">{item.fromPrice ? t('pub_from', { price: money(item.price, currency) }) : money(item.price, currency)}</span>
             {canBook ? (
               <Button onClick={onBook} full={false} aria-label={t('pub_service_book_aria', { name: item.name })}>
-                {t('pub_service_book')}
+                {ctaLabel ?? t('pub_service_book')}
               </Button>
             ) : null}
           </div>

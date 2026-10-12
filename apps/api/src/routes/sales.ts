@@ -5,6 +5,7 @@ import { withBusinessTrusted, type Tx } from '../booking/scope';
 import type { Ctx } from '../context';
 import { businesses, categories, clients, items, saleItems, salePayments, sales, serviceRecords, users } from '../db/schema';
 import { AppError, notFound, parse, uuid } from '../errors';
+import { deliverProductOrder } from '../booking/orders';
 import { notifyBusiness, notifyLowStockIfNeeded } from '../push';
 import { recordService } from '../serviceRecording';
 
@@ -248,6 +249,9 @@ export function salesRoutes(app: FastifyInstance, ctx: Ctx): void {
 
       if (itemsToInsert.length > 0) await tx.insert(saleItems).values(itemsToInsert.map((row) => ({ ...row, saleId: sale!.id })));
       if (input.payments.length > 0) await tx.insert(salePayments).values(input.payments.map((p) => ({ businessId, saleId: sale!.id, method: p.method, amount: p.amount, receivedAmount: p.receivedAmount })));
+      // Entrega de un pedido de la página pública: en ESTA transacción (bloqueado). Si ya se entregó o se canceló, toda la
+      // venta se revierte (inventario incluido): nunca dos ventas por un mismo pedido.
+      if (input.productOrderId) await deliverProductOrder(tx, businessId, input.productOrderId, sale!.id);
 
       return { sale: sale!, rewardJustEarned, stockMoved };
     });

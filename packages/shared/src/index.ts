@@ -6,6 +6,8 @@ export * from './geo';
 export * from './i18n';
 export * from './messages';
 export * from './money';
+export * from './orders';
+export * from './share';
 export * from './phone';
 export * from './reports';
 export * from './roles';

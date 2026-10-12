@@ -79,6 +79,10 @@ async function seed(label: string): Promise<Seeded> {
   const [appt] = await testDb.db.select({ id: appointments.id }).from(appointments).where(eqBusiness(biz)).limit(1);
   await send(s, 'POST', `/api/appointments/${appt!.id}/status`, { status: 'completed' });
   await testDb.db.insert(reviews).values({ businessId: biz.session.business.id, appointmentId: appt!.id, rating: 5, comment: `Reseña ${label}`, authorName: `Autor ${label}` });
+  // Pedido de solo productos desde la página pública (Fase 1 del plan): el barrido cubre también /orders.
+  await ok(await send(s, 'PUT', '/api/booking/settings', { productOrdersEnabled: true }), 'activar pedidos');
+  const productOrder = await app.inject({ method: 'POST', url: `${biz.base}/orders`, payload: { products: [{ itemId: product.id, quantity: 1 }], customer: { firstName: 'Ana', lastName: label, email: '', phone: nextPhone(), notes: `Pedido ${label}`, custom: {} }, acceptTerms: true, website: '' } });
+  expect(productOrder.statusCode, productOrder.body).toBe(201);
   await ok(await send(s, 'POST', '/api/cash/close', { day: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()), /* día del negocio, no UTC */ countedAmount: 95000, note: `Cierre caja ${label}` }), 'cierre de caja');
   return { biz, categoryId, productId: product.id, clientId: client.id, employee, galleryFile };
 }
@@ -196,6 +200,8 @@ const BODIES: Record<string, (a: Seeded) => unknown> = {
   'PATCH /employees/:id': () => ({ name: 'Cambiado' }),
   'POST /messages/conversations/:id/messages': () => ({ content: 'hola' }),
   'POST /messages/conversations/:id/read': () => ({}),
+  'POST /orders/:id/ready': () => ({}),
+  'POST /orders/:id/cancel': () => ({ reason: 'prueba' }),
 };
 /** Rutas que reciben una foto (multipart). */
 const MULTIPART = new Set(['PUT /clients/:id/photo', 'PUT /professionals/:id/photo', 'PUT /employees/:id/photo', 'POST /items/:id/photos']);
@@ -347,6 +353,9 @@ describe('aislamiento multi-negocio (BOLA/IDOR) en todas las rutas autenticadas'
       'PATCH /employees/:id': A.employee.employee.id,
       'POST /messages/conversations/:id/messages': conversation,
       'POST /messages/conversations/:id/read': conversation,
+      // Mismo pedido: primero listo (pendiente → listo) y luego cancelado (listo → cancelado); ambas transiciones válidas.
+      'POST /orders/:id/ready': await own('product_orders', "and status = 'pending'"),
+      'POST /orders/:id/cancel': await own('product_orders', "and status = 'pending'"),
     };
     const failures: string[] = [];
     for (const [key, id] of Object.entries(ids)) {
@@ -404,6 +413,7 @@ describe('las respuestas nunca exponen campos sensibles', () => {
       [/^\/appointments\//, await first('select id from appointments where business_id = $1')],
       [/^\/messages\/conversations\//, await first('select id from conversations where business_id = $1')],
       [/^\/professionals\//, A.biz.ownerId],
+      [/^\/orders\//, await first('select id from product_orders where business_id = $1')],
     ];
     const failed: string[] = [];
     for (const key of Object.keys(POLICY).filter((k) => k.startsWith('GET ') && !EXTERNAL.has(k))) {

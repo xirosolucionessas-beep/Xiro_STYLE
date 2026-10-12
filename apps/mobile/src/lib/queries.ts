@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
-import type { ClientsQuery, ItemsQuery, Page } from '@xiro/shared';
+import type { ClientsQuery, ItemsQuery, Page, ProductOrdersQuery } from '@xiro/shared';
 import { api, fetchAllPages } from './api';
 
 export const keys = {
@@ -33,6 +33,7 @@ export const keys = {
   messagePeople: ['messagePeople'] as const,
   conversations: ['conversations'] as const,
   conversationMessages: ['conversationMessages'] as const,
+  orders: ['orders'] as const,
 };
 
 /* ---------- Listados paginados (cursor) ----------
@@ -143,7 +144,23 @@ export function useInvalidateAfterSale() {
       queryClient.invalidateQueries({ queryKey: keys.clients }),
       queryClient.invalidateQueries({ queryKey: keys.categories }),
       queryClient.invalidateQueries({ queryKey: keys.cashCloseSummary }),
+      // Una venta puede entregar un pedido de la página pública.
+      queryClient.invalidateQueries({ queryKey: keys.orders }),
     ]);
+}
+
+/* ---------- Pedidos de productos (página pública) ---------- */
+
+export const ordersPagesKey = (status: ProductOrdersQuery['status']) => [...keys.orders, 'pages', status ?? 'all'] as const;
+/** Pedidos más recientes primero, por cursor; `open` = nuevos y listos para recoger. */
+export const useOrdersPages = (status: ProductOrdersQuery['status'], enabled = true) =>
+  useInfiniteQuery({ queryKey: ordersPagesKey(status), queryFn: ({ pageParam }) => api.orders({ status, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+/** Cuántos faltan por atender (insignia del menú). Se refresca cada minuto mientras algo lo muestre. */
+export const useOrdersSummary = (enabled = true) => useQuery({ queryKey: [...keys.orders, 'summary'], queryFn: api.ordersSummary, enabled, refetchInterval: 60_000 });
+export const useOrder = (id: string | undefined) => useQuery({ queryKey: [...keys.orders, 'one', id], queryFn: () => api.order(id!), enabled: Boolean(id) });
+export function useInvalidateOrders() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: keys.orders });
 }
 
 /* ---------- Gastos y cierre de caja ---------- */

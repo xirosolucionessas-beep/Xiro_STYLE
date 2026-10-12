@@ -5,13 +5,14 @@
  */
 import type { Client, Item, SaleDto, SaleInput } from '@xiro/shared';
 import { formatMoney, normalizePhone, whatsappLink, type Currency } from '@xiro/shared';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
 import { dayRange, formatClock, formatDay, localDate, localTime, summarizeItems, todayIn } from '@/lib/agenda';
 import { api, errorKey, resolveMedia } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
 import { flatPages, useAppointments, useCategories, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
+import { useOrderPrefill } from '@/lib/orderPrefill';
 import { changeDue, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, cartSubtotal, type CartLine, type PaymentRow } from '@/lib/sale';
 import { useAuthed } from '@/lib/session';
 import { Screen } from '@/ui/Screen';
@@ -150,6 +151,26 @@ export default function SaleNewWeb() {
   const [lines, setLines] = useState<CartLine[]>([]);
   const updateLine = (key: string, patch: Partial<CartLine>) => setLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
 
+  // Entregar un pedido de la página pública (Pedidos → "Entregar y cobrar"): cliente y productos precargados; la venta lo marca entregado.
+  const { orderId } = useLocalSearchParams<{ orderId?: string }>();
+  const orderPrefill = useOrderPrefill(
+    orderId,
+    ({ client, lines: orderLines }) => {
+      setSelectedClient(client);
+      setOccasional(false);
+      setLines(orderLines);
+    },
+    nextKey,
+    canOverridePrice,
+  );
+  const orderNotice = orderPrefill.loading
+    ? { text: t('loading'), error: false }
+    : orderPrefill.error
+      ? { text: apiErrors(orderPrefill.error, t).general ?? t('unknown_error'), error: true }
+      : orderPrefill.order
+        ? { text: t('order_delivering', { name: orderPrefill.order.clientName }), error: false }
+        : null;
+
   function addCatalogLine(row: SaleCatalogRow) {
     setLines((prev) => {
       const existing = prev.find((l) => l.itemId === row.id && l.kind === tab);
@@ -249,6 +270,7 @@ export default function SaleNewWeb() {
           saveToCatalog: line.saveToCatalog,
         })),
         payments: payments.map((p) => ({ method: p.method, amount: p.amount, receivedAmount: p.receivedAmount })),
+        ...(orderPrefill.order ? { productOrderId: orderPrefill.order.id } : {}),
       };
       const created = await api.createSale(body);
       await invalidateAfterSale();
@@ -261,6 +283,7 @@ export default function SaleNewWeb() {
   }
 
   function resetAll() {
+    orderPrefill.dismiss();
     setSelectedClient(null);
     setOccasional(false);
     setAppointmentLoaded(false);
@@ -339,6 +362,7 @@ export default function SaleNewWeb() {
     <Screen>
     <SaleFormView
       t={t}
+      orderNotice={orderNotice}
       currency={currency}
       clientQuery={clientQuery}
       onClientQuery={setClientQuery}

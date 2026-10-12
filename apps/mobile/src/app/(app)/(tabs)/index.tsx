@@ -12,7 +12,7 @@ import { api } from '@/lib/api';
 import { buildActivity } from '@/lib/dashboard';
 import { formatCompactMoney, TEAM_LABEL_KEYS } from '@/lib/homeMetrics';
 import { menuFor } from '@/lib/menu';
-import { keys, useAppointments, useCashToday, useClassification, useClientsSummary, useEmployees, useItemsQuery, useItemsSummary, useRecentClients, useRecentServiceRecords, useServiceRecordsSummary } from '@/lib/queries';
+import { keys, useAppointments, useCashToday, useClassification, useClientsSummary, useEmployees, useItemsQuery, useItemsSummary, useOrdersSummary, useRecentClients, useRecentServiceRecords, useServiceRecordsSummary } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { useGreetingKey } from '@/lib/useGreeting';
@@ -70,6 +70,8 @@ export default function Home() {
   const clientsSummary = useClientsSummary(undefined, canClients);
   const recentClients = useRecentClients(6, canClients);
   const itemsSummary = useItemsSummary(canCatalog);
+  // Pedidos de la página pública por atender (insignia del menú "Pedidos").
+  const ordersSummary = useOrdersSummary(canSales);
   const lowItems = useItemsQuery({ low: true, sort: 'stock', limit: 6 }, canCatalog);
   const todaySummary = useServiceRecordsSummary(todayRange, canSales);
   const recentRecords = useRecentServiceRecords(6, canSales);
@@ -281,7 +283,7 @@ export default function Home() {
         pathname={pathname}
         business={{ name: business.name, type: business.type, logoUrl: business.logoUrl }}
         user={{ name: user.name, role: user.role, photoUrl: user.photoUrl }}
-        badges={{ inventory: itemsSummary.data ? itemsSummary.data.stock.reorder + itemsSummary.data.stock.outOfStock : undefined }}
+        badges={{ inventory: itemsSummary.data ? itemsSummary.data.stock.reorder + itemsSummary.data.stock.outOfStock : undefined, orders: ordersSummary.data ? ordersSummary.data.pending + ordersSummary.data.ready : undefined }}
         language={language}
         dark={theme === 'dark'}
         onLanguage={changeLanguage}

@@ -4,7 +4,7 @@
  */
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator } from 'react-native';
-import { publicBaseUrl, resolveMedia } from '@/lib/api';
+import { publicItemUrl, resolveMedia } from '@/lib/api';
 import { useItem } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { EmptyState } from '@/ui/Kit';
@@ -45,7 +45,7 @@ export default function CatalogItemDetailWeb() {
         t={t}
         item={{ id: item.id, name: item.name, categoryName: item.categoryName, description: item.description, shortDescription: item.shortDescription, detail: item.detail, price: item.price, published: item.published, photos }}
         currency={business.currency}
-        publicUrl={`${publicBaseUrl()}/catalog/${business.slug}/item/${item.id}`}
+        publicUrl={publicItemUrl(business.slug, item.id)}
         onEdit={() => router.push({ pathname: '/item/form', params: { id: item.id } })}
         onShare={() => router.push({ pathname: '/share', params: { mode: 'item', id: item.id } })}
       />

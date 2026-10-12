@@ -55,7 +55,7 @@ export function App() {
     <>
       {topBar}
       {route.name === 'manage' ? <ManagePage slug={route.slug} token={route.token} language={language} /> : null}
-      {route.name === 'profile' ? <ProfilePage slug={route.slug} language={language} account={session.account} /> : null}
+      {route.name === 'profile' ? <ProfilePage slug={route.slug} itemId={route.itemId} language={language} account={session.account} /> : null}
       {route.name === 'account' && route.view !== 'cuenta' ? <AccountPage slug={route.slug} view={route.view} language={language} account={session.account} onAuthenticated={session.setAccount} /> : null}
       {route.name === 'account' && route.view === 'cuenta' ? <MyAccountPage slug={route.slug} language={language} account={session.account} onAccountChange={session.setAccount} onLogout={() => void session.logout()} /> : null}
     </>

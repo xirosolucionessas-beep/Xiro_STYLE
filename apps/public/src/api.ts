@@ -10,6 +10,7 @@ import type {
   PublicBookingCatalog,
   PublicBookingProfile,
   PublicBookingResult,
+  PublicProductOrderDto,
   PublicReviewDto,
   PublicTeamMemberDto,
 } from '@xiro/shared';
@@ -90,6 +91,8 @@ export const publicApi = {
     request<DaySummary[]>(`/${slug}/days?from=${from}&days=${days}&professionalId=${professionalId}&${selectionParams(selection)}`),
 
   book: (slug: string, body: unknown) => request<PublicBookingResult>(`/${slug}/appointments`, { method: 'POST', body: JSON.stringify(body) }),
+  /** Pedido de solo productos (recoger y pagar en el local). Repetir el mismo `idempotencyKey` devuelve el mismo pedido. */
+  order: (slug: string, body: unknown) => request<{ order: PublicProductOrderDto }>(`/${slug}/orders`, { method: 'POST', body: JSON.stringify(body) }),
 
   appointment: (slug: string, token: string) => request<PublicAppointmentDto>(`/${slug}/appointments/${token}`),
   cancel: (slug: string, token: string, reason: string) => request<PublicAppointmentDto>(`/${slug}/appointments/${token}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),

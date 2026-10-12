@@ -412,6 +412,12 @@ const paths = {
       <path d="M8 16H3v5" />
     </>
   ),
+  'shopping-bag': (
+    <>
+      <path d="M5 8h14l-1.2 11.2a1.5 1.5 0 0 1-1.5 1.3H7.7a1.5 1.5 0 0 1-1.5-1.3L5 8Z" />
+      <path d="M9 10V7a3 3 0 0 1 6 0v3" />
+    </>
+  ),
   store: (
     <>
       <path d="M3 9 5 3h14l2 6" />

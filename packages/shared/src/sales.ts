@@ -48,6 +48,8 @@ export const saleInputSchema = z.object({
   discount: money().default(0),
   tip: money().default(0),
   payments: z.array(salePaymentInputSchema).min(1).max(6),
+  /** Pedido de productos de la página pública que se entrega con esta venta (queda "Entregado" en la misma transacción). */
+  productOrderId: uuidString.optional(),
 });
 export type SaleInput = z.input<typeof saleInputSchema>;
 

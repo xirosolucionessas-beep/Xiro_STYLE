@@ -6,3 +6,8 @@
 export function useRealtimeAppointments(_onChange: () => void): void {
   // Nada que hacer en nativo.
 }
+
+/** Pedidos: en nativo la pantalla se refresca al volver a ella y llega el aviso push (mismo criterio que la Agenda). */
+export function useRealtimeOrders(_onChange: () => void): void {
+  // Nada que hacer en nativo.
+}

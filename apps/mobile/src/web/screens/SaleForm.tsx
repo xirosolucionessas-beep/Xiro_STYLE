@@ -65,6 +65,8 @@ export interface SaleFormViewProps {
   newClientBusy: boolean;
   newClientError?: string;
   appointmentHint: SaleAppointmentHint | null;
+  /** Entregando un pedido de la página pública (Pedidos → "Entregar y cobrar"): texto del aviso, o null. */
+  orderNotice?: { text: string; error: boolean } | null;
   appointmentLoaded: boolean;
   onLoadAppointment: () => void;
 
@@ -221,6 +223,13 @@ export function SaleFormView(props: SaleFormViewProps) {
             ) : null}
           </>
         )}
+
+        {props.orderNotice ? (
+          <div className="xw-sale-appt-hint" role={props.orderNotice.error ? 'alert' : 'status'}>
+            <Ico name="shopping-bag" size={18} />
+            <span className="xw-cell-text">{props.orderNotice.text}</span>
+          </div>
+        ) : null}
 
         {props.appointmentHint ? (
           <div className="xw-sale-appt-hint">

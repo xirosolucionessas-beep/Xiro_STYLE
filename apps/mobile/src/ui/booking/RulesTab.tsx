@@ -157,6 +157,13 @@ export function RulesTab({ data }: { data: BookingAdminSettings }) {
           {settings.hideOutOfStockInCatalog ? t('rules_hide_out_of_stock_on') : t('rules_hide_out_of_stock_off')}
         </AppText>
       </Card>
+      <Card>
+        {/* Pedidos de solo productos desde la página pública (recoger y pagar en el local). Apagado por defecto. */}
+        <ToggleRow label={t('rules_product_orders')} value={settings.productOrdersEnabled ?? false} onChange={(v) => patch({ productOrdersEnabled: v })} />
+        <AppText variant="small" tone="muted">
+          {settings.productOrdersEnabled ? t('rules_product_orders_on') : t('rules_product_orders_off')}
+        </AppText>
+      </Card>
 
       <SectionTitle>{t('rules_custom_title')}</SectionTitle>
       <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>

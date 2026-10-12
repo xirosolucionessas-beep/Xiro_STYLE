@@ -37,6 +37,7 @@ const ROUTES: Array<[pattern: RegExp, requires: Requirement]> = [
   [/^\/cash-close$/, 'owner'],
   [/^\/sale\/new$/, ['services_record']],
   [/^\/sales-today$/, ['services_record']],
+  [/^\/orders$/, ['services_record']],
 ];
 
 /** Requisito de una ruta de la app; `undefined` = abierta a cualquier sesión (inicio, Ajustes, perfil). */

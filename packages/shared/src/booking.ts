@@ -111,6 +111,8 @@ export const bookingSettingsInputSchema = z.object({
   customFields: z.array(customFieldSchema).max(5).default([]),
   /** Un producto publicado que llega a 0 existencias: true = se oculta del catálogo público; false (por defecto) = sigue visible, marcado "Agotado". */
   hideOutOfStockInCatalog: z.boolean().default(false),
+  /** Pedidos de solo productos desde la página pública (recoger y pagar en el local). Apagado por defecto. */
+  productOrdersEnabled: z.boolean().default(false),
 });
 export type BookingSettingsInput = z.input<typeof bookingSettingsInputSchema>;
 export type BookingSettings = z.infer<typeof bookingSettingsInputSchema>;
@@ -253,6 +255,8 @@ const customerSchema = z.object({
   notes: trimmed(500).default(''),
   custom: z.record(z.string().max(40), z.string().trim().max(200)).default({}),
 });
+/** Los datos de quien reserva o pide en la página pública (mismas reglas en citas y pedidos de productos). */
+export const publicCustomerSchema = customerSchema;
 
 export const publicBookingInputSchema = z.object({
   selection: bookingSelectionSchema,
@@ -547,6 +551,8 @@ export interface PublicBookingProfile {
   openStatus: { open: boolean; changesAt: string | null };
   /** ¿Se puede reservar en línea AHORA? Hay al menos un servicio reservable y alguien que atienda. Si no, la página no ofrece "Reservar". */
   acceptsBookings: boolean;
+  /** ¿Se pueden pedir productos sin cita (recoger y pagar en el local)? El negocio lo activó y tiene al menos un producto disponible. */
+  acceptsProductOrders: boolean;
   rating: { average: number | null; count: number };
   rules: { slotIntervalMinutes: number; maxDaysAhead: number; cancelUntilHours: number; maxModifications: number; requireEmail: boolean; customFields: CustomField[] };
   /** Clave pública de Cloudflare Turnstile para dibujar el widget; null = sin verificación anti-bots configurada (pendiente de credenciales). */

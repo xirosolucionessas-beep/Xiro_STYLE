@@ -4,7 +4,7 @@ import { publicApi } from '../api';
 import { BookingFlow, type InitialChoice } from '../booking/BookingFlow';
 import { useInView } from '../lib/useInView';
 import { errorKey, useAsync } from '../lib/useAsync';
-import { replacePath, profilePath } from '../lib/route';
+import { itemPath, replacePath, profilePath } from '../lib/route';
 import { GallerySection } from '../profile/GallerySection';
 import { Hero } from '../profile/Hero';
 import { HoursSection } from '../profile/HoursSection';
@@ -21,7 +21,7 @@ import { ProfileSkeleton } from '../ui/Skeleton';
  * Galería, Productos, Reseñas, Horarios y Ubicación y contacto. Una sección sin contenido, o apagada en "Mi página web",
  * no se dibuja. Sin sesión: cualquier persona puede reservar.
  */
-export function ProfilePage({ slug, language, account }: { slug: string; language: Language; account?: ClientAccountDto | null }) {
+export function ProfilePage({ slug, itemId, language, account }: { slug: string; itemId?: string; language: Language; account?: ClientAccountDto | null }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
   const profileState = useAsync(() => publicApi.profile(slug), [slug]);
   const [booking, setBooking] = useState<InitialChoice | null>(null);
@@ -30,8 +30,8 @@ export function ProfilePage({ slug, language, account }: { slug: string; languag
 
   // Dirección anterior del negocio: la API la resuelve igual, pero la barra de direcciones debe mostrar la vigente.
   useEffect(() => {
-    if (profileState.data && profileState.data.slug !== slug) replacePath(profilePath(profileState.data.slug));
-  }, [profileState.data, slug]);
+    if (profileState.data && profileState.data.slug !== slug) replacePath(itemId ? itemPath(profileState.data.slug, itemId) : profilePath(profileState.data.slug));
+  }, [profileState.data, slug, itemId]);
 
   const profile = profileState.data;
   const currentSlug = profile?.slug ?? slug;
@@ -57,6 +57,8 @@ export function ProfilePage({ slug, language, account }: { slug: string; languag
   const catalog = catalogState.data ?? null;
   const hasLocation = (profile.latitude !== null && profile.longitude !== null) || Boolean(profile.address || profile.whatsapp || profile.phone);
   const openFlow = (choice: InitialChoice = {}) => setBooking(choice);
+  // Al cerrar el detalle abierto por un enlace directo, la dirección vuelve a la del negocio (recargar no lo reabre).
+  const closeLinkedItem = () => itemId && replacePath(profilePath(currentSlug));
 
   return (
     <div className="xp-page">
@@ -72,10 +74,10 @@ export function ProfilePage({ slug, language, account }: { slug: string; languag
             </section>
           ) : null}
 
-          {sections?.services ? <ServicesSection profile={profile} catalog={catalog} loading={catalogState.loading} language={language} onBook={openFlow} /> : null}
+          {sections?.services ? <ServicesSection profile={profile} catalog={catalog} loading={catalogState.loading} language={language} onBook={openFlow} initialOpenId={itemId} onDetailClose={closeLinkedItem} /> : null}
           {sections?.team ? <TeamSection team={teamState.data ?? []} services={catalog?.services ?? []} language={language} /> : null}
           {sections?.gallery ? <GallerySection photos={profile.gallery} language={language} /> : null}
-          {sections?.products && catalog ? <ProductsSection profile={profile} products={catalog.products} language={language} onBook={openFlow} /> : null}
+          {sections?.products && catalog ? <ProductsSection profile={profile} products={catalog.products} language={language} onBook={openFlow} initialOpenId={itemId} onDetailClose={closeLinkedItem} /> : null}
           {sections?.reviews ? <ReviewsSection reviews={reviewsState.data ?? []} language={language} /> : null}
           <HoursSection profile={profile} language={language} />
 
@@ -93,7 +95,7 @@ export function ProfilePage({ slug, language, account }: { slug: string; languag
         <p>{t('pub_footer_powered')}</p>
       </footer>
 
-      {profile.acceptsBookings ? <StickyBook visible={!heroCtaVisible && !booking} language={language} onBook={() => openFlow()} /> : null}
+      {profile.acceptsBookings || profile.acceptsProductOrders ? <StickyBook visible={!heroCtaVisible && !booking} language={language} label={profile.acceptsBookings ? 'pub_book_cta' : 'pub_order_cta'} onBook={() => openFlow()} /> : null}
 
       {booking ? <BookingFlow slug={currentSlug} profile={profile} catalog={catalog ?? { services: [], packages: [], products: [] }} catalogLoading={catalogState.loading} team={teamState.data ?? []} language={language} initial={booking} account={account} onClose={() => setBooking(null)} /> : null}
       {catalogState.error ? (

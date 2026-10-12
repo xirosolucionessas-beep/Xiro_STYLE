@@ -35,6 +35,7 @@ export async function loadContext(tx: Tx, businessId: string): Promise<BookingCo
         hoursBlocks: row.hoursBlocks ?? null,
         customFields: row.customFields,
         hideOutOfStockInCatalog: row.hideOutOfStockInCatalog,
+        productOrdersEnabled: row.productOrdersEnabled,
       }
     : bookingSettingsInputSchema.parse({});
   const parsedHours = businessHoursSchema.safeParse(business.hours);

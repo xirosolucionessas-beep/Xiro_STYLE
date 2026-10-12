@@ -1,4 +1,5 @@
 -- Reversión de 0024_search_and_tenant_indexes (Fase 2, punto 10). NO la ejecuta el migrador: es manual.
+-- ORDEN: si ya se aplicaron migraciones posteriores (0025…), revertirlas ANTES, de la más nueva a la más vieja.
 --
 -- La migración 0024 solo agrega índices y extensiones; no toca datos. Revertirla solo quita esos índices:
 -- las consultas siguen funcionando igual (más lentas en negocios grandes). Seguro de ejecutar más de una vez.

@@ -5,7 +5,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { formatMoney, normalizePhone, whatsappLink, type Currency, type Item, type SaleDto, type SaleInput } from '@xiro/shared';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
@@ -13,6 +13,7 @@ import { dayRange, formatClock, localTime, summarizeItems, todayIn } from '@/lib
 import { api } from '@/lib/api';
 import { apiErrors, toInt } from '@/lib/forms';
 import { flatPages, useAppointments, useCategories, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
+import { useOrderPrefill } from '@/lib/orderPrefill';
 import { changeDue, cartSubtotal, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, type CartLine, type PaymentRow } from '@/lib/sale';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
@@ -152,6 +153,19 @@ export default function SaleNewNative() {
   const [lines, setLines] = useState<CartLine[]>([]);
   const updateLine = (key: string, patch: Partial<CartLine>) => setLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
 
+  // Entregar un pedido de la página pública (Pedidos → "Entregar"): cliente y productos precargados; la venta lo marca entregado.
+  const { orderId } = useLocalSearchParams<{ orderId?: string }>();
+  const orderPrefill = useOrderPrefill(
+    orderId,
+    ({ client, lines: orderLines }) => {
+      setSelectedClient(client);
+      setOccasional(false);
+      setLines(orderLines);
+    },
+    nextKey,
+    canOverridePrice,
+  );
+
   function addCatalogLine(row: Item) {
     setLines((prev) => {
       const existing = prev.find((l) => l.itemId === row.id && l.kind === tab);
@@ -232,6 +246,7 @@ export default function SaleNewNative() {
           saveToCatalog: line.saveToCatalog,
         })),
         payments: payments.map((p) => ({ method: p.method, amount: p.amount, receivedAmount: p.receivedAmount })),
+        ...(orderPrefill.order ? { productOrderId: orderPrefill.order.id } : {}),
       };
       const created = await api.createSale(body);
       await invalidateAfterSale();
@@ -244,6 +259,7 @@ export default function SaleNewNative() {
   }
 
   function resetAll() {
+    orderPrefill.dismiss();
     setSelectedClient(null);
     setOccasional(false);
     setAppointmentLoaded(false);
@@ -302,6 +318,14 @@ export default function SaleNewNative() {
 
   return (
     <Screen header={<Header title={t('sale_new_title')} />} footer={<Button label={`${t('sale_submit_cta')} · ${fmt(total)}`} onPress={() => void submit()} loading={busy} />}>
+      {orderPrefill.order || orderPrefill.loading || orderPrefill.error ? (
+        <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: space.md }}>
+          <Ionicons name="bag-handle-outline" size={20} color={colors.gold} />
+          <AppText style={{ flex: 1 }} tone={orderPrefill.error ? 'danger' : undefined}>
+            {orderPrefill.loading ? t('loading') : orderPrefill.error ? (apiErrors(orderPrefill.error, t).general ?? t('unknown_error')) : t('order_delivering', { name: orderPrefill.order?.clientName ?? '' })}
+          </AppText>
+        </Card>
+      ) : null}
       {/* ---------- Cliente ---------- */}
       <SectionTitle>{t('sale_client_title')}</SectionTitle>
       {selectedClient || occasional ? (

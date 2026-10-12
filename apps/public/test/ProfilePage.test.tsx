@@ -48,6 +48,7 @@ const base: PublicBookingProfile = {
   openNow: false,
   openStatus: { open: false, changesAt: '2026-10-06T14:00:00.000Z' },
   acceptsBookings: true,
+  acceptsProductOrders: false,
   rating: { average: null, count: 0 },
   rules: { slotIntervalMinutes: 30, maxDaysAhead: 60, cancelUntilHours: 2, maxModifications: 2, requireEmail: true, customFields: [] },
   captchaSiteKey: null,
@@ -103,6 +104,32 @@ describe('ProfilePage', () => {
     const section = document.getElementById('servicios')!;
     expect(within(section).getByRole('link', { name: /WhatsApp/ }).getAttribute('href')).toMatch(/^https:\/\/wa\.me\/573001234567/);
     expect(within(section).getByRole('link', { name: /Llamar/ }).getAttribute('href')).toBe('tel:+573001234567');
+  });
+
+  it('negocio que solo vende productos (sin citas en línea) pero acepta pedidos: ofrece "Pedir productos" y abre el pedido', async () => {
+    const user = userEvent.setup();
+    profile.mockResolvedValue({ ...base, acceptsBookings: false, acceptsProductOrders: true });
+    catalog.mockResolvedValue({ services: [], packages: [], products: [{ id: '33333333-3333-4333-8333-333333333333', name: 'Perfume', description: '', price: 80000, image: null, images: [], inStock: true }] });
+    render(<ProfilePage slug="mi-barberia" language="es" />);
+    await screen.findByRole('heading', { level: 1, name: 'Mi Barbería' });
+    expect(screen.queryByRole('button', { name: 'Reservar cita' })).toBeNull();
+    const cta = (await screen.findAllByRole('button', { name: 'Pedir productos' }))[0]!;
+    await user.click(cta);
+    expect(await screen.findByRole('dialog', { name: 'Reservar cita' })).toBeTruthy(); // aún sin nada elegido, el flujo de siempre
+    expect(screen.getByText(/Elige los productos que quieres llevar/)).toBeTruthy();
+  });
+
+  it('enlace directo a un servicio (/reservar/:slug/articulo/:id): abre su detalle y al cerrarlo la dirección vuelve a la del negocio', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/reservar/mi-barberia/articulo/33333333-3333-4333-8333-333333333333');
+    profile.mockResolvedValue(base);
+    catalog.mockResolvedValue(oneService);
+    render(<ProfilePage slug="mi-barberia" itemId="33333333-3333-4333-8333-333333333333" language="es" />);
+    const detail = await screen.findByRole('dialog', { name: 'Barba' });
+    expect(within(detail).getByRole('button', { name: /Reservar/ })).toBeTruthy();
+    await user.click(within(detail).getByRole('button', { name: 'Cerrar' }));
+    expect(screen.queryByRole('dialog', { name: 'Barba' })).toBeNull();
+    expect(window.location.pathname).toBe('/reservar/mi-barberia');
   });
 
   it('con servicios reservables ofrece "Reservar cita" arriba, fijo al bajar, y uno por servicio', async () => {

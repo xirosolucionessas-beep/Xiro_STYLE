@@ -176,6 +176,13 @@
       "when": 1791747598142,
       "tag": "0024_search_and_tenant_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791837860387,
+      "tag": "0025_product_orders",
+      "breakpoints": true
     }
   ]
 }

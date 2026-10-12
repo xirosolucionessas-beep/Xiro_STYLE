@@ -18,9 +18,24 @@ function detailFromProduct(product: Product): DetailItem {
 
 /** Productos con su imagen (recortada a proporción fija), nombre, descripción legible y precio formateado. Los agotados se ven, pero atenuados y rotulados.
  * Tocar la tarjeta abre el detalle con todas las fotos; desde ahí "Reservar" agrega el producto y abre el flujo. */
-export function ProductsSection({ profile, products, language, onBook }: { profile: PublicBookingProfile; products: PublicBookingCatalog['products']; language: Language; onBook: (choice: { productId: string }) => void }) {
+export function ProductsSection({
+  profile,
+  products,
+  language,
+  onBook,
+  initialOpenId,
+  onDetailClose,
+}: {
+  profile: PublicBookingProfile;
+  products: PublicBookingCatalog['products'];
+  language: Language;
+  onBook: (choice: { productId: string }) => void;
+  /** Enlace directo a un producto: su detalle abre solo. */
+  initialOpenId?: string;
+  onDetailClose?: () => void;
+}) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   if (products.length === 0) return null;
   const openProduct = openId ? products.find((p) => p.id === openId) : null;
 
@@ -63,8 +78,12 @@ export function ProductsSection({ profile, products, language, onBook }: { profi
           item={detailFromProduct(openProduct)}
           currency={profile.currency}
           language={language}
-          canBook={profile.acceptsBookings && openProduct.inStock}
-          onClose={() => setOpenId(null)}
+          canBook={(profile.acceptsBookings || profile.acceptsProductOrders) && openProduct.inStock}
+          ctaLabel={profile.acceptsBookings ? undefined : t('pub_order_book')}
+          onClose={() => {
+            setOpenId(null);
+            onDetailClose?.();
+          }}
           onBook={() => {
             setOpenId(null);
             onBook({ productId: openProduct.id });
