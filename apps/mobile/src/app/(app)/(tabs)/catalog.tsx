@@ -1,5 +1,6 @@
 import { formatMoney, type Currency } from '@xiro/shared';
 import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
@@ -8,7 +9,7 @@ import { businessAddressLine } from '@/lib/exports/address';
 import { buildCatalogPdf, catalogPdfFileName, type CatalogPdfItem } from '@/lib/exports/catalogPdf';
 import { imageDataUrl, shareGeneratedFile } from '@/lib/exports/nativeFiles';
 import { qrPngDataUrl } from '@/lib/exports/qrPng';
-import { flatPages, useBookingSettings, useCategories, useItemsPages } from '@/lib/queries';
+import { flatPages, itemsPagesKey, refreshFromStart, useBookingSettings, useCategories, useItemsPages } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
@@ -46,7 +47,9 @@ export default function Catalog() {
   const { toast } = useDialogs();
   const canManage = meets(actorOf(user), ['catalog_manage']);
   const [category, setCategory] = useState<string | null>(null);
-  const items = useItemsPages({ categoryId: category ?? undefined });
+  const queryClient = useQueryClient();
+  const itemsParams = { categoryId: category ?? undefined };
+  const items = useItemsPages(itemsParams);
   const categories = useCategories();
   const bookingSettings = useBookingSettings();
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -162,7 +165,7 @@ export default function Catalog() {
         onEndReached={() => {
           if (items.hasNextPage && !items.isFetchingNextPage && !items.isFetchNextPageError) void items.fetchNextPage();
         }}
-        refreshControl={<RefreshControl refreshing={items.isRefetching && !items.isFetchingNextPage} onRefresh={() => void items.refetch()} tintColor={colors.gold} />}
+        refreshControl={<RefreshControl refreshing={items.isRefetching && !items.isFetchingNextPage} onRefresh={() => void refreshFromStart(queryClient, itemsPagesKey(itemsParams))} tintColor={colors.gold} />}
       />
     </Screen>
   );

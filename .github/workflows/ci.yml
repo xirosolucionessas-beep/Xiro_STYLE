@@ -158,3 +158,40 @@ jobs:
       - name: Registro de la API si algo falló
         if: failure()
         run: cat api.log || true
+
+  security-attack:
+    name: Seguridad bajo ataque (proceso real)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: xiro
+          POSTGRES_PASSWORD: xiro
+          POSTGRES_DB: xiro
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U xiro -d xiro" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      LOADTEST_ADMIN_URL: postgres://xiro:xiro@localhost:5432/postgres
+      # Datos mínimos: estas pruebas miden defensas, no volumen (la capacidad está en docs/capacity.md).
+      LOADTEST_CLIENTS: '200'
+      LOADTEST_PRODUCTS: '50'
+      LOADTEST_SERVICES: '10'
+      LOADTEST_EMPLOYEES: '2'
+      LOADTEST_SMALL_BUSINESSES: '8'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --workspace @xiro/api --workspace @xiro/shared --include-workspace-root=false
+      - name: Siembra (por la API real)
+        run: npm run load:seed --workspace @xiro/api
+      - name: Fuerza bruta, relleno de credenciales, spam, tokens forjados, cuerpos maliciosos y cabeceras
+        run: npm run load:security --workspace @xiro/api
+      - name: Registro de la API si algo falló
+        if: failure()
+        run: cat apps/api/data/carga/api-*.log || true

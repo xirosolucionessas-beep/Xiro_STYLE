@@ -100,26 +100,50 @@ export class PublicCache {
    * respuesta (ruta y parámetros normalizados). Si `compute` lanza (404, error), no se guarda nada.
    */
   async wrap<T>(businessId: string, name: string, compute: () => Promise<T>, ttlSeconds = this.ttlSeconds): Promise<T> {
+    const entry = await this.lookup(businessId, name, ttlSeconds);
+    if (entry.hit !== null) return JSON.parse(entry.hit) as T;
+    const value = await compute();
+    if (entry.store) await entry.store(JSON.stringify(value));
+    return value;
+  }
+
+  /**
+   * Igual que `wrap`, pero devuelve el JSON YA SERIALIZADO (Fase 5): un acierto se envía tal cual, sin JSON.parse para
+   * que Fastify lo vuelva a convertir en el mismo texto. Mismos bytes que `wrap` + serializar; menos CPU por visita.
+   */
+  async wrapJson(businessId: string, name: string, compute: () => Promise<unknown>, ttlSeconds = this.ttlSeconds): Promise<string> {
+    const entry = await this.lookup(businessId, name, ttlSeconds);
+    if (entry.hit !== null) return entry.hit;
+    const json = JSON.stringify(await compute());
+    if (entry.store) await entry.store(json);
+    return json;
+  }
+
+  /** Lo guardado para `businessId/name` (o null) y cómo guardar el valor calculado; sin caché o si falla, `store` es null. */
+  private async lookup(businessId: string, name: string, ttlSeconds: number): Promise<{ hit: string | null; store: ((json: string) => Promise<void>) | null }> {
     const backend = this.backend;
     const ttl = Math.min(ttlSeconds, this.ttlSeconds);
-    if (!backend || ttl <= 0) return compute();
+    if (!backend || ttl <= 0) return { hit: null, store: null };
     let key: string;
     try {
       const version = (await backend.get(versionKey(businessId))) ?? (await backend.setIfAbsent(versionKey(businessId), newVersion(), VERSION_TTL_SECONDS));
       key = `e:${businessId}:${version}:${name}`;
       const hit = await backend.get(key);
-      if (hit !== null) return JSON.parse(hit) as T;
+      if (hit !== null) return { hit, store: null };
     } catch (error) {
       this.onError(error);
-      return compute();
+      return { hit: null, store: null };
     }
-    const value = await compute();
-    try {
-      await backend.set(key, JSON.stringify(value), ttl);
-    } catch (error) {
-      this.onError(error);
-    }
-    return value;
+    return {
+      hit: null,
+      store: async (json) => {
+        try {
+          await backend.set(key, json, ttl);
+        } catch (error) {
+          this.onError(error);
+        }
+      },
+    };
   }
 
   /** Invalida todo lo guardado de un negocio. Nunca lanza: un fallo de Redis no debe tumbar la escritura que ya se hizo. */

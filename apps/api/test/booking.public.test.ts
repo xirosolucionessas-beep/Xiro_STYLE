@@ -468,6 +468,20 @@ describe('aislamiento entre negocios (A no puede ver ni tocar a B)', () => {
   it('el rol de la aplicación no puede alterar tablas ajenas al módulo (mínimo privilegio)', async () => {
     await expect(testDb.db.transaction(async (tx) => { await tx.execute(sql`set local role xiro_app`); await tx.execute(sql`delete from users`); })).rejects.toBeTruthy();
     await expect(testDb.db.transaction(async (tx) => { await tx.execute(sql`set local role xiro_app`); await tx.execute(sql`update items set price = 1`); })).rejects.toBeTruthy();
+    // Lo mismo DENTRO de withBusiness (que fija rol y negocio en una sola sentencia).
+    await expect(withBusiness(testDb.db, a.session.business.id, (tx) => tx.execute(sql`delete from users`))).rejects.toMatchObject({ cause: { code: '42501' } });
+  });
+
+  it('withBusiness: el rol restringido y el negocio rigen solo dentro de la transacción', async () => {
+    const before = await testDb.db.execute<{ user: string }>(sql`select current_user as "user"`);
+    const inside = await withBusiness(testDb.db, a.session.business.id, (tx) => tx.execute<{ user: string; business: string }>(sql`select current_user as "user", current_setting('app.business_id', true) as business`));
+    expect(inside.rows[0]).toEqual({ user: 'xiro_app', business: a.session.business.id.toLowerCase() });
+    // Al terminar (también si falla), la conexión vuelve al pool con su rol y sin negocio activo.
+    await expect(withBusiness(testDb.db, a.session.business.id, async () => { throw new Error('falla a propósito'); })).rejects.toThrow('falla a propósito');
+    for (let i = 0; i < 12; i += 1) {
+      const after = await testDb.db.execute<{ user: string; business: string | null }>(sql`select current_user as "user", nullif(current_setting('app.business_id', true), '') as business`);
+      expect(after.rows[0]).toEqual({ user: before.rows[0]!.user, business: null });
+    }
   });
 });
 

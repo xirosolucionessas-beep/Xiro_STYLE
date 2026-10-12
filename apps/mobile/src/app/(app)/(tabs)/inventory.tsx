@@ -1,9 +1,10 @@
 import { STOCK_STATUSES, type StockStatus } from '@xiro/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { errorKey } from '@/lib/api';
-import { flatPages, useCategories, useItemsPages, useItemsSummary } from '@/lib/queries';
+import { flatPages, itemsPagesKey, refreshFromStart, useCategories, useItemsPages, useItemsSummary } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
@@ -31,7 +32,9 @@ export default function Inventory() {
     if (fromLink) setStatus(fromLink);
   }, [fromLink]);
 
-  const items = useItemsPages({ tracked: true, categoryId: category ?? undefined, stockStatus: status ?? undefined });
+  const queryClient = useQueryClient();
+  const itemsParams = { tracked: true, categoryId: category ?? undefined, stockStatus: status ?? undefined };
+  const items = useItemsPages(itemsParams);
   const summary = useItemsSummary();
   const visible = useMemo(() => flatPages(items.data), [items.data]);
 
@@ -123,7 +126,7 @@ export default function Inventory() {
         onEndReached={() => {
           if (items.hasNextPage && !items.isFetchingNextPage && !items.isFetchNextPageError) void items.fetchNextPage();
         }}
-        refreshControl={<RefreshControl refreshing={items.isRefetching && !items.isFetchingNextPage} onRefresh={() => void Promise.all([items.refetch(), summary.refetch()])} tintColor={colors.gold} />}
+        refreshControl={<RefreshControl refreshing={items.isRefetching && !items.isFetchingNextPage} onRefresh={() => void Promise.all([refreshFromStart(queryClient, itemsPagesKey(itemsParams)), summary.refetch()])} tintColor={colors.gold} />}
       />
     </Screen>
   );

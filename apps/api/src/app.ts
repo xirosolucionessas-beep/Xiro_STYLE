@@ -9,7 +9,7 @@ import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { eq, sql } from 'drizzle-orm';
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, { LogController, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { PgBoss } from 'pg-boss';
 import { loadConfig, type Config } from './config';
 import { assertPolicyCovers, authorize } from './authz';
@@ -129,7 +129,7 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     // Cada petición lleva un id: sale en cada línea de log, en la cabecera X-Request-Id y en los errores de Sentry. Se respeta
     // el del proxy (para seguir una petición de punta a punta) solo si es válido: nunca texto arbitrario en los logs.
     requestIdHeader: false,
-    requestIdLogLabel: 'requestId',
+    logController: new LogController({ requestIdLogLabel: 'requestId' }),
     genReqId: (request) => {
       const incoming = request.headers['x-request-id'];
       return typeof incoming === 'string' && REQUEST_ID.test(incoming) ? incoming : randomUUID();

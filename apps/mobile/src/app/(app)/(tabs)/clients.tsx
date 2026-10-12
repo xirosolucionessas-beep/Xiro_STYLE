@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { Client } from '@xiro/shared';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
 import { errorKey } from '@/lib/api';
-import { flatPages, useClientsPages, useClientsSummary } from '@/lib/queries';
+import { clientsPagesKey, flatPages, refreshFromStart, useClientsPages, useClientsSummary } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
@@ -34,9 +35,11 @@ export default function Clients() {
   const actor = actorOf(user);
   const canManage = meets(actor, ['clients_manage']);
   const canRecords = meets(actor, ['services_record']);
-  const clients = useClientsPages({ q: debounced || undefined });
+  const queryClient = useQueryClient();
+  const params = { q: debounced || undefined };
+  const clients = useClientsPages(params);
   const summary = useClientsSummary();
-  const rows = flatPages(clients.data);
+  const rows = useMemo(() => flatPages(clients.data), [clients.data]);
 
   const kpis = [
     { id: 'total', label: t('sec_kpi_clients_total'), value: summary.data ? String(summary.data.total) : '—' },
@@ -47,7 +50,8 @@ export default function Clients() {
   const loadMore = useCallback(() => {
     if (clients.hasNextPage && !clients.isFetchingNextPage && !clients.isFetchNextPageError) void clients.fetchNextPage();
   }, [clients]);
-  const refresh = () => void Promise.all([clients.refetch(), summary.refetch()]);
+  // Desde la primera página: volver a pedir todas las ya cargadas serían decenas de peticiones en serie con miles de clientes.
+  const refresh = () => void Promise.all([refreshFromStart(queryClient, clientsPagesKey(params)), summary.refetch()]);
 
   const renderClient = useCallback(
     ({ item: client }: { item: Client }) => (

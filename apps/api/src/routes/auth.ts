@@ -62,18 +62,24 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
   // Bloqueo temporal por CUENTA (aunque cambie la IP) y por IP (una IP probando muchas cuentas distintas).
   const ipLimiter = ctx.rates.limiter('login-ip', config.rateLimit.accountWindowMinutes * 60_000);
   const ipAttempts = attempts * IP_ATTEMPTS_FACTOR;
+  /**
+   * El intento por CUENTA se reserva (incremento atómico) ANTES de evaluar la contraseña o el código, y un acierto lo
+   * devuelve con `reset`. Antes se contaba y se sumaba después de argon2 (~50 ms): N intentos simultáneos desde IP
+   * distintas pasaban todos el control y se evaluaban ~2× el máximo (Fase 5, loadtest/security.ts). El límite por IP sigue
+   * sumando solo fallos: una recepción donde varias personas inician sesión bien desde la misma IP no se bloquea.
+   */
   const guardAccount = async (key: string, ip?: string) => {
     if (!config.rateLimit.enabled) return;
-    if ((await ctx.accountLimiter.count(key)) >= attempts) {
-      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await ctx.accountLimiter.retryAfterSeconds(key)) });
-    }
     if (ip && (await ipLimiter.count(ip)) >= ipAttempts) {
       throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await ipLimiter.retryAfterSeconds(ip)) });
     }
+    if ((await ctx.accountLimiter.hit(key)) > attempts) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await ctx.accountLimiter.retryAfterSeconds(key)) });
+    }
   };
-  const failAccount = async (key: string, ip?: string) => {
+  /** Fallo: el intento de la cuenta ya quedó contado en guardAccount; se suma el de la IP. */
+  const failAccount = async (_key: string, ip?: string) => {
     if (!config.rateLimit.enabled) return;
-    await ctx.accountLimiter.hit(key);
     if (ip) await ipLimiter.hit(ip);
   };
 

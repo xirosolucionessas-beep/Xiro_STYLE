@@ -22,7 +22,8 @@ Balanceador del proveedor ──► N instancias de la API (imagen Docker de est
 - La API **no guarda estado en disco**: imágenes en R2, límites de abuso y caché pública en Redis. Se puede escalar
   horizontalmente añadiendo instancias.
 - La misma imagen sirve la API (`/api`), el panel web y la página pública de reservas (`/reservar/<negocio>`).
-- Tamaños de partida y capacidad: los fija la Fase 5 con pruebas de carga reales (no estimaciones).
+- Tamaños de partida y capacidad **medidos**: [`docs/capacity.md`](capacity.md) (Fase 5). Resumen: ~160 req/s de tráfico mixto
+  por proceso, sin errores; se escala añadiendo instancias.
 
 ## 2. Variables de entorno
 

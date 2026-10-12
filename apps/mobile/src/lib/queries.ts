@@ -44,8 +44,11 @@ export const keys = {
 export const flatPages = <T,>(data: InfiniteData<Page<T>> | undefined): T[] => data?.pages.flatMap((page) => page.data) ?? [];
 const nextPageParam = <T,>(last: Page<T>) => last.nextCursor ?? undefined;
 
+export { refreshFromStart } from './infinite';
+
+export const itemsPagesKey = (params: Omit<ItemsQuery, 'cursor'> = {}) => [...keys.items, 'pages', params] as const;
 export const useItemsPages = (params: Omit<ItemsQuery, 'cursor'> = {}, enabled = true) =>
-  useInfiniteQuery({ queryKey: [...keys.items, 'pages', params], queryFn: ({ pageParam }) => api.items({ ...params, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+  useInfiniteQuery({ queryKey: itemsPagesKey(params), queryFn: ({ pageParam }) => api.items({ ...params, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
 /** Una sola página (buscadores, listas cortas como "bajo stock"). */
 export const useItemsQuery = (params: Omit<ItemsQuery, 'cursor'>, enabled = true) => useQuery({ queryKey: [...keys.items, 'one-page', params], queryFn: () => api.items(params), enabled });
 /** Conjunto COMPLETO que cumple el filtro (configuraciones de servicios, agenda); recorre las páginas de 100 en 100. */
@@ -53,8 +56,9 @@ export const useAllItems = (params: Omit<ItemsQuery, 'cursor' | 'limit'> = {}, e
   useQuery({ queryKey: [...keys.items, 'all', params], queryFn: () => fetchAllPages((cursor) => api.items({ ...params, limit: 100, cursor })), enabled });
 export const useItemsSummary = (enabled = true) => useQuery({ queryKey: [...keys.items, 'summary'], queryFn: api.itemsSummary, enabled });
 export const useCategories = () => useQuery({ queryKey: keys.categories, queryFn: api.categories });
+export const clientsPagesKey = (params: Omit<ClientsQuery, 'cursor'> = {}) => [...keys.clients, 'pages', params] as const;
 export const useClientsPages = (params: Omit<ClientsQuery, 'cursor'> = {}, enabled = true) =>
-  useInfiniteQuery({ queryKey: [...keys.clients, 'pages', params], queryFn: ({ pageParam }) => api.clients({ ...params, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+  useInfiniteQuery({ queryKey: clientsPagesKey(params), queryFn: ({ pageParam }) => api.clients({ ...params, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
 /** Buscador de clientes (venta, cita, búsqueda global): primera página con la búsqueda en el servidor. */
 export const useClientSearch = (q: string, enabled = true, limit = 20) => useQuery({ queryKey: [...keys.clients, 'search', q, limit], queryFn: () => api.clients({ q: q || undefined, limit }), enabled });
 /** Los últimos clientes creados (actividad reciente del Inicio). */

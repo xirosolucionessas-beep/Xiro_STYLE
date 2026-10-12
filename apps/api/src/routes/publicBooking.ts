@@ -15,7 +15,7 @@ import {
   type PublicTeamMemberDto,
 } from '@xiro/shared';
 import { and, eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { assertClientMayChange, createAppointment, findByIdempotency, hashToken, idempotencyHash, rescheduleAppointment, submitReview, toPublicAppointment, transitionAppointment, type AppointmentRow } from '../booking/appointments';
 import { loadContext, prepare, slotsForDays, toPublicSlot } from '../booking/availability';
@@ -26,7 +26,7 @@ import { allSections, loadProfileRow, loadPublicCatalog, loadPublicProfile, load
 import { CLIENT_COOKIE_NAME, resolveClientAccount } from '../clientSession';
 import { parseCookies } from '../cookies';
 import type { Ctx } from '../context';
-import { appointments } from '../db/schema';
+import { appointments, businessPublicProfiles, businesses } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
 import { cancelReminder, scheduleReminder } from '../jobs/reminders';
 import { formatPushMoment, notifyAppointment } from '../push';
@@ -72,6 +72,18 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   /** Negocio de la dirección, solo si su página está publicada (si no, 404 igual que si no existiera). */
   async function publishedBusiness(slug: string): Promise<BusinessRow> {
+    // Caso normal (dirección vigente): negocio y "¿está publicada?" en UNA consulta (Fase 5: antes eran dos por visita).
+    const [current] = await db
+      .select({ business: businesses, published: businessPublicProfiles.published })
+      .from(businesses)
+      .leftJoin(businessPublicProfiles, eq(businessPublicProfiles.businessId, businesses.id))
+      .where(eq(businesses.slug, slug))
+      .limit(1);
+    if (current) {
+      if (!current.published) throw notFound();
+      return current.business;
+    }
+    // Dirección anterior (el negocio cambió su slug): el camino de siempre.
     const resolved = await resolveSlug(db, slug);
     if (!resolved) throw notFound();
     const profile = await loadProfileRow(db, resolved.business.id);
@@ -85,13 +97,14 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
    * invalidan en cuanto el negocio guarda un cambio. Que la página siga publicada se comprueba SIEMPRE fuera de la
    * caché (publishedBusiness), así despublicar surte efecto al instante. Disponibilidad y citas nunca se guardan.
    */
-  const cached = <T>(business: BusinessRow, name: string, fn: (tx: Tx) => Promise<T>, ttlSeconds?: number) =>
-    ctx.publicCache.wrap(business.id, name, () => scopedTo(business, fn), ttlSeconds);
+  // Se responde el JSON ya serializado: un acierto de caché se envía tal cual (mismos bytes, sin parsear y re-serializar).
+  const cached = async <T>(reply: FastifyReply, business: BusinessRow, name: string, fn: (tx: Tx) => Promise<T>, ttlSeconds?: number): Promise<FastifyReply> =>
+    reply.type('application/json; charset=utf-8').send(await ctx.publicCache.wrapJson(business.id, name, () => scopedTo(business, fn), ttlSeconds));
 
-  app.get('/:slug', async (request): Promise<PublicBookingProfile> => {
+  app.get('/:slug', async (request, reply) => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
-    return cached(business, 'profile', async (tx) => loadPublicProfile(tx, await loadContext(tx, business.id), new Date(), config.booking.turnstileSiteKey, ctx.maps !== null), PROFILE_CACHE_SECONDS);
+    return cached(reply, business, 'profile', async (tx): Promise<PublicBookingProfile> => loadPublicProfile(tx, await loadContext(tx, business.id), new Date(), config.booking.turnstileSiteKey, ctx.maps !== null), PROFILE_CACHE_SECONDS);
   });
 
   /**
@@ -112,28 +125,28 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
     return reply.type('image/png').send(Buffer.from(png, 'base64'));
   });
 
-  app.get('/:slug/catalog', async (request): Promise<PublicBookingCatalog> => {
+  app.get('/:slug/catalog', async (request, reply) => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
-    return cached(business, 'catalog', async (tx) => {
+    return cached(reply, business, 'catalog', async (tx): Promise<PublicBookingCatalog> => {
       const profile = await loadProfileRow(tx, business.id);
       return loadPublicCatalog(tx, business.id, allSections(profile?.sections));
     });
   });
 
-  app.get('/:slug/team', async (request): Promise<PublicTeamMemberDto[]> => {
+  app.get('/:slug/team', async (request, reply) => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
-    return cached(business, 'team', async (tx) => {
+    return cached(reply, business, 'team', async (tx): Promise<PublicTeamMemberDto[]> => {
       const profile = await loadProfileRow(tx, business.id);
       return allSections(profile?.sections).team ? loadPublicTeam(tx, business.id) : [];
     });
   });
 
-  app.get('/:slug/reviews', async (request): Promise<PublicReviewDto[]> => {
+  app.get('/:slug/reviews', async (request, reply) => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
-    return cached(business, 'reviews', async (tx) => {
+    return cached(reply, business, 'reviews', async (tx): Promise<PublicReviewDto[]> => {
       const profile = await loadProfileRow(tx, business.id);
       return allSections(profile?.sections).reviews ? loadPublicReviews(tx, business.id) : [];
     });

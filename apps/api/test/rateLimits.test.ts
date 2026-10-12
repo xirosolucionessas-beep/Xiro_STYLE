@@ -114,6 +114,24 @@ describe('bloqueo de inicio de sesión por cuenta y por IP', () => {
     expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
   });
 
+  it('intentos SIMULTÁNEOS desde IP distintas no evalúan más contraseñas que el máximo de la cuenta', async () => {
+    const email = 'simultaneo@correo.com';
+    expect((await app.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'Ana', businessName: 'Simultáneo', businessType: 'beauty_salon', email, password: 'Secreta123', acceptTerms: true, language: 'es' } })).statusCode).toBe(201);
+    // 20 a la vez, cada uno desde otra IP (antes pasaban todos el control mientras argon2 verificaba: ~2× el máximo).
+    const codes = (await Promise.all(Array.from({ length: 20 }, (_, i) => login(email, `Mala${1000 + i}`, `198.51.100.${100 + i}`)))).map((r) => r.statusCode);
+    expect(codes.filter((c) => c === 401)).toHaveLength(2); // accountAttempts = 2 en esta configuración
+    expect(codes.filter((c) => c === 429)).toHaveLength(18);
+  });
+
+  it('un acierto devuelve el intento reservado: iniciar sesión bien varias veces nunca bloquea la cuenta', async () => {
+    const email = 'frecuente@correo.com';
+    expect((await app.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'Ana', businessName: 'Frecuente', businessType: 'beauty_salon', email, password: 'Secreta123', acceptTerms: true, language: 'es' } })).statusCode).toBe(201);
+    for (let i = 0; i < 6; i += 1) expect((await login(email, 'Secreta123', `198.51.100.${200 + i}`)).statusCode).toBe(200);
+    // Y un fallo aislado después de varios aciertos todavía deja intentar de nuevo.
+    expect((await login(email, 'Mala1234', '198.51.100.210')).statusCode).toBe(401);
+    expect((await login(email, 'Secreta123', '198.51.100.211')).statusCode).toBe(200);
+  });
+
   it('una IP que prueba muchas cuentas distintas se bloquea aunque ninguna cuenta llegue a su límite', async () => {
     const ip = '192.0.2.50';
     for (let i = 0; i < 10; i += 1) expect((await login(`no-existe-${i}@correo.com`, 'Mala1234', ip)).statusCode).toBe(401);

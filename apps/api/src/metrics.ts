@@ -63,6 +63,9 @@ export class Metrics {
     lines.push(`xiro_process_resident_memory_bytes ${memory.rss}`);
     metric('xiro_process_heap_used_bytes', 'gauge', 'Heap de V8 en uso.');
     lines.push(`xiro_process_heap_used_bytes ${memory.heapUsed}`);
+    const cpu = process.cpuUsage();
+    metric('xiro_process_cpu_seconds_total', 'counter', 'Tiempo de CPU (usuario + sistema) consumido por el proceso.');
+    lines.push(`xiro_process_cpu_seconds_total ${((cpu.user + cpu.system) / 1e6).toFixed(3)}`);
     metric('xiro_process_uptime_seconds', 'gauge', 'Segundos desde que arrancó el proceso.');
     lines.push(`xiro_process_uptime_seconds ${Math.round((Date.now() - this.startedAt) / 1000)}`);
     metric('xiro_event_loop_delay_p99_seconds', 'gauge', 'Demora del event loop, percentil 99 (desde el último muestreo).');
