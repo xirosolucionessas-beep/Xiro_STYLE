@@ -21,6 +21,11 @@ export function setRememberSession(remember: boolean): void {
   credentials.setRemember(remember);
 }
 
+/** Preferencia "Recordarme" vigente (misma API que en web; en nativo no se envía al servidor). */
+export function remembersSession(): boolean {
+  return credentials.remembers();
+}
+
 /** Credenciales (refresh token): Keychain en iOS y Keystore en Android. */
 export const secureStorage: KeyValueStore = credentials.store;
 

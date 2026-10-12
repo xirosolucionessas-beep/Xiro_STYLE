@@ -316,7 +316,7 @@ describe('inventory and categories', () => {
     const item = await createItem(owner);
     expect((await app.inject({ method: 'GET', url: `/api/items/${item.id}`, headers: auth(intruder) })).statusCode).toBe(404);
     expect((await app.inject({ method: 'DELETE', url: `/api/items/${item.id}`, headers: auth(intruder) })).statusCode).toBe(404);
-    expect((await app.inject({ method: 'GET', url: '/api/items', headers: auth(intruder) })).json()).toEqual([]);
+    expect((await app.inject({ method: 'GET', url: '/api/items', headers: auth(intruder) })).json()).toEqual({ data: [], nextCursor: null });
     const foreignCategory = await app.inject({
       method: 'POST',
       url: '/api/items',
@@ -438,6 +438,13 @@ describe('public catalog', () => {
     expect(page.body).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(page.body).toContain('og:title');
 
+    // "$`" y "$'" son patrones especiales de String.replace: deben salir literales, sin duplicar trozos de la plantilla.
+    const dollars = await createItem(session, { name: "Corte $` $' $& precio", published: true });
+    const dollarPage = await app.inject({ method: 'GET', url: `/catalog/${session.business.slug}/item/${dollars.id}` });
+    expect(dollarPage.body).toContain('Corte $` $&#39; $&amp; precio');
+    expect(dollarPage.body.match(/<html/gi)?.length).toBe(1);
+    expect(dollarPage.body.match(/<\/html>/gi)?.length).toBe(1);
+
     const list = await app.inject({ method: 'GET', url: `/catalog/${session.business.slug}` });
     expect(list.statusCode).toBe(200);
     const assets = await app.inject({ method: 'GET', url: '/catalog-assets/catalog.js' });
@@ -499,11 +506,11 @@ describe('account', () => {
     await app.inject({ method: 'POST', url: '/api/clients', headers: auth(session), payload: { name: 'Mateo Gómez' } });
 
     const search = await app.inject({ method: 'GET', url: '/api/clients?q=valen', headers: auth(session) });
-    expect(search.json<unknown[]>()).toHaveLength(1);
+    expect(search.json<{ data: unknown[] }>().data).toHaveLength(1);
     const wildcard = await app.inject({ method: 'GET', url: '/api/clients?q=%25', headers: auth(session) });
-    expect(wildcard.json<unknown[]>()).toHaveLength(0);
+    expect(wildcard.json<{ data: unknown[] }>().data).toHaveLength(0);
     const other = await register();
-    expect((await app.inject({ method: 'GET', url: '/api/clients', headers: auth(other) })).json()).toEqual([]);
+    expect((await app.inject({ method: 'GET', url: '/api/clients', headers: auth(other) })).json()).toEqual({ data: [], nextCursor: null });
   });
 
   it('anonymize (Ley 1581 right to erasure) clears identity fields but keeps the client row and its history', async () => {
@@ -521,7 +528,7 @@ describe('account', () => {
     expect(stillThere.json()).toMatchObject({ name: 'Cliente eliminado' });
     // El historial de servicios (registro contable) se conserva intacto.
     const history = await app.inject({ method: 'GET', url: `/api/service-records?clientId=${client.id}`, headers: auth(session) });
-    expect(history.json<unknown[]>()).toHaveLength(1);
+    expect(history.json<{ data: unknown[] }>().data).toHaveLength(1);
 
     // Nunca sobre el cliente de otro negocio.
     const other = await register();
@@ -570,7 +577,7 @@ describe('loyalty and service records', () => {
     expect(recordedNonEligible.json()).toMatchObject({ loyaltyCounted: false, rewardJustEarned: false });
 
     let progress = await app.inject({ method: 'GET', url: '/api/loyalty/clients', headers: auth(session) });
-    expect(progress.json<Array<{ clientId: string; count: number }>>().find((c) => c.clientId === client.id)?.count).toBe(0);
+    expect(progress.json<{ data: Array<{ clientId: string; count: number }> }>().data.find((c) => c.clientId === client.id)?.count).toBe(0);
 
     const first = await app.inject({ method: 'POST', url: '/api/service-records', headers: auth(session), payload: { clientId: client.id, itemId: eligible.id } });
     expect(first.json()).toMatchObject({ loyaltyCounted: true, rewardJustEarned: false, amount: 35000, label: 'Corte' });
@@ -580,11 +587,11 @@ describe('loyalty and service records', () => {
     expect(third.json()).toMatchObject({ rewardJustEarned: true }); // la 3ª de 3 alcanza la meta
 
     progress = await app.inject({ method: 'GET', url: '/api/loyalty/clients', headers: auth(session) });
-    const mine = progress.json<Array<{ clientId: string; count: number; goal: number; rewardAvailable: boolean }>>().find((c) => c.clientId === client.id)!;
+    const mine = progress.json<{ data: Array<{ clientId: string; count: number; goal: number; rewardAvailable: boolean }> }>().data.find((c) => c.clientId === client.id)!;
     expect(mine).toMatchObject({ count: 3, goal: 3, rewardAvailable: true });
 
     const history = await app.inject({ method: 'GET', url: `/api/service-records?clientId=${client.id}`, headers: auth(session) });
-    expect(history.json<unknown[]>()).toHaveLength(4); // 1 no elegible + 3 elegibles
+    expect(history.json<{ data: unknown[] }>().data).toHaveLength(4); // 1 no elegible + 3 elegibles
   });
 
   it('redeeming resets the counter (resetOnRedeem: true), records history, and rejects redeeming below the goal', async () => {
@@ -605,7 +612,7 @@ describe('loyalty and service records', () => {
     expect(redeemed.json()).toMatchObject({ count: 0, rewardAvailable: false });
 
     const history = await app.inject({ method: 'GET', url: '/api/loyalty/redemptions', headers: auth(session) });
-    expect(history.json()).toMatchObject([{ clientId: client.id, goalAtRedemption: 2 }]);
+    expect(history.json()).toMatchObject({ data: [{ clientId: client.id, goalAtRedemption: 2 }], nextCursor: null });
 
     const again = await app.inject({ method: 'POST', url: `/api/loyalty/clients/${client.id}/redeem`, headers: auth(session) });
     expect(again.statusCode).toBe(400); // ya en 0, no vuelve a alcanzar la meta sin más servicios
@@ -638,9 +645,9 @@ describe('loyalty and service records', () => {
     await app.inject({ method: 'POST', url: '/api/service-records', headers: auth(session), payload: { clientId: client.id, itemId: item.id } });
 
     const other = await register();
-    expect((await app.inject({ method: 'GET', url: '/api/loyalty/clients', headers: auth(other) })).json()).toEqual([]);
+    expect((await app.inject({ method: 'GET', url: '/api/loyalty/clients', headers: auth(other) })).json()).toEqual({ data: [], nextCursor: null });
     expect((await app.inject({ method: 'GET', url: '/api/loyalty/program', headers: auth(other) })).json<{ enabled: boolean }>().enabled).toBe(false);
-    expect((await app.inject({ method: 'GET', url: '/api/service-records', headers: auth(other) })).json()).toEqual([]);
+    expect((await app.inject({ method: 'GET', url: '/api/service-records', headers: auth(other) })).json()).toEqual({ data: [], nextCursor: null });
     // No puede registrar un servicio contra un cliente o item de otro negocio.
     expect((await app.inject({ method: 'POST', url: '/api/service-records', headers: auth(other), payload: { clientId: client.id, itemId: item.id } })).statusCode).toBe(404);
     expect((await app.inject({ method: 'POST', url: `/api/loyalty/clients/${client.id}/redeem`, headers: auth(other) })).statusCode).toBe(400); // sin programa propio: loyalty_disabled antes de llegar a buscar el cliente

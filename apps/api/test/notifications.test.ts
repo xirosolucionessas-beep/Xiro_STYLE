@@ -268,3 +268,16 @@ describe('seguridad: restablecer la contraseña avisa a esa persona', () => {
     expect(list.notifications).toMatchObject([{ category: 'security', titleKey: 'push_security_password_changed_title' }]);
   });
 });
+
+describe('Web Push: solo servicios de push reales (Fase 3, SSRF)', () => {
+  it('registrar un endpoint interno o arbitrario → 400; el de un navegador real se acepta', async () => {
+    const biz = await setupBiz(app, 'PushSSRF');
+    const keys = { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' };
+    for (const endpoint of ['http://169.254.169.254/latest/meta-data/', 'https://localhost:3000/api/admin', 'https://intranet.empresa.local/x']) {
+      const res = await app.inject({ method: 'POST', url: '/api/notifications/register', headers: auth(biz.session), payload: { platform: 'web', endpoint, keys } });
+      expect(res.statusCode, endpoint).toBe(400);
+    }
+    const ok = await app.inject({ method: 'POST', url: '/api/notifications/register', headers: auth(biz.session), payload: { platform: 'web', endpoint: 'https://fcm.googleapis.com/fcm/send/abc123', keys } });
+    expect(ok.statusCode).toBeLessThan(300);
+  });
+});

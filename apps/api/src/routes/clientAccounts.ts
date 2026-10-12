@@ -29,7 +29,7 @@ import { AppError, notFound, parse } from '../errors';
 import { cancelReminder } from '../jobs/reminders';
 import { mediaUrl, removeMedia, saveAvatarImage } from '../media';
 import { formatPushMoment, notifyAppointment } from '../push';
-import { DUMMY_HASH, hashPassword, hmac, randomToken, safeEqualHex, sixDigitCode, verifyPassword } from '../security';
+import { DUMMY_HASH, hashPassword, hmac, needsRehash, randomToken, safeEqualHex, sixDigitCode, verifyPassword } from '../security';
 import type { BusinessRow } from '../serializers';
 
 const RECOVERY_TTL_MS = 10 * 60 * 1000;
@@ -58,19 +58,32 @@ function toAccountDto(account: AccountRow): ClientAccountDto {
  * (`/api/public/booking/<slug>`), así el navegador nunca la envía en peticiones a otro negocio; y, por si acaso,
  * cada ruta protegida vuelve a comprobar que la cuenta de la sesión pertenece al negocio resuelto de la URL.
  */
+/** Cambios de foto por cuenta de cliente en 24 h. */
+const CLIENT_PHOTO_UPLOADS_PER_DAY = 20;
+
 export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
   const limit = (max: number) => ({ config: { rateLimit: { max, timeWindow: '1 minute' } } });
   const recoveryLimiter = ctx.accountLimiter;
+  const clientPhotoLimiter = ctx.rates.limiter('client-photo', 24 * 60 * 60_000);
   const attempts = config.rateLimit.accountAttempts;
 
-  const guardAccount = (key: string) => {
-    if (config.rateLimit.enabled && recoveryLimiter.count(key) >= attempts) {
-      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(recoveryLimiter.retryAfterSeconds(key)) });
+  // Bloqueo temporal por cuenta (teléfono en ese negocio) y por IP (una IP probando muchos teléfonos).
+  const ipLimiter = ctx.rates.limiter('client-login-ip', config.rateLimit.accountWindowMinutes * 60_000);
+  const ipAttempts = attempts * 5;
+  const guardAccount = async (key: string, ip?: string) => {
+    if (!config.rateLimit.enabled) return;
+    if ((await recoveryLimiter.count(key)) >= attempts) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await recoveryLimiter.retryAfterSeconds(key)) });
+    }
+    if (ip && (await ipLimiter.count(ip)) >= ipAttempts) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await ipLimiter.retryAfterSeconds(ip)) });
     }
   };
-  const failAccount = (key: string) => {
-    if (config.rateLimit.enabled) recoveryLimiter.hit(key);
+  const failAccount = async (key: string, ip?: string) => {
+    if (!config.rateLimit.enabled) return;
+    await recoveryLimiter.hit(key);
+    if (ip) await ipLimiter.hit(ip);
   };
 
   async function publishedBusiness(slug: string): Promise<BusinessRow> {
@@ -148,18 +161,20 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     const input = parse(clientLoginSchema, request.body);
     const key = `client-login:${business.id}:${input.phone}`;
-    guardAccount(key);
+    await guardAccount(key, request.ip);
 
     const account = await findAccount(business.id, input.phone);
     const valid = await verifyPassword(input.password, account?.passwordHash ?? DUMMY_HASH);
     if (!account || !valid) {
-      failAccount(key);
+      await failAccount(key, request.ip);
       throw new AppError(401, 'invalid_credentials');
     }
-    recoveryLimiter.reset(key);
+    await recoveryLimiter.reset(key);
     if (account.disabledAt) throw new AppError(403, 'account_disabled');
 
-    await db.update(clientAccounts).set({ lastLoginAt: new Date() }).where(eq(clientAccounts.id, account.id));
+    // Re-hash transparente a argon2id (hash anterior o parámetros viejos), en la misma escritura del último acceso.
+    const rehash = needsRehash(account.passwordHash) ? { passwordHash: await hashPassword(input.password) } : {};
+    await db.update(clientAccounts).set({ lastLoginAt: new Date(), ...rehash }).where(eq(clientAccounts.id, account.id));
     await issueSession(reply, business, account, input.remember);
     return toAccountDto(account);
   });
@@ -205,15 +220,19 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
     const account = await requireAccount(request, business);
+    // Una cuenta de cliente cambia su foto pocas veces: tope diario por cuenta (además del límite por IP).
+    if (config.rateLimit.enabled && (await clientPhotoLimiter.hit(account.id)) > CLIENT_PHOTO_UPLOADS_PER_DAY) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await clientPhotoLimiter.retryAfterSeconds(account.id)) });
+    }
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    const file = await saveAvatarImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     const [clientRow] = await db.select({ photoFile: clients.photoFile }).from(clients).where(eq(clients.id, account.clientId)).limit(1);
     const [updated] = await db.update(clientAccounts).set({ photoFile: file }).where(eq(clientAccounts.id, account.id)).returning();
     await db.update(clients).set({ photoFile: file }).where(eq(clients.id, account.clientId));
-    await removeMedia(config.mediaDir, account.photoFile);
-    await removeMedia(config.mediaDir, clientRow?.photoFile ?? null);
+    await removeMedia(ctx.media, account.photoFile);
+    await removeMedia(ctx.media, clientRow?.photoFile ?? null);
     return toAccountDto(updated!);
   });
 
@@ -240,7 +259,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     // el archivo que se borra abajo dejaría una imagen rota en "Clientes". Una foto distinta que el negocio haya
     // puesto por su cuenta no se toca.
     if (account.photoFile) await db.update(clients).set({ photoFile: null }).where(and(eq(clients.id, account.clientId), eq(clients.photoFile, account.photoFile)));
-    await removeMedia(config.mediaDir, account.photoFile);
+    await removeMedia(ctx.media, account.photoFile);
     reply.header('Set-Cookie', expiredSessionCookie(COOKIE_NAME, accountPath(business.slug), config.production));
     return reply.status(204).send();
   });
@@ -274,8 +293,8 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     const input = parse(clientRecoverRequestSchema, request.body);
     const key = `client-otp-request:${business.id}:${input.phone}`;
-    if (config.rateLimit.enabled && recoveryLimiter.hit(key) > attempts) {
-      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(recoveryLimiter.retryAfterSeconds(key)) });
+    if (config.rateLimit.enabled && (await recoveryLimiter.hit(key)) > attempts) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await recoveryLimiter.retryAfterSeconds(key)) });
     }
 
     const account = await findAccount(business.id, input.phone);
@@ -298,7 +317,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     const input = parse(clientRecoverVerifySchema, request.body);
     const key = `client-otp-verify:${business.id}:${input.phone}`;
-    guardAccount(key);
+    await guardAccount(key);
 
     const account = await findAccount(business.id, input.phone);
     const now = new Date();
@@ -306,7 +325,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       ? await db.select().from(clientRecoveryCodes).where(and(eq(clientRecoveryCodes.accountId, account.id), isNull(clientRecoveryCodes.usedAt), gt(clientRecoveryCodes.expiresAt, now))).orderBy(desc(clientRecoveryCodes.createdAt)).limit(1)
       : [];
     if (!account || !code) {
-      failAccount(key);
+      await failAccount(key);
       throw new AppError(400, 'otp_invalid');
     }
 
@@ -316,7 +335,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       .where(and(eq(clientRecoveryCodes.id, code.id), isNull(clientRecoveryCodes.usedAt), lt(clientRecoveryCodes.attempts, MAX_RECOVERY_ATTEMPTS)))
       .returning({ attempts: clientRecoveryCodes.attempts });
     if (!counted || !safeEqualHex(code.codeHash, codeHash(account.id, input.code))) {
-      failAccount(key);
+      await failAccount(key);
       throw new AppError(400, 'otp_invalid');
     }
 
@@ -330,7 +349,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       await tx.insert(clientResetTokens).values({ tokenHash: tokenHash(resetToken), accountId: account.id, expiresAt: new Date(Date.now() + RESET_TTL_MS) });
       await tx.update(clientAccounts).set({ phoneVerifiedAt: now }).where(eq(clientAccounts.id, account.id));
     });
-    recoveryLimiter.reset(key);
+    await recoveryLimiter.reset(key);
     return { resetToken };
   });
 

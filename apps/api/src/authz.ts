@@ -50,6 +50,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'PATCH /categories/:id': ['catalog_manage'],
   'DELETE /categories/:id': ['catalog_manage'],
   'GET /items': ['catalog_view'],
+  'GET /items/summary': ['catalog_view'],
   'GET /items/:id': ['catalog_view'],
   'POST /items': ['catalog_manage'],
   'PUT /items/:id': ['catalog_manage'],
@@ -62,6 +63,7 @@ export const POLICY: Record<string, PolicyRule> = {
 
   // Clientes
   'GET /clients': ['clients_view'],
+  'GET /clients/summary': ['clients_view'],
   'GET /clients/:id': ['clients_view'],
   'POST /clients': ['clients_manage'],
   'PUT /clients/:id': ['clients_manage'],
@@ -80,10 +82,13 @@ export const POLICY: Record<string, PolicyRule> = {
 
   // Servicios realizados y fidelización (la configuración del programa es del dueño)
   'GET /service-records': ['services_record'],
+  'GET /service-records/summary': ['services_record'],
+  'GET /service-records/by-client': ['services_record'],
   'POST /service-records': ['services_record'],
   'GET /loyalty/program': ['services_record', 'loyalty_redeem'],
   'PUT /loyalty/program': 'owner',
   'GET /loyalty/clients': ['loyalty_redeem', 'services_record'],
+  'GET /loyalty/summary': ['loyalty_redeem', 'services_record'],
   'GET /loyalty/redemptions': ['loyalty_redeem'],
   'POST /loyalty/clients/:clientId/redeem': ['loyalty_redeem'],
 

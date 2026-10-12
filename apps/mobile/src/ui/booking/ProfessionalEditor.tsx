@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { blocksFromHours, blocksProblem, timeOffRange } from '@/lib/bookingPage';
 import { toInt } from '@/lib/forms';
 import { pickFromLibrary, uploadableImage } from '@/lib/images';
-import { keys, useBookingSettings, useItems } from '@/lib/queries';
+import { keys, useAllItems, useBookingSettings } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { CalendarPicker } from '../agenda/CalendarPicker';
@@ -36,8 +36,9 @@ export function ProfessionalEditor({ professional, onClose }: { professional: Pr
   const timezone = business?.timezone ?? 'America/Bogota';
   const currency = business?.currency ?? 'COP';
   const settings = useBookingSettings();
-  const items = useItems();
-  const services = (items.data ?? []).filter((i) => i.kind === 'service');
+  // Servicios que puede atender (solo servicios: el servidor ya los filtra).
+  const items = useAllItems({ kind: 'service' });
+  const services = items.data ?? [];
 
   const profileAction = useAction();
   const scheduleAction = useAction();

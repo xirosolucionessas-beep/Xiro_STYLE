@@ -7,6 +7,7 @@ import { Ico } from '../icons';
 import { Button, Input, Select } from '../ui';
 import { RadioGroup } from '../ui/auth';
 import { Avatar, EmptyPanel, FilterChips, SearchField } from '../ui/Page';
+import { LoadMore, type LoadMoreState } from '../ui/LoadMore';
 import { useWebStyles } from '../ui/shared';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
@@ -76,6 +77,10 @@ export interface SaleFormViewProps {
   itemQuery: string;
   onItemQuery: (v: string) => void;
   catalogRows: SaleCatalogRow[];
+  /** Catálogo paginado: "Cargar más" al pie de la lista. */
+  catalogPagination?: LoadMoreState;
+  /** La primera página del catálogo aún no llega. */
+  catalogLoading?: boolean;
   onAddCatalogItem: (row: SaleCatalogRow) => void;
   manualOpen: boolean;
   onToggleManual: () => void;
@@ -255,7 +260,11 @@ export function SaleFormView(props: SaleFormViewProps) {
           ) : null}
         </div>
 
-        {props.catalogRows.length === 0 ? (
+        {props.catalogLoading ? (
+          <p className="xw-hint" role="status">
+            {t('loading')}
+          </p>
+        ) : props.catalogRows.length === 0 ? (
           <EmptyPanel icon="search" title={t(props.tab === 'service' ? 'sale_items_empty_services' : 'sale_items_empty_products')} />
         ) : (
           <ul className="xw-sale-catalog">
@@ -276,6 +285,7 @@ export function SaleFormView(props: SaleFormViewProps) {
             })}
           </ul>
         )}
+        {props.catalogPagination && props.catalogRows.length > 0 ? <LoadMore state={props.catalogPagination} t={t} /> : null}
 
         <button type="button" className="xw-sale-manual-toggle" onClick={props.onToggleManual} aria-expanded={props.manualOpen}>
           <Ico name={props.manualOpen ? 'chevron-down' : 'plus'} size={16} />

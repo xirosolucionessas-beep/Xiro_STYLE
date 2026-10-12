@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Ico } from '../icons';
 import { linkProps } from '../ui/link';
 import { Badge, EmptyPanel, ErrorPanel, FilterChips, KpiRow, LoadingRows, type FilterOption, type KpiView } from '../ui/Page';
+import { LoadMore, type LoadMoreState } from '../ui/LoadMore';
 import { useWebStyles } from '../ui/shared';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
@@ -30,10 +31,12 @@ export interface CatalogViewProps {
   onRetry: () => void;
   emptyAction?: ReactNode;
   navigate: (href: string) => void;
+  /** Paginación por cursor: "Cargar más" al pie de las tarjetas. */
+  pagination?: LoadMoreState;
 }
 
 /** Sección Servicios (catálogo): indicadores, filtro por categoría y tarjetas con foto y precio. */
-export function CatalogView({ t, kpis, categories, category, onCategory, cards, state, errorMessage, onRetry, emptyAction, navigate }: CatalogViewProps) {
+export function CatalogView({ t, kpis, categories, category, onCategory, cards, state, errorMessage, onRetry, emptyAction, navigate, pagination }: CatalogViewProps) {
   useWebStyles();
   return (
     <div className="xw-section">
@@ -65,6 +68,9 @@ export function CatalogView({ t, kpis, categories, category, onCategory, cards, 
             </li>
           ))}
         </ul>
+      ) : null}
+      {state === 'ready' && cards.length > 0 && pagination ? (
+        <LoadMore state={pagination} t={t} />
       ) : null}
     </div>
   );

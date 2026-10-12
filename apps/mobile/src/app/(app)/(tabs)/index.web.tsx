@@ -4,19 +4,18 @@
  * del negocio y accesos rápidos. Presentación en src/web/screens/Home.tsx.
  */
 import { useQueryClient } from '@tanstack/react-query';
-import { formatMoney, type Currency } from '@xiro/shared';
+import { addDays, formatMoney, type Currency } from '@xiro/shared';
 import { actorOf, meets, type Requirement } from '@/lib/access';
 import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { relativeTime } from '@/lib/alerts';
 import { useCookieConsent } from '@/lib/useCookieConsent';
-import { buildActivity, daySummary, lowStockList, newClients, serviceDays, variation, type Trend } from '@/lib/dashboard';
+import { buildActivity, variation, type Trend } from '@/lib/dashboard';
 import { supportMessage, supportWhatsappUrl } from '@/lib/contact';
-import { lowStock } from '@/lib/homeMetrics';
 import { api } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
 import { dayRange, formatClock, formatDay, localDate, localTime, STATUS_TONE, summarizeItems, todayIn, upcoming } from '@/lib/agenda';
-import { keys, useAppointments, useCashToday, useClassification, useClients, useItems, useServiceRecords } from '@/lib/queries';
+import { keys, useAppointments, useCashToday, useClassification, useClientsSummary, useItemsQuery, useItemsSummary, useRecentClients, useRecentServiceRecords, useServiceRecordsSummary } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { Brand } from '@/ui/Brand';
 import { useDialogs } from '@/ui/Dialogs';
@@ -82,29 +81,48 @@ export default function HomeWeb() {
   const canSales = meets(viewer, ['services_record']);
   const canClients = meets(viewer, ['clients_view']);
   const canCatalog = meets(viewer, ['catalog_view']);
-  const records = useServiceRecords(undefined, canSales);
   const canAgenda = meets(viewer, ['agenda_own']);
   const canReview = meets(viewer, ['catalog_manage']);
   const todayKey = todayIn(business.timezone);
   const week = useMemo(() => dayRange(todayKey, business.timezone, 7), [todayKey, business.timezone]);
   const appointments = useAppointments(week, canAgenda);
   const classification = useClassification(canReview);
-  const clients = useClients('', canClients);
-  const items = useItems(canCatalog);
   const currency = business.currency as Currency;
   const money = (amount: number) => formatMoney(amount, currency);
 
-  const dashboard = useMemo(() => {
-    const now = new Date(nowMs);
-    return {
-      days: records.data ? serviceDays(records.data, business.timezone, now) : null,
-      summary: records.data ? daySummary(records.data, business.timezone, now) : null,
-      newClients: clients.data ? newClients(clients.data, business.timezone, now) : null,
-      lowStock: items.data ? lowStockList(items.data, 4) : [],
-      stockCounts: items.data ? lowStock(items.data) : null,
-      activity: buildActivity({ records: records.data, clients: clients.data, items: items.data, limit: 6 }),
-    };
-  }, [records.data, clients.data, items.data, business.timezone, nowMs]);
+  // Indicadores de hoy contra ayer (día del negocio) y paneles, todo calculado en el servidor: sin listas completas.
+  const todayRange = useMemo(() => dayRange(todayKey, business.timezone, 1), [todayKey, business.timezone]);
+  const yesterdayRange = useMemo(() => dayRange(addDays(todayKey, -1), business.timezone, 1), [todayKey, business.timezone]);
+  const salesToday = useServiceRecordsSummary(todayRange, canSales);
+  const salesYesterday = useServiceRecordsSummary(yesterdayRange, canSales);
+  const servicesToday = useServiceRecordsSummary({ ...todayRange, kind: 'service' }, canSales);
+  const servicesYesterday = useServiceRecordsSummary({ ...yesterdayRange, kind: 'service' }, canSales);
+  const recentRecords = useRecentServiceRecords(6, canSales);
+  const clientsSummary = useClientsSummary(undefined, canClients);
+  const recentClients = useRecentClients(6, canClients);
+  const itemsSummary = useItemsSummary(canCatalog);
+  const lowItems = useItemsQuery({ low: true, sort: 'stock', limit: 6 }, canCatalog);
+  const recordsLoading = salesToday.isLoading || salesYesterday.isLoading || servicesToday.isLoading || servicesYesterday.isLoading;
+
+  const dashboard = useMemo(
+    () => ({
+      days:
+        salesToday.data && salesYesterday.data && servicesToday.data && servicesYesterday.data
+          ? {
+              today: { total: salesToday.data.total, count: salesToday.data.count },
+              yesterday: { total: salesYesterday.data.total, count: salesYesterday.data.count },
+              todayServices: { total: servicesToday.data.total, count: servicesToday.data.count },
+              yesterdayServices: { total: servicesYesterday.data.total, count: servicesYesterday.data.count },
+            }
+          : null,
+      summary: salesToday.data ?? null,
+      newClients: clientsSummary.data ? { today: clientsSummary.data.newToday, yesterday: clientsSummary.data.newYesterday } : null,
+      lowStock: (lowItems.data?.data ?? []).slice(0, 4),
+      stockCounts: itemsSummary.data?.stock ?? null,
+      activity: buildActivity({ records: recentRecords.data?.data, clients: recentClients.data?.data, items: lowItems.data?.data, limit: 6 }),
+    }),
+    [salesToday.data, salesYesterday.data, servicesToday.data, servicesYesterday.data, clientsSummary.data, lowItems.data, itemsSummary.data, recentRecords.data, recentClients.data],
+  );
 
   const [manualCashOpen, setManualCashOpen] = useState(false);
   const [dismissed, setDismissed] = useState(dismissedToday);
@@ -174,14 +192,14 @@ export default function HomeWeb() {
   const kpis: KpiView[] = [
     ...(canSales
       ? [
-          { id: 'sales', icon: 'coins' as const, label: t('dash_kpi_sales'), value: dashboard.days ? money(dashboard.days.today.total) : '—', loading: records.isLoading, trend: salesTrend ? trendView(salesTrend, t) : undefined, onPress: () => router.push('/sales-today') },
+          { id: 'sales', icon: 'coins' as const, label: t('dash_kpi_sales'), value: dashboard.days ? money(dashboard.days.today.total) : '—', loading: recordsLoading, trend: salesTrend ? trendView(salesTrend, t) : undefined, onPress: () => router.push('/sales-today') },
           {
             id: 'services',
             icon: 'scissors' as const,
             label: t('dash_kpi_services'),
             value: dashboard.days ? money(dashboard.days.todayServices.total) : '—',
             hint: dashboard.days ? t(servicesCount === 1 ? 'dash_kpi_services_count_one' : 'dash_kpi_services_count', { n: servicesCount }) : undefined,
-            loading: records.isLoading,
+            loading: recordsLoading,
             trend: servicesTrend ? trendView(servicesTrend, t) : undefined,
             onPress: () => router.push('/sales-today?kind=service'),
           },
@@ -199,13 +217,13 @@ export default function HomeWeb() {
           },
         ]
       : []),
-    ...(canClients ? [{ id: 'clients', icon: 'users' as const, label: t('dash_kpi_clients'), value: dashboard.newClients ? String(dashboard.newClients.today) : '—', loading: clients.isLoading, trend: clientsTrend ? trendView(clientsTrend, t) : undefined, onPress: () => router.push('/clients?since=today') }] : []),
+    ...(canClients ? [{ id: 'clients', icon: 'users' as const, label: t('dash_kpi_clients'), value: dashboard.newClients ? String(dashboard.newClients.today) : '—', loading: clientsSummary.isLoading, trend: clientsTrend ? trendView(clientsTrend, t) : undefined, onPress: () => router.push('/clients?since=today') }] : []),
     ...(isOwner ? [{ id: 'cash', icon: 'wallet' as const, label: t('available_balance'), value: opening ? money(opening.amount) : '—', loading: cash.isLoading, hint: opening ? undefined : t('cash_not_opened'), onPress: () => setManualCashOpen(true) }] : []),
   ];
 
   const summary = canSales
     ? {
-        loading: records.isLoading,
+        loading: recordsLoading,
         empty: dashboard.summary?.count === 0,
         rows:
           dashboard.summary && dashboard.summary.count > 0
@@ -221,7 +239,7 @@ export default function HomeWeb() {
 
   const stock = canCatalog
     ? {
-        loading: items.isLoading,
+        loading: lowItems.isLoading,
         allHref: `/inventory?status=${dashboard.stockCounts && dashboard.stockCounts.outOfStock > 0 ? 'out_of_stock' : 'reorder'}`,
         rows: dashboard.lowStock.map((item) => ({ id: item.id, name: item.name, out: item.stockStatus === 'out_of_stock', badge: item.stockStatus === 'out_of_stock' ? t('dash_stock_out') : t('dash_stock_units', { n: item.stock }), href: `/item/${item.id}` })),
       }
@@ -253,7 +271,7 @@ export default function HomeWeb() {
     time: relativeTime(event.at, nowMs, language),
     amount: event.amount !== undefined ? money(event.amount) : undefined,
   }));
-  const activity = canSales || canClients || canCatalog ? { loading: (canSales && records.isLoading) || (canClients && clients.isLoading) || (canCatalog && items.isLoading), rows: activityRows } : null;
+  const activity = canSales || canClients || canCatalog ? { loading: (canSales && recentRecords.isLoading) || (canClients && recentClients.isLoading) || (canCatalog && lowItems.isLoading), rows: activityRows } : null;
 
   return (
     <>

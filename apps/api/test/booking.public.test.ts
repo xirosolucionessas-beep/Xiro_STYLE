@@ -270,7 +270,7 @@ describe('reservar', () => {
     const viaWeb = await book(app, biz, date, '13:00', { customer: { ...customer, phone: existingPhone, firstName: 'Otro', lastName: 'Nombre' } });
     expect(viaWeb.statusCode).toBe(201);
     expect(Object.keys(viaWeb.json())).toEqual(Object.keys(first.json()));
-    const clientsList = (await app.inject({ method: 'GET', url: '/api/clients', headers: auth(biz.session) })).json<Array<{ name: string; phone: string | null }>>();
+    const clientsList = (await app.inject({ method: 'GET', url: '/api/clients', headers: auth(biz.session) })).json<{ data: Array<{ name: string; phone: string | null }> }>().data;
     expect(clientsList.filter((c) => c.phone === existingPhone)).toEqual([expect.objectContaining({ name: 'Nombre Original' })]);
   });
 
@@ -559,12 +559,12 @@ describe('reseñas: el cliente reseña su propia cita ya completada', () => {
     expect(again.json()).toMatchObject({ code: 'invalid_transition' });
 
     const staffList = await app.inject({ method: 'GET', url: '/api/booking/reviews?status=pending', headers: auth(biz.session) });
-    expect(staffList.json()).toMatchObject([{ rating: 5, comment: 'Muy buen corte', status: 'pending' }]);
+    expect(staffList.json()).toMatchObject({ data: [{ rating: 5, comment: 'Muy buen corte', status: 'pending' }], nextCursor: null });
     expect(JSON.stringify(staffList.json())).not.toMatch(/laura|correo|573/i); // sin datos de contacto del cliente
 
     // No la muestra la página pública hasta que el negocio la apruebe.
     expect(await (await app.inject({ method: 'GET', url: `${biz.base}/reviews` })).json()).toEqual([]);
-    const reviewId = staffList.json<Array<{ id: string }>>()[0]!.id;
+    const reviewId = staffList.json<{ data: Array<{ id: string }> }>().data[0]!.id;
     await app.inject({ method: 'PATCH', url: `/api/booking/reviews/${reviewId}`, headers: auth(biz.session), payload: { status: 'approved' } });
     expect((await (await app.inject({ method: 'GET', url: `${biz.base}/reviews` })).json()).length).toBe(1);
   });
@@ -574,7 +574,7 @@ describe('reseñas: el cliente reseña su propia cita ya completada', () => {
     const token = await completed(biz);
     await app.inject({ method: 'POST', url: `${biz.base}/appointments/${token}/review`, payload: { rating: 4, comment: '' } });
     const staffList = await app.inject({ method: 'GET', url: '/api/booking/reviews', headers: auth(biz.session) });
-    expect(staffList.json<Array<{ authorName: string }>>()[0]!.authorName).toBe('Ana P.'); // "Ana Pérez" del helper publicPayload
+    expect(staffList.json<{ data: Array<{ authorName: string }> }>().data[0]!.authorName).toBe('Ana P.'); // "Ana Pérez" del helper publicPayload
   });
 
   it('un token de otro negocio no puede reseñar, y valida la calificación', async () => {

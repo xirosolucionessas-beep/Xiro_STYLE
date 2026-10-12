@@ -1,20 +1,21 @@
 import { formatMoney, type Currency } from '@xiro/shared';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
-import { errorKey, publicBaseUrl, resolveMedia } from '@/lib/api';
+import { api, errorKey, fetchAllPages, publicBaseUrl, resolveMedia } from '@/lib/api';
 import { businessAddressLine } from '@/lib/exports/address';
 import { buildCatalogPdf, catalogPdfFileName, type CatalogPdfItem } from '@/lib/exports/catalogPdf';
 import { imageDataUrl, shareGeneratedFile } from '@/lib/exports/nativeFiles';
 import { qrPngDataUrl } from '@/lib/exports/qrPng';
-import { useBookingSettings, useCategories, useItems } from '@/lib/queries';
+import { flatPages, useBookingSettings, useCategories, useItemsPages } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
 import { useDialogs } from '@/ui/Dialogs';
-import { CatalogCard, ItemGrid } from '@/ui/ItemCards';
+import { CatalogCard, ItemFlatGrid } from '@/ui/ItemCards';
 import { Chip, ChipRow, EmptyState } from '@/ui/Kit';
+import { PagedFooter } from '@/ui/PagedFooter';
 import { Header, Screen } from '@/ui/Screen';
 import { AppText } from '@/ui/Text';
 
@@ -35,7 +36,8 @@ async function mapLimit<T, R>(list: readonly T[], limit: number, task: (item: T)
 /**
  * Catálogo en Android/iOS (en la Web: catalog.web.tsx). Mismas acciones que la web: filtro por categoría, enviar el
  * catálogo, descargar el catálogo en PDF (mismo generador que la web, `lib/exports/catalogPdf`, con el mismo filtro y solo
- * lo publicado) y, con permiso de gestionar el catálogo, agregar artículos y administrar categorías.
+ * lo publicado) y, con permiso de gestionar el catálogo, agregar artículos y administrar categorías. La cuadrícula está
+ * virtualizada y paginada por cursor (filtro de categoría en el servidor): fluida con miles de artículos.
  */
 export default function Catalog() {
   const router = useRouter();
@@ -43,14 +45,14 @@ export default function Catalog() {
   const { user, business } = useAuthed();
   const { toast } = useDialogs();
   const canManage = meets(actorOf(user), ['catalog_manage']);
-  const items = useItems();
+  const [category, setCategory] = useState<string | null>(null);
+  const items = useItemsPages({ categoryId: category ?? undefined });
   const categories = useCategories();
   const bookingSettings = useBookingSettings();
-  const [category, setCategory] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const currency = business.currency as Currency;
 
-  const visible = useMemo(() => (items.data ?? []).filter((item) => !category || item.categoryId === category), [items.data, category]);
+  const visible = useMemo(() => flatPages(items.data), [items.data]);
 
   /**
    * Mismo criterio que la web: EXACTAMENTE el filtro de categoría de la pantalla y solo artículos publicados (lo que el
@@ -60,7 +62,8 @@ export default function Catalog() {
     setExportingPdf(true);
     try {
       const categoryLabel = category ? (categories.data ?? []).find((c) => c.id === category)?.name : undefined;
-      const published = (items.data ?? []).filter((item) => item.published && (!category || item.categoryId === category));
+      // Todo lo publicado (no solo lo ya cargado en pantalla), con el filtro de categoría de la pantalla.
+      const published = await fetchAllPages((cursor) => api.items({ published: true, categoryId: category ?? undefined, limit: 100, cursor }));
       const profile = bookingSettings.data?.profile;
       const bookingUrl = profile?.published ? `${publicBaseUrl()}/catalog/${business.slug}` : null;
 
@@ -101,10 +104,25 @@ export default function Catalog() {
     }
   }
 
+  const header = (
+    <View>
+      <ChipRow label={t('filter_category')}>
+        <Chip label={t('all')} selected={category === null} onPress={() => setCategory(null)} />
+        {categories.data?.map((c) => (
+          <Chip key={c.id} label={c.name} selected={category === c.id} onPress={() => setCategory(c.id)} />
+        ))}
+      </ChipRow>
+
+      <View style={styles.actions}>
+        <Button label={t('catalog_export_pdf')} variant="secondary" icon="document-text-outline" loading={exportingPdf} disabled={visible.length === 0} onPress={() => void exportCatalogPdf()} />
+        {canManage ? <Button label={t('add_to_catalog')} variant="secondary" icon="add" onPress={() => router.push('/item/form')} /> : null}
+      </View>
+    </View>
+  );
+
   return (
     <Screen
-      refreshing={items.isRefetching}
-      onRefresh={() => void items.refetch()}
+      scroll={false}
       header={
         <Header
           root
@@ -122,36 +140,30 @@ export default function Catalog() {
         />
       }
       footer={<Button label={t('send_catalog')} icon="send" onPress={() => router.push({ pathname: '/share', params: { mode: 'catalog' } })} />}>
-      <ChipRow label={t('filter_category')}>
-        <Chip label={t('all')} selected={category === null} onPress={() => setCategory(null)} />
-        {categories.data?.map((c) => (
-          <Chip key={c.id} label={c.name} selected={category === c.id} onPress={() => setCategory(c.id)} />
-        ))}
-      </ChipRow>
-
-      <View style={styles.actions}>
-        <Button label={t('catalog_export_pdf')} variant="secondary" icon="document-text-outline" loading={exportingPdf} disabled={!items.data || items.data.length === 0} onPress={() => void exportCatalogPdf()} />
-        {canManage ? <Button label={t('add_to_catalog')} variant="secondary" icon="add" onPress={() => router.push('/item/form')} /> : null}
-      </View>
-
-      {items.isPending ? (
-        <ActivityIndicator color={colors.gold} style={{ marginTop: 32 }} />
-      ) : items.isError ? (
-        <View style={{ alignItems: 'center', gap: 12, marginTop: 24 }}>
-          <AppText tone="danger" center>
-            {t(errorKey(items.error))}
-          </AppText>
-          <Button label={t('retry')} variant="secondary" compact onPress={() => void items.refetch()} />
-        </View>
-      ) : visible.length === 0 ? (
-        <EmptyState icon="book-outline" message={t('no_items')} />
-      ) : (
-        <ItemGrid>
-          {visible.map((item) => (
-            <CatalogCard key={item.id} item={item} currency={business.currency} onPress={() => router.push({ pathname: '/catalog-item/[id]', params: { id: item.id } })} />
-          ))}
-        </ItemGrid>
-      )}
+      <ItemFlatGrid
+        data={visible}
+        renderItem={(item) => <CatalogCard item={item} currency={business.currency} onPress={() => router.push({ pathname: '/catalog-item/[id]', params: { id: item.id } })} />}
+        header={header}
+        empty={
+          items.isPending ? (
+            <ActivityIndicator color={colors.gold} style={{ marginTop: 32 }} />
+          ) : items.isError ? (
+            <View style={{ alignItems: 'center', gap: 12, marginTop: 24 }}>
+              <AppText tone="danger" center>
+                {t(errorKey(items.error))}
+              </AppText>
+              <Button label={t('retry')} variant="secondary" compact onPress={() => void items.refetch()} />
+            </View>
+          ) : (
+            <EmptyState icon="book-outline" message={t('no_items')} />
+          )
+        }
+        footer={visible.length > 0 ? <PagedFooter loading={items.isFetchingNextPage} error={items.isFetchNextPageError ? items.error : null} onRetry={() => void items.fetchNextPage()} /> : null}
+        onEndReached={() => {
+          if (items.hasNextPage && !items.isFetchingNextPage && !items.isFetchNextPageError) void items.fetchNextPage();
+        }}
+        refreshControl={<RefreshControl refreshing={items.isRefetching && !items.isFetchingNextPage} onRefresh={() => void items.refetch()} tintColor={colors.gold} />}
+      />
     </Screen>
   );
 }

@@ -1,16 +1,15 @@
 /**
- * Ruta /inventory SOLO WEB (nativo: inventory.tsx, sin cambios). Mismos datos y acciones (filtros, agregar, categorías,
- * apertura desde una alerta con ?status=); la presentación está en src/web/screens/Inventory.tsx.
+ * Ruta /inventory SOLO WEB (nativo: inventory.tsx). Mismos datos y acciones (filtros, agregar, categorías, apertura
+ * desde una alerta con ?status=). Tabla paginada por cursor ("Cargar más") con los filtros en el servidor; conteos y
+ * valor de `/items/summary`. La presentación está en src/web/screens/Inventory.tsx.
  */
-import { formatMoney, STOCK_STATUSES, summarizeStock, type Currency, type StockStatus } from '@xiro/shared';
+import { formatMoney, STOCK_STATUSES, type Currency, type StockStatus } from '@xiro/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
 import { api, errorKey, resolveMedia } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
-import { tracksStock } from '@/lib/homeMetrics';
-import { inventoryValue } from '@/lib/sections';
-import { useCategories, useInvalidateCatalog, useItems } from '@/lib/queries';
+import { flatPages, useCategories, useInvalidateCatalog, useItemsPages, useItemsSummary } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useDialogs } from '@/ui/Dialogs';
 import { Header, Screen } from '@/ui/Screen';
@@ -30,7 +29,6 @@ export default function InventoryWeb() {
   const canManage = meets(actorOf(user), ['catalog_manage']);
   const { toast } = useDialogs();
   const invalidateCatalog = useInvalidateCatalog();
-  const items = useItems();
   const categories = useCategories();
   const currency = business.currency as Currency;
   const [category, setCategory] = useState<string | null>(null);
@@ -42,15 +40,15 @@ export default function InventoryWeb() {
   const [picked, setPicked] = useState<{ value: StockStatus | null; link: StockStatus | null } | null>(null);
   const status = picked && picked.link === fromLink ? picked.value : fromLink;
 
-  // Inventario = productos (los servicios no llevan existencias).
-  const all = useMemo(() => (items.data ?? []).filter(tracksStock), [items.data]);
-  const summary = useMemo(() => summarizeStock(all), [all]);
-  const value = useMemo(() => inventoryValue(all), [all]);
+  // Inventario = lo que lleva existencias (productos y lo aún sin clasificar); filtros aplicados en el servidor.
+  const items = useItemsPages({ tracked: true, categoryId: category ?? undefined, stockStatus: status ?? undefined });
+  const stats = useItemsSummary();
+  const stock = stats.data?.stock;
+  const counts: Record<StockStatus, number | undefined> = { available: stock?.available, reorder: stock?.reorder, out_of_stock: stock?.outOfStock };
+  const value = stats.data?.inventoryValue ?? null;
   const rows = useMemo<InventoryRowView[]>(
     () =>
-      all
-        .filter((item) => (!category || item.categoryId === category) && (!status || item.stockStatus === status))
-        .map((item) => ({
+      flatPages(items.data).map((item) => ({
           id: item.id,
           name: item.name,
           category: item.categoryName,
@@ -62,7 +60,7 @@ export default function InventoryWeb() {
           href: `/item/${item.id}`,
           published: item.published,
         })),
-    [all, category, status, currency, t],
+    [items.data, currency, t],
   );
 
   async function publish(ids: string[], published: boolean) {
@@ -79,9 +77,9 @@ export default function InventoryWeb() {
   }
 
   const kpis: KpiView[] = [
-    { id: 'total', icon: 'package', label: t('sec_kpi_inv_total'), value: items.data ? String(summary.total) : '—', loading: items.isLoading },
-    ...STOCK_STATUSES.map((s) => ({ id: s, icon: STATUS_ICON[s], tone: STATUS_TONE[s], label: t(`status_${s}`), value: items.data ? String(summary[s]) : '—', loading: items.isLoading })),
-    { id: 'value', icon: 'coins' as const, label: t('sec_kpi_inv_value'), value: value === null ? '—' : formatMoney(value, currency), loading: items.isLoading },
+    { id: 'total', icon: 'package', label: t('sec_kpi_inv_total'), value: stock ? String(stock.total) : '—', loading: stats.isLoading },
+    ...STOCK_STATUSES.map((s) => ({ id: s, icon: STATUS_ICON[s], tone: STATUS_TONE[s], label: t(`status_${s}`), value: counts[s] !== undefined ? String(counts[s]) : '—', loading: stats.isLoading })),
+    { id: 'value', icon: 'coins' as const, label: t('sec_kpi_inv_value'), value: value === null ? '—' : formatMoney(value, currency), loading: stats.isLoading },
   ];
 
   const add = () => router.push('/item/form');
@@ -129,6 +127,12 @@ export default function InventoryWeb() {
           ) : undefined
         }
         navigate={(href) => router.push(href as never)}
+        pagination={{
+          hasMore: Boolean(items.hasNextPage),
+          loading: items.isFetchingNextPage,
+          error: items.isFetchNextPageError ? t(errorKey(items.error)) : undefined,
+          onLoadMore: () => void items.fetchNextPage(),
+        }}
         canPublish={canManage}
         selected={selected}
         onToggleSelect={(id) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}

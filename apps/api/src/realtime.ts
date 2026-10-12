@@ -27,7 +27,8 @@ export function createRealtimeBus(config: DatabaseConfig, log: (line: string) =>
   function connect(): void {
     if (closed) return;
     const options = poolOptions(config);
-    const c = new pg.Client({ connectionString: options.connectionString, ssl: options.ssl });
+    // LISTEN exige una sesión fija: nunca a través de PgBouncer en modo transacción (`directUrl`, ver config.ts).
+    const c = new pg.Client({ connectionString: config.directUrl ?? options.connectionString, ssl: options.ssl });
     client = c;
     c.on('notification', (msg) => {
       try {

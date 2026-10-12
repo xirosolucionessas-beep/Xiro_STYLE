@@ -1,10 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { SUBSCRIPTION_PLANS, SUBSCRIPTION_PLATFORMS, TRIAL_DAYS, type Subscription, type SubscriptionPlan } from '@xiro/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
 import { businesses, subscriptionEvents, subscriptions } from '../db/schema';
-import { AppError, parse } from '../errors';
+import { isUniqueViolation } from '../db/errors';
+import { AppError, notFound, parse } from '../errors';
+import { safeEqualSecret } from '../security';
 import { createPayPalSubscription } from '../paypal';
 import Stripe from 'stripe';
 import { addDays, getSubscriptionRow, hasClaimedTrial, listSubscriptionInvoices, recordSubscriptionInvoice, startTrial, toSubscriptionResponse } from '../subscriptions';
@@ -19,6 +21,17 @@ const PERIOD_DAYS: Record<SubscriptionPlan, number> = { monthly: 30, yearly: 365
 export function subscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
 
+  /**
+   * A dónde vuelve la persona después de pagar (Stripe/PayPal). Antes se usaba la cabecera Origin tal cual: cualquier
+   * valor terminaba en la URL de retorno (redirección abierta). Ahora solo un origen permitido (CORS_ORIGINS) o el del
+   * propio servidor, que es el que sirve la web en producción.
+   */
+  const returnOrigin = (request: FastifyRequest): string => {
+    const own = `${request.protocol}://${request.host}`;
+    const requested = request.headers.origin;
+    return requested && (requested === own || config.corsOrigins.includes(requested)) ? requested : own;
+  };
+
   app.get('/subscription', async (request) => {
     const row = await getSubscriptionRow(db, request.user.bid);
     const full = await toSubscriptionResponse(db, row);
@@ -31,7 +44,11 @@ export function subscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
   app.post('/subscription/trial', async (request, reply) => {
     const input = parse(trialSchema, request.body);
     if (await hasClaimedTrial(db, request.user.bid)) throw new AppError(409, 'trial_already_claimed');
-    const row = await startTrial(db, request.user.bid, request.user.sub, input.plan, input.platform, TRIAL_DAYS);
+    // Dos solicitudes simultáneas: el índice único (subscriptions_business_uq) deja pasar una; la otra es el mismo 409.
+    const row = await startTrial(db, request.user.bid, request.user.sub, input.plan, input.platform, TRIAL_DAYS).catch((error: unknown) => {
+      if (isUniqueViolation(error, 'subscriptions_business_uq')) throw new AppError(409, 'trial_already_claimed');
+      throw error;
+    });
     return reply.status(201).send(await toSubscriptionResponse(db, row));
   });
 
@@ -51,7 +68,7 @@ export function subscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
     const eligibleForTrial = !(await hasClaimedTrial(db, request.user.bid));
 
     const stripe = new Stripe(stripeSecretKey);
-    const origin = request.headers.origin ?? `${request.protocol}://${request.hostname}`;
+    const origin = returnOrigin(request);
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
@@ -74,7 +91,7 @@ export function subscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
     const [business] = await db.select().from(businesses).where(eq(businesses.id, request.user.bid)).limit(1);
     if (!business) throw new AppError(401, 'unauthorized');
 
-    const origin = request.headers.origin ?? `${request.protocol}://${request.hostname}`;
+    const origin = returnOrigin(request);
     try {
       const url = await createPayPalSubscription(config.subscriptions, {
         planId,
@@ -130,12 +147,35 @@ export function subscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
  * en vez de un rol de administrador. Trata ADMIN_SECRET como una credencial sensible: con ella se puede activar
  * la suscripción de cualquier negocio.
  */
+/** Intentos por IP cada 15 minutos en las rutas de administración (uso humano y ocasional). */
+const ADMIN_MAX_PER_WINDOW = 5;
+
 export function adminSubscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
-  app.post('/subscription/confirm-bank-transfer', async (request) => {
+  /**
+   * Confirmación manual de transferencias (la usa el equipo de Xiro, no los negocios). Protecciones: secreto solo por
+   * cabecera (nunca en la URL, que termina en logs), comparación en tiempo constante, límite estricto por IP (compartido
+   * entre instancias), lista blanca de IPs opcional y bitácora de cada intento — jamás se registra el secreto.
+   */
+  app.post('/subscription/confirm-bank-transfer', { config: { rateLimit: { max: ADMIN_MAX_PER_WINDOW, timeWindow: '15 minutes' } } }, async (request) => {
+    const audit = (outcome: string, extra: Record<string, unknown> = {}) => request.log.warn({ admin: 'confirm-bank-transfer', outcome, ip: request.ip, ...extra }, `admin: confirm-bank-transfer ${outcome}`);
+    if (config.subscriptions.adminAllowedIps.length > 0 && !config.subscriptions.adminAllowedIps.includes(request.ip)) {
+      audit('ip_not_allowed');
+      throw notFound();
+    }
     if (!config.subscriptions.adminSecret) throw new AppError(503, 'admin_not_configured', 'Falta configurar ADMIN_SECRET para poder confirmar pagos manuales.');
-    if (request.headers['x-admin-secret'] !== config.subscriptions.adminSecret) throw new AppError(401, 'unauthorized');
+    const provided = request.headers['x-admin-secret'];
+    if (typeof provided !== 'string' || !safeEqualSecret(provided, config.subscriptions.adminSecret)) {
+      audit('denied');
+      throw new AppError(401, 'unauthorized');
+    }
     const input = parse(confirmBankTransferSchema, request.body);
+    const [business] = await db.select({ id: businesses.id }).from(businesses).where(eq(businesses.id, input.businessId)).limit(1);
+    if (!business) {
+      audit('business_not_found', { businessId: input.businessId });
+      throw notFound();
+    }
+    audit('confirmed', { businessId: input.businessId, plan: input.plan });
     const now = new Date();
     const currentPeriodEnd = addDays(now, PERIOD_DAYS[input.plan]);
     const patch = { status: 'active' as const, plan: input.plan, platform: 'web' as const, paymentMethod: 'bank_transfer' as const, cancelAtPeriodEnd: false, gracePeriodEndsAt: null, currentPeriodStart: now, currentPeriodEnd, nextBillingAt: currentPeriodEnd };

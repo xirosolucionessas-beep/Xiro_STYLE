@@ -14,7 +14,8 @@ const catalogQuery = z.object({ category: z.string().trim().max(60).optional() }
 
 /**
  * Contrato del catálogo público (sin autenticación). Solo expone la lista blanca de `toPublicItem`
- * y únicamente artículos publicados; los enlaces compartidos siempre consultan el estado actual.
+ * y únicamente artículos publicados. Las respuestas se guardan en la caché pública (iguales para cualquier visitante)
+ * y se invalidan en cuanto el negocio guarda un cambio, así que los enlaces compartidos muestran el estado actual.
  */
 export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db } = ctx;
@@ -49,11 +50,13 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { slug } = parse(slugParams, request.params);
     const { category } = parse(catalogQuery, request.query);
     const business = await loadBusiness(slug);
-    const items = visible(
-      (await loadItems(db, business.id, { publishedOnly: true })).filter((item) => !category || item.categoryName.toLowerCase() === category.toLowerCase()).map(toPublicItem),
-      await hidesOutOfStock(business.id),
-    );
-    return { business: describe(business), items };
+    return ctx.publicCache.wrap(business.id, `catalog:${category?.toLowerCase() ?? ''}`, async () => {
+      const items = visible(
+        (await loadItems(db, business.id, { publishedOnly: true })).filter((item) => !category || item.categoryName.toLowerCase() === category.toLowerCase()).map(toPublicItem),
+        await hidesOutOfStock(business.id),
+      );
+      return { business: describe(business), items };
+    });
   });
 
   app.get('/catalog/:slug/items/:id', async (request) => {
@@ -61,11 +64,13 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
     const id = (request.params as { id?: string }).id;
     if (!isUuid(id)) throw notFound();
     const business = await loadBusiness(slug);
-    const [item] = await loadItems(db, business.id, { id: id.toLowerCase(), publishedOnly: true });
-    if (!item) throw notFound();
-    const publicItem = toPublicItem(item);
-    // Oculto = oculto también por enlace directo (mismo trato que un artículo sin publicar): no hay una segunda puerta.
-    if (publicItem.soldOut && (await hidesOutOfStock(business.id))) throw notFound();
-    return { business: describe(business), item: publicItem };
+    return ctx.publicCache.wrap(business.id, `item:${id.toLowerCase()}`, async () => {
+      const [item] = await loadItems(db, business.id, { id: id.toLowerCase(), publishedOnly: true });
+      if (!item) throw notFound();
+      const publicItem = toPublicItem(item);
+      // Oculto = oculto también por enlace directo (mismo trato que un artículo sin publicar): no hay una segunda puerta.
+      if (publicItem.soldOut && (await hidesOutOfStock(business.id))) throw notFound();
+      return { business: describe(business), item: publicItem };
+    });
   });
 }

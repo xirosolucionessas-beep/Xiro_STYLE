@@ -9,8 +9,7 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
 import { api, errorKey } from '@/lib/api';
-import { useClient, useInvalidateClients, useServiceRecords } from '@/lib/queries';
-import { clientHistory } from '@/lib/sections';
+import { flatPages, useClient, useInvalidateClients, useServiceRecordsPages, useServiceRecordsSummary } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useDialogs } from '@/ui/Dialogs';
 import { EmptyState } from '@/ui/Kit';
@@ -29,7 +28,9 @@ export default function ClientDetailWeb() {
   const canRecords = meets(actor, ['services_record']);
   const canManage = meets(actor, ['clients_manage']);
   const { data: client, isPending } = useClient(id);
-  const records = useServiceRecords(id, canRecords && Boolean(id));
+  // Historial paginado ("Cargar más") e indicadores calculados en el servidor sobre TODO el historial.
+  const records = useServiceRecordsPages(id, canRecords && Boolean(id));
+  const stats = useServiceRecordsSummary({ clientId: id }, canRecords && Boolean(id));
   const invalidate = useInvalidateClients();
   const [busy, setBusy] = useState(false);
   const [anonymizing, setAnonymizing] = useState(false);
@@ -80,19 +81,16 @@ export default function ClientDetailWeb() {
     }
   }
 
-  const summary = records.data ? clientHistory(records.data) : null;
+  const summary = stats.data ? { count: stats.data.count, total: stats.data.total, last: stats.data.lastAt } : null;
   const kpis: KpiView[] = canRecords
     ? [
-        { id: 'count', icon: 'scissors', label: t('sec_cd_kpi_services'), value: summary ? String(summary.count) : '—', loading: records.isLoading },
-        { id: 'spent', icon: 'coins', label: t('sec_cd_kpi_spent'), value: summary ? formatMoney(summary.total, currency) : '—', loading: records.isLoading },
-        { id: 'last', icon: 'clock', label: t('sec_cd_kpi_last'), value: summary?.last ? date.format(new Date(summary.last)) : '—', loading: records.isLoading },
+        { id: 'count', icon: 'scissors', label: t('sec_cd_kpi_services'), value: summary ? String(summary.count) : '—', loading: stats.isLoading },
+        { id: 'spent', icon: 'coins', label: t('sec_cd_kpi_spent'), value: summary ? formatMoney(summary.total, currency) : '—', loading: stats.isLoading },
+        { id: 'last', icon: 'clock', label: t('sec_cd_kpi_last'), value: summary?.last ? date.format(new Date(summary.last)) : '—', loading: stats.isLoading },
       ]
     : [];
 
-  const history: HistoryRowView[] = (records.data ?? [])
-    .slice()
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-    .map((record) => ({ id: record.id, label: record.label, note: record.note, amount: formatMoney(record.amount, currency), date: date.format(new Date(record.createdAt)) }));
+  const history: HistoryRowView[] = flatPages(records.data).map((record) => ({ id: record.id, label: record.label, note: record.note, amount: formatMoney(record.amount, currency), date: date.format(new Date(record.createdAt)) }));
 
   return (
     <Screen header={<Header title={client.name} subtitle={t('sec_cd_since', { date: date.format(new Date(client.createdAt)) })} />}>
@@ -104,7 +102,15 @@ export default function ClientDetailWeb() {
           { id: 'address', label: t('address'), value: client.address || '—' },
           { id: 'notes', label: t('client_notes'), value: client.notes || '—' },
         ]}
-        history={canRecords ? { loading: records.isLoading, rows: history } : null}
+        history={
+          canRecords
+            ? {
+                loading: records.isLoading,
+                rows: history,
+                pagination: { hasMore: Boolean(records.hasNextPage), loading: records.isFetchingNextPage, error: records.isFetchNextPageError ? t(errorKey(records.error)) : undefined, onLoadMore: () => void records.fetchNextPage() },
+              }
+            : null
+        }
         kpis={kpis}
         whatsappHref={client.phone ? whatsappLink(client.phone, '') : undefined}
         callHref={client.phone ? `tel:+${client.phone}` : undefined}

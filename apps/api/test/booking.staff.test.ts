@@ -1,6 +1,7 @@
 import type { AppointmentDto, BookingAdminSettings, ClassificationEntry, ProfessionalDto, PublicBookingProfile, PublicBookingResult, PublicReviewDto } from '@xiro/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
 import { appointments, reviews } from '../src/db/schema';
@@ -361,7 +362,8 @@ describe('dirección de la página y contenido', () => {
 
   it('portada y galería: solo imágenes reales, con límite', async () => {
     const biz = await setupBiz(app, 'Fotos');
-    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]);
+    // Una imagen real: la API la decodifica y la vuelve a codificar (quita EXIF/GPS), así que una cabecera PNG sola no basta.
+    const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#c0ffee' } }).png().toBuffer();
     const form = async (file: Buffer) => {
       const data = new FormData();
       data.append('photo', new Blob([new Uint8Array(file)], { type: 'image/png' }), 'foto.png');
@@ -395,7 +397,7 @@ describe('dirección de la página y contenido', () => {
 
     const publicReviews = () => app.inject({ method: 'GET', url: `${biz.base}/reviews` }).then((r) => r.json<PublicReviewDto[]>());
     expect(await publicReviews()).toEqual([]); // pendiente de moderación
-    expect((await send(biz.session, 'GET', '/api/booking/reviews?status=pending')).json()).toHaveLength(1);
+    expect((await send(biz.session, 'GET', '/api/booking/reviews?status=pending')).json().data).toHaveLength(1);
     expect((await send(biz.session, 'PATCH', `/api/booking/reviews/${foreign!.id}`, { status: 'approved' })).statusCode).toBe(404); // de otro negocio
     expect((await send(biz.session, 'PATCH', `/api/booking/reviews/${review!.id}`, { status: 'approved' })).json()).toMatchObject({ status: 'approved' });
     expect(await publicReviews()).toEqual([expect.objectContaining({ rating: 5, authorName: 'María P.' })]);
@@ -403,7 +405,7 @@ describe('dirección de la página y contenido', () => {
     expect((await app.inject({ method: 'GET', url: biz.base })).json<PublicBookingProfile>().rating).toEqual({ average: 5, count: 1 });
     await send(biz.session, 'PATCH', `/api/booking/reviews/${review!.id}`, { status: 'hidden' });
     expect(await publicReviews()).toEqual([]);
-    expect((await send(biz.session, 'GET', '/api/booking/reviews')).json()).toHaveLength(1); // el dueño la sigue viendo
+    expect((await send(biz.session, 'GET', '/api/booking/reviews')).json().data).toHaveLength(1); // el dueño la sigue viendo
   });
 });
 
@@ -423,16 +425,16 @@ describe('completar una cita cierra el ciclo con caja, inventario y fidelizació
     expect(done.statusCode).toBe(200);
     expect(done.json()).toMatchObject({ status: 'completed', rewardJustEarned: true });
 
-    const records = (await send(biz.session, 'GET', `/api/service-records?clientId=${appt.client.id}`)).json<Array<{ label: string; amount: number; loyaltyCounted: boolean }>>();
+    const records = (await send(biz.session, 'GET', `/api/service-records?clientId=${appt.client.id}`)).json<{ data: Array<{ label: string; amount: number; loyaltyCounted: boolean }> }>().data;
     expect(records.map((r) => [r.label, r.amount, r.loyaltyCounted]).sort()).toEqual([['Cera ×2', 40000, false], ['Corte', 30000, true]].sort());
     const item = (await send(biz.session, 'GET', `/api/items/${cera.id}`)).json<{ stock: number; stockStatus: string }>();
     expect(item).toMatchObject({ stock: 1, stockStatus: 'reorder' });
-    const progress = (await send(biz.session, 'GET', '/api/loyalty/clients')).json<Array<{ clientId: string; count: number }>>();
+    const progress = (await send(biz.session, 'GET', '/api/loyalty/clients')).json<{ data: Array<{ clientId: string; count: number }> }>().data;
     expect(progress.find((p) => p.clientId === appt.client.id)?.count).toBe(1);
 
     // No se cobra dos veces.
     expect((await send(biz.session, 'POST', `/api/appointments/${appt.id}/status`, { status: 'completed' })).statusCode).toBe(409);
-    expect((await send(biz.session, 'GET', `/api/service-records?clientId=${appt.client.id}`)).json()).toHaveLength(2);
+    expect((await send(biz.session, 'GET', `/api/service-records?clientId=${appt.client.id}`)).json().data).toHaveLength(2);
   });
 
   it('un empleado con permiso completa SU cita; una cita cancelada o de otro no cobra nada', async () => {
@@ -444,8 +446,8 @@ describe('completar una cita cierra el ciclo con caja, inventario y fidelizació
     expect((await send(luis.session, 'POST', `/api/appointments/${own.id}/status`, { status: 'completed' })).statusCode).toBe(200);
     const cancelled = (await send(biz.session, 'POST', `/api/appointments/${other.id}/status`, { status: 'cancelled' })).json<AppointmentDto>();
     expect(cancelled.status).toBe('cancelled');
-    expect((await send(biz.session, 'GET', `/api/service-records?clientId=${other.client.id}`)).json()).toEqual([]);
-    expect((await send(biz.session, 'GET', `/api/service-records?clientId=${own.client.id}`)).json()).toHaveLength(1);
+    expect((await send(biz.session, 'GET', `/api/service-records?clientId=${other.client.id}`)).json()).toEqual({ data: [], nextCursor: null });
+    expect((await send(biz.session, 'GET', `/api/service-records?clientId=${own.client.id}`)).json().data).toHaveLength(1);
   });
 
   it('un producto sin existencias suficientes no se puede apartar', async () => {

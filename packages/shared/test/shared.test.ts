@@ -126,3 +126,38 @@ describe('i18n and money', () => {
     expect(formatMoney(35000, 'COP').replace(/\s/g, ' ')).toMatch(/35\.000/);
   });
 });
+
+describe('isAllowedPushEndpoint (Fase 3, SSRF)', () => {
+  it('acepta los servicios de Web Push reales (https, puerto estándar)', async () => {
+    const { isAllowedPushEndpoint } = await import('../src/schemas');
+    for (const url of [
+      'https://fcm.googleapis.com/fcm/send/abc:def',
+      'https://updates.push.services.mozilla.com/wpush/v2/gAAAA',
+      'https://web.push.apple.com/QGuQyavXutnMH',
+      'https://wns2-par02p.notify.windows.com/w/?token=AwYAAA',
+    ]) expect(isAllowedPushEndpoint(url), url).toBe(true);
+  });
+  it('rechaza direcciones internas, http, otros puertos y dominios parecidos', async () => {
+    const { isAllowedPushEndpoint } = await import('../src/schemas');
+    for (const url of [
+      'http://169.254.169.254/latest/meta-data/',
+      'https://169.254.169.254/latest/meta-data/',
+      'http://fcm.googleapis.com/fcm/send/x',
+      'https://localhost/push',
+      'https://fcm.googleapis.com:8443/fcm/send/x',
+      'https://fcm.googleapis.com.evil.example/x',
+      'https://evilpush.apple.com.example/x',
+      'https://notify.windows.com.evil.example/x',
+      'no es una url',
+    ]) expect(isAllowedPushEndpoint(url), url).toBe(false);
+  });
+});
+
+describe('isAllowedPushEndpoint: trucos de URL', () => {
+  it('rechaza usuario@host, barras invertidas y espacios', async () => {
+    const { isAllowedPushEndpoint } = await import('../src/schemas');
+    for (const url of ['https://fcm.googleapis.com@169.254.169.254/x', 'https://evil.example\@fcm.googleapis.com/x', 'https://fcm.googleapis.com /x', 'https://fcm.googleapis.com#@evil.example']) {
+      expect(isAllowedPushEndpoint(url), url).toBe(false);
+    }
+  });
+});

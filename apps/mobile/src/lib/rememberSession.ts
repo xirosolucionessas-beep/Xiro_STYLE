@@ -10,13 +10,14 @@ export interface KeyValueLike {
  * sobrevive al cierre de la app. Desmarcada, el valor vive SOLO en memoria: al cerrar la app se pierde la sesión, y
  * se borra cualquier copia persistente anterior para que no quede una sesión "recordada" de un inicio previo.
  */
-export function withRemember(persistent: KeyValueLike): { store: KeyValueLike; setRemember: (remember: boolean) => void } {
+export function withRemember(persistent: KeyValueLike): { store: KeyValueLike; setRemember: (remember: boolean) => void; remembers: () => boolean } {
   let remember = true;
   const memory = new Map<string, string>();
   return {
     setRemember: (value) => {
       remember = value;
     },
+    remembers: () => remember,
     store: {
       async get(key) {
         return memory.get(key) ?? (await persistent.get(key));

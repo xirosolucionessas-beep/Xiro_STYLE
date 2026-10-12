@@ -274,7 +274,9 @@ export function salesRoutes(app: FastifyInstance, ctx: Ctx): void {
     const userId = request.user.sub;
 
     const sale = await withBusinessTrusted(db, businessId, async (tx) => {
-      const [row] = await tx.select().from(sales).where(and(eq(sales.id, id), eq(sales.businessId, businessId))).limit(1);
+      // FOR UPDATE: dos anulaciones simultáneas (doble clic, dos dispositivos) se ordenan; la segunda ve "voided" y
+      // responde 409 en vez de devolver el stock otra vez.
+      const [row] = await tx.select().from(sales).where(and(eq(sales.id, id), eq(sales.businessId, businessId))).limit(1).for('update');
       if (!row) throw notFound();
       if (row.status === 'voided') throw new AppError(409, 'already_voided');
 

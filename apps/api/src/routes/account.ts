@@ -59,14 +59,14 @@ export function accountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { user } = await currentContext(request);
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    const file = await saveAvatarImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     try {
       const [updated] = await db.update(users).set({ photoFile: file }).where(eq(users.id, user.id)).returning();
-      await removeMedia(config.mediaDir, user.photoFile);
+      await removeMedia(ctx.media, user.photoFile);
       return toUser(updated!);
     } catch (error) {
-      await removeMedia(config.mediaDir, file);
+      await removeMedia(ctx.media, file);
       throw error;
     }
   });
@@ -75,7 +75,7 @@ export function accountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { user } = await currentContext(request);
     if (user.photoFile) {
       await db.update(users).set({ photoFile: null }).where(eq(users.id, user.id));
-      await removeMedia(config.mediaDir, user.photoFile);
+      await removeMedia(ctx.media, user.photoFile);
     }
     return toUser({ ...user, photoFile: null });
   });
@@ -159,10 +159,10 @@ export function accountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { business } = await currentContext(request);
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveImage(config.mediaDir, await part.toBuffer());
+    const file = await saveImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     const [updated] = await db.update(businesses).set({ logoFile: file }).where(eq(businesses.id, business.id)).returning();
-    await removeMedia(config.mediaDir, business.logoFile);
+    await removeMedia(ctx.media, business.logoFile);
     return toBusiness(updated!);
   });
 

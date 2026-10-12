@@ -6,7 +6,8 @@ import { actorOf, meets } from '@/lib/access';
 import { api } from '@/lib/api';
 import { apiErrors, toInt } from '@/lib/forms';
 import { progressPercent } from '@/lib/loyaltyLogic';
-import { useInvalidateLoyalty, useItems, useLoyaltyClients, useLoyaltyProgram, useLoyaltyRedemptions } from '@/lib/queries';
+import { flatPages, useAllItems, useInvalidateLoyalty, useLoyaltyClients, useLoyaltyProgram, useLoyaltyRedemptions } from '@/lib/queries';
+import { LoadMoreButton } from './PagedFooter';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from './Button';
@@ -56,7 +57,7 @@ function ConfigTab() {
   const { t } = useSettings();
   const { toast } = useDialogs();
   const program = useLoyaltyProgram().data!;
-  const items = useItems();
+  const items = useAllItems();
   const invalidate = useInvalidateLoyalty();
   const [enabled, setEnabled] = useState(program.enabled);
   const [goal, setGoal] = useState(String(program.goal));
@@ -132,6 +133,7 @@ function ClientsTab({ canRedeem }: { canRedeem: boolean }) {
   const { toast } = useDialogs();
   const program = useLoyaltyProgram().data!;
   const clients = useLoyaltyClients();
+  const progress = flatPages(clients.data);
   const invalidate = useInvalidateLoyalty();
   const [recordingFor, setRecordingFor] = useState<LoyaltyClientProgress | null>(null);
   const [justEarned, setJustEarned] = useState<string | null>(null);
@@ -166,8 +168,8 @@ function ClientsTab({ canRedeem }: { canRedeem: boolean }) {
         </AppText>
       ) : null}
       {clients.isLoading ? <ActivityIndicator accessibilityLabel={t('loading')} /> : null}
-      {clients.data && clients.data.length === 0 ? <EmptyState icon="star-outline" message={t('loyalty_clients_empty')} /> : null}
-      {clients.data?.map((c) => (
+      {clients.data && progress.length === 0 ? <EmptyState icon="star-outline" message={t('loyalty_clients_empty')} /> : null}
+      {progress.map((c) => (
         <Card key={c.clientId}>
           <View style={styles.top}>
             <AppText variant="bodyStrong" style={{ flex: 1 }}>
@@ -195,6 +197,7 @@ function ClientsTab({ canRedeem }: { canRedeem: boolean }) {
           </View>
         </Card>
       ))}
+      <LoadMoreButton query={clients} />
       {recordingFor ? (
         <RecordServiceModal
           client={recordingFor}
@@ -213,7 +216,7 @@ function ClientsTab({ canRedeem }: { canRedeem: boolean }) {
 function RecordServiceModal({ client, onClose, onRecorded }: { client: LoyaltyClientProgress; onClose: () => void; onRecorded: (rewardJustEarned: boolean) => Promise<void> }) {
   const { t, colors } = useSettings();
   const { business } = useAuthed();
-  const items = useItems();
+  const items = useAllItems();
   const [itemId, setItemId] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
@@ -286,10 +289,11 @@ function HistoryTab() {
   const { t } = useSettings();
   const redemptions = useLoyaltyRedemptions();
   if (redemptions.isLoading) return <ActivityIndicator accessibilityLabel={t('loading')} />;
-  if (!redemptions.data || redemptions.data.length === 0) return <EmptyState icon="gift-outline" message={t('loyalty_history_empty')} />;
+  const rows = flatPages(redemptions.data);
+  if (rows.length === 0) return <EmptyState icon="gift-outline" message={t('loyalty_history_empty')} />;
   return (
     <View style={styles.list}>
-      {redemptions.data.map((r) => (
+      {rows.map((r) => (
         <Card key={r.id}>
           <AppText variant="small">{t('loyalty_history_row', { name: r.clientName, goal: r.goalAtRedemption })}</AppText>
           <AppText tone="muted" variant="small" style={{ marginTop: 2 }}>
@@ -297,6 +301,7 @@ function HistoryTab() {
           </AppText>
         </Card>
       ))}
+      <LoadMoreButton query={redemptions} />
     </View>
   );
 }

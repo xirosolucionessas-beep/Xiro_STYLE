@@ -9,7 +9,7 @@ import { actorOf, meets } from '@/lib/access';
 import { badgeText, relativeTime } from '@/lib/alerts';
 import { planCard } from '@/lib/dashboard';
 import { isSearchable, searchItems } from '@/lib/search';
-import { useClients, useConversations, useItems, useSubscription, useSubscriptionInvoices } from '@/lib/queries';
+import { useClientSearch, useConversations, useItemsQuery, useSubscription, useSubscriptionInvoices } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { useHomeAlerts } from '@/lib/useHomeAlerts';
@@ -42,8 +42,11 @@ export function HeaderSearchContainer({ mode }: { mode: ShellMode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const debounced = useDebounced(query, 250);
   const searchable = isSearchable(query);
-  const clients = useClients(debounced.trim(), canClients && isSearchable(debounced));
-  const items = useItems(canCatalog);
+  // Búsqueda global en el servidor: 5 clientes y hasta 20 artículos candidatos (luego se ordenan por relevancia).
+  const clientSearch = useClientSearch(debounced.trim(), canClients && isSearchable(debounced), 5);
+  const clients = { data: clientSearch.data?.data, isFetching: clientSearch.isFetching };
+  const itemSearch = useItemsQuery({ q: debounced.trim() || undefined, limit: 20 }, canCatalog && isSearchable(debounced));
+  const items = { data: itemSearch.data?.data, isLoading: itemSearch.isLoading };
 
   const clientRows = useMemo<SearchRow[]>(
     () => (canClients && searchable && clients.data ? clients.data.slice(0, 5).map((c) => ({ id: `c:${c.id}`, title: c.name, subtitle: c.phone ?? c.email ?? undefined, href: `/client/${c.id}`, kind: 'client' as const })) : []),

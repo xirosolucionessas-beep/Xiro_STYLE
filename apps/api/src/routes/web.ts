@@ -10,6 +10,7 @@ import { resolveSlug, loadProfileRow } from '../booking/view';
 import { businesses } from '../db/schema';
 import { isUuid } from '../errors';
 import { loadItems } from '../serializers';
+import { MEDIA_NAME } from '../storage';
 
 const catalogDir = fileURLToPath(new URL('../../public/catalog/', import.meta.url));
 
@@ -46,12 +47,27 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
     setHeaders: (res) => res.header('Cache-Control', 'public, max-age=300'),
   });
 
-  app.register(fastifyStatic, {
-    root: config.mediaDir,
-    prefix: '/media/',
-    index: false,
-    decorateReply: false,
-    setHeaders: (res) => res.header('Cache-Control', 'public, max-age=31536000, immutable'),
+  /**
+   * Imágenes desde el almacén configurado (carpeta local o S3/R2). Solo nombres generados por la API (uuid + extensión):
+   * cualquier otra cosa es 404 sin tocar el almacén (sin rutas relativas posibles). El nombre nunca cambia, así que el
+   * navegador y la CDN (Cloudflare) pueden guardarla un año: cada imagen sale del servidor una sola vez por región.
+   */
+  app.get('/media/:file', async (request, reply) => {
+    const { file } = request.params as { file: string };
+    // Mismo 404 JSON que el resto de rutas del servidor.
+    const missing = () => reply.code(404).header('Cache-Control', 'no-store').send({ code: 'not_found', message: 'Not found' });
+    if (!MEDIA_NAME.test(file)) return missing();
+    const object = await ctx.media.get(file);
+    if (!object) return missing();
+    if (object.etag && request.headers['if-none-match'] === object.etag) return reply.code(304).header('ETag', object.etag).send();
+    reply
+      .header('Content-Type', object.contentType)
+      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox")
+      .header('Content-Disposition', 'inline');
+    if (object.etag) reply.header('ETag', object.etag);
+    return reply.send(object.body);
   });
 
   async function ogTags(request: FastifyRequest, slug: string, itemId: string | null): Promise<string> {
@@ -80,7 +96,8 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
       .header('Content-Security-Policy', CATALOG_CSP)
       .header('Cache-Control', 'no-cache')
       .type('text/html; charset=utf-8')
-      .send(template.replace('<!--OG_TAGS-->', tags));
+      // Función de reemplazo, no texto: con texto, "$`" o "$'" en el nombre del negocio insertaban trozos de la plantilla.
+      .send(template.replace('<!--OG_TAGS-->', () => tags));
   }
 
   app.get<{ Params: { slug: string } }>('/catalog/:slug', catalogPage);
@@ -143,7 +160,7 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
         .header('Content-Security-Policy', RESERVAR_CSP)
         .header('Cache-Control', 'no-cache')
         .type('text/html; charset=utf-8')
-        .send(reservarTemplate.replace('<!--OG_TAGS-->', tags));
+        .send(reservarTemplate.replace('<!--OG_TAGS-->', () => tags)); // función: ver catalogPage
     }
 
     app.get<{ Params: { slug: string } }>('/reservar/:slug', reservarPage);

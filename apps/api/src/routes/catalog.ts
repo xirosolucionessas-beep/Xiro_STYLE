@@ -1,21 +1,35 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import {
   categoryInputSchema,
+  can,
   itemInputSchema,
+  itemsQuerySchema,
   MAX_PHOTOS_PER_ITEM,
   REORDER_THRESHOLD,
   suggestStockStatus,
   type Category,
+  type Item,
+  type ItemsSummary,
+  type Page,
 } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
 import { isForeignKeyViolation, isUniqueViolation } from '../db/errors';
 import { categories, itemPhotos, items } from '../db/schema';
+import { fold, foldQuery, itemSearchText } from '../db/search';
 import { AppError, isUuid, notFound, parse, uuid } from '../errors';
 import { removeMedia, saveImage } from '../media';
+import { decodeCursor, descNullsLast, escapeLike, toPage } from '../pagination';
 import { notifyLowStockIfNeeded } from '../push';
-import { loadItems, redactItemForActor } from '../serializers';
+import { hydrateItems, loadItems, redactItemForActor } from '../serializers';
+
+/** Artículos candidatos de la búsqueda (alias propio para la subconsulta, distinto de `items` de la consulta externa). */
+const matched = alias(items, 'matched_items');
+
+/** Lleva inventario: productos y los aún sin clasificar (mismo criterio que `tracksStock` en la app). */
+const tracksStock = or(eq(items.kind, 'product'), eq(items.kindConfirmed, false));
 
 /** Actualización de artículo: el contrato original más un campo OPCIONAL para detectar ediciones simultáneas. */
 const itemUpdateSchema = itemInputSchema.extend({ expectedUpdatedAt: z.iso.datetime().optional() });
@@ -119,7 +133,114 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   const unknownCategory = () => new AppError(400, 'validation_error', 'Unknown category');
 
-  app.get('/items', async (request) => (await loadItems(db, businessOf(request))).map((item) => redactItemForActor(item, request.actor)));
+  /**
+   * Catálogo/inventario paginado por cursor (`?limit` 1–100, por defecto 50) con los filtros que antes la app aplicaba
+   * en memoria: búsqueda (nombre, referencia o categoría, sin tildes), categoría, tipo, estado de stock, "bajo stock",
+   * publicados, reservables y "lleva inventario". `sort=catalog` conserva el orden de siempre (editados recientemente
+   * primero, luego A–Z); `sort=stock` pone primero los de menos unidades. Siempre acotado al negocio de la sesión.
+   */
+  app.get('/items', async (request): Promise<Page<Item>> => {
+    const query = parse(itemsQuerySchema, request.query);
+    const { limit, sort } = query;
+    const folded = query.q ? foldQuery(query.q) : '';
+    const pattern = folded ? `%${escapeLike(folded)}%` : undefined;
+    const updatedText = sql<string>`${items.updatedAt}::text`;
+    const after = decodeCursor(query.cursor, sort === 'stock' ? ['number', 'string', 'string'] : ['string', 'string', 'string']);
+    const keyset = after
+      ? sort === 'stock'
+        ? sql`(${items.stock}, ${items.name}, ${items.id}) > (${after[0]}::int, ${after[1]}, ${after[2]}::uuid)`
+        : sql`(${items.updatedAt} < ${after[0]}::timestamptz OR (${items.updatedAt} = ${after[0]}::timestamptz AND (${items.name}, ${items.id}) > (${after[1]}, ${after[2]}::uuid)))`
+      : undefined;
+    const businessId = businessOf(request);
+    /**
+     * Búsqueda sin tildes por nombre, referencia o categoría (el mismo resultado de siempre), resuelta por índice:
+     * los artículos cuyo nombre o referencia coincide (candidatos por items_search_trgm_idx y luego cada campo por
+     * separado) más los de las categorías que coinciden (pocas por negocio). Así no se recorre todo el inventario.
+     */
+    const search = pattern
+      ? inArray(
+          items.id,
+          db
+            .select({ id: matched.id })
+            .from(matched)
+            .where(
+              and(
+                eq(matched.businessId, businessId),
+                ilike(itemSearchText(matched.name, matched.referenceCode), pattern),
+                or(ilike(fold(matched.name), pattern), ilike(fold(matched.referenceCode), pattern)),
+              ),
+            )
+            .unionAll(
+                db
+                .select({ id: matched.id })
+                .from(matched)
+                .where(
+                  and(
+                    eq(matched.businessId, businessId),
+                    sql`${matched.categoryId} = any(array(${db.select({ id: categories.id }).from(categories).where(and(eq(categories.businessId, businessId), ilike(fold(categories.name), pattern)))}))`,
+                  ),
+                ),
+            ),
+        )
+      : undefined;
+    const rows = await db
+      .select({ item: items, categoryName: categories.name, updatedText })
+      .from(items)
+      .innerJoin(categories, eq(categories.id, items.categoryId))
+      .where(
+        and(
+          eq(items.businessId, businessId),
+          search,
+          query.categoryId ? eq(items.categoryId, query.categoryId) : undefined,
+          query.kind ? eq(items.kind, query.kind) : undefined,
+          query.stockStatus ? eq(items.stockStatus, query.stockStatus) : undefined,
+          query.low ? and(tracksStock, inArray(items.stockStatus, ['reorder', 'out_of_stock'])) : undefined,
+          query.published !== undefined ? eq(items.published, query.published) : undefined,
+          query.bookable !== undefined ? eq(items.bookable, query.bookable) : undefined,
+          query.tracked ? tracksStock : undefined,
+          keyset,
+        ),
+      )
+      .orderBy(...(sort === 'stock' ? [asc(items.stock), asc(items.name), asc(items.id)] : [descNullsLast(items.updatedAt), asc(items.name), asc(items.id)]))
+      .limit(limit + 1);
+    const visible = rows.slice(0, limit);
+    const hydrated = await hydrateItems(db, visible);
+    const byId = new Map(hydrated.map((item) => [item.id, item]));
+    return toPage(rows, limit, (row) => (sort === 'stock' ? [row.item.stock, row.item.name, row.item.id] : [row.updatedText, row.item.name, row.item.id]), (row) => redactItemForActor(byId.get(row.item.id)!, request.actor));
+  });
+
+  /**
+   * Indicadores del catálogo e inventario sin descargar la lista (mismos criterios que la app: `catalogStats`,
+   * `lowStock`, `inventoryValue`). El valor del inventario sale del costo interno: sin `catalog_manage` es `null`,
+   * igual que el costo se oculta en `/items`.
+   */
+  app.get('/items/summary', async (request): Promise<ItemsSummary> => {
+    const [row] = await db
+      .select({
+        total: sql<number>`count(*)::int`,
+        published: sql<number>`(count(*) FILTER (WHERE ${items.published}))::int`,
+        averagePrice: sql<number | null>`round(avg(${items.price}))::int`,
+        stockTotal: sql<number>`(count(*) FILTER (WHERE ${tracksStock}))::int`,
+        available: sql<number>`(count(*) FILTER (WHERE ${tracksStock} AND ${items.stockStatus} = 'available'))::int`,
+        reorder: sql<number>`(count(*) FILTER (WHERE ${tracksStock} AND ${items.stockStatus} = 'reorder'))::int`,
+        outOfStock: sql<number>`(count(*) FILTER (WHERE ${tracksStock} AND ${items.stockStatus} = 'out_of_stock'))::int`,
+        costed: sql<number>`(count(*) FILTER (WHERE ${tracksStock} AND ${items.internalUnitCost} > 0))::int`,
+        inventoryValue: sql<string | null>`(sum(${items.stock}::bigint * ${items.internalUnitCost}) FILTER (WHERE ${tracksStock} AND ${items.internalUnitCost} > 0))::text`,
+      })
+      .from(items)
+      .where(eq(items.businessId, businessOf(request)));
+    const total = row?.total ?? 0;
+    const published = row?.published ?? 0;
+    const showCost = can(request.actor, 'catalog_manage') && (row?.costed ?? 0) > 0;
+    return {
+      total,
+      published,
+      hidden: total - published,
+      averagePrice: total > 0 ? (row?.averagePrice ?? null) : null,
+      stock: { total: row?.stockTotal ?? 0, available: row?.available ?? 0, reorder: row?.reorder ?? 0, outOfStock: row?.outOfStock ?? 0 },
+      inventoryValue: showCost && row?.inventoryValue != null ? Number(row.inventoryValue) : null,
+    };
+  });
 
   app.get('/items/:id', async (request) => redactItemForActor(await requireItem(businessOf(request), uuid((request.params as { id?: string }).id)), request.actor));
 
@@ -227,7 +348,7 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
       await tx.delete(items).where(eq(items.id, id)); // las fotos se borran en cascada
       return photos.map((photo) => photo.file);
     });
-    await Promise.all(files.map((file) => removeMedia(config.mediaDir, file)));
+    await Promise.all(files.map((file) => removeMedia(ctx.media, file)));
     return reply.status(204).send();
   });
 
@@ -240,7 +361,7 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
 
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveImage(config.mediaDir, await part.toBuffer());
+    const file = await saveImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
 
     try {
@@ -255,7 +376,7 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
         await tx.update(items).set({ updatedAt: new Date() }).where(eq(items.id, id));
       });
     } catch (error) {
-      await removeMedia(config.mediaDir, file);
+      await removeMedia(ctx.media, file);
       throw error;
     }
     return reply.status(201).send(await requireItem(businessId, id));
@@ -275,7 +396,7 @@ export function catalogRoutes(app: FastifyInstance, ctx: Ctx): void {
       await tx.update(items).set({ updatedAt: new Date() }).where(eq(items.id, id));
       return photo.file;
     });
-    await removeMedia(config.mediaDir, file);
+    await removeMedia(ctx.media, file);
     return requireItem(businessId, id);
   });
 

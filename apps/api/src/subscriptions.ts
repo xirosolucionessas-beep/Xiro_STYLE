@@ -94,6 +94,8 @@ export interface ProviderPatch {
  * Único punto de entrada para los 3 webhooks (RevenueCat = iOS/Android, Stripe/PayPal = Web): aplica el cambio de
  * estado y deja el registro de auditoría, de forma idempotente (un mismo evento reenviado por el proveedor no se
  * aplica dos veces) gracias al índice único (source, externalEventId) — ver sub_events_external_uq en el esquema.
+ * Registrar el evento y aplicar el cambio van en UNA transacción: si aplicar fallara, el evento tampoco queda
+ * registrado y el reintento del proveedor lo vuelve a procesar (antes quedaba "duplicado" sin haberse aplicado nunca).
  */
 export async function applyProviderEvent(
   db: DbExecutor,
@@ -104,20 +106,22 @@ export async function applyProviderEvent(
   externalEventId: string | null,
   payload: unknown,
 ): Promise<'applied' | 'duplicate'> {
-  const inserted = await db
-    .insert(subscriptionEvents)
-    .values({ businessId, type, source, externalEventId, payload: payload as object })
-    .onConflictDoNothing({ target: [subscriptionEvents.source, subscriptionEvents.externalEventId] })
-    .returning();
-  if (externalEventId && inserted.length === 0) return 'duplicate'; // el proveedor ya nos había avisado de este evento
+  return db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(subscriptionEvents)
+      .values({ businessId, type, source, externalEventId, payload: payload as object })
+      .onConflictDoNothing({ target: [subscriptionEvents.source, subscriptionEvents.externalEventId] })
+      .returning();
+    if (externalEventId && inserted.length === 0) return 'duplicate' as const; // el proveedor ya nos había avisado de este evento
 
-  const existing = await getSubscriptionRow(db, businessId);
-  if (!existing) {
-    await db.insert(subscriptions).values({ businessId, ...patch });
-  } else {
-    await db.update(subscriptions).set({ ...patch, updatedAt: new Date() }).where(eq(subscriptions.businessId, businessId));
-  }
-  return 'applied';
+    const existing = await getSubscriptionRow(tx, businessId);
+    if (!existing) {
+      await tx.insert(subscriptions).values({ businessId, ...patch });
+    } else {
+      await tx.update(subscriptions).set({ ...patch, updatedAt: new Date() }).where(eq(subscriptions.businessId, businessId));
+    }
+    return 'applied' as const;
+  });
 }
 
 export interface RecordInvoiceInput {

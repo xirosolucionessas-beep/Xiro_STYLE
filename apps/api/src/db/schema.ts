@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, date, doublePrecision, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import type { BookingSettings, BusinessHours, CustomField, PublicSection } from '@xiro/shared';
+import { clientSearchText, itemSearchText } from './search';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow();
@@ -198,6 +199,9 @@ export const items = pgTable(
     foreignKey({ columns: [t.categoryId, t.businessId], foreignColumns: [categories.id, categories.businessId], name: 'items_category_business_fk' }),
     index('items_business_updated_idx').on(t.businessId, t.updatedAt.desc()),
     index('items_category_idx').on(t.categoryId),
+    // Búsqueda sin tildes por nombre o referencia (la misma expresión que usa GET /items, ver db/search.ts) con el
+    // negocio DENTRO del índice (btree_gin). Medido en test/indexes.test.ts.
+    index('items_search_trgm_idx').using('gin', t.businessId, sql`(${itemSearchText(t.name, t.referenceCode)}) gin_trgm_ops`),
     // Catálogo público: solo publicados, del más reciente al más antiguo.
     index('items_public_idx').on(t.businessId, t.updatedAt.desc()).where(sql`${t.published}`),
     check('items_price_ck', sql`${t.price} >= 0 and ${t.price} <= 1000000000`),
@@ -239,7 +243,17 @@ export const clients = pgTable(
     isOccasional: boolean('is_occasional').notNull().default(false),
     createdAt: createdAt(),
   },
-  (t) => [index('clients_business_name_idx').on(t.businessId, sql`lower(${t.name})`), unique('clients_id_business_uq').on(t.id, t.businessId)],
+  (t) => [
+    index('clients_business_name_idx').on(t.businessId, sql`lower(${t.name})`),
+    unique('clients_id_business_uq').on(t.id, t.businessId),
+    // Búsqueda "contiene" (ILIKE '%…%') por nombre, correo o teléfono: trigramas sobre los tres juntos (db/search.ts)
+    // con el negocio DENTRO del índice (btree_gin). Medido en test/indexes.test.ts.
+    index('clients_search_trgm_idx').using('gin', t.businessId, sql`${clientSearchText(t.name, t.email, t.phone)} gin_trgm_ops`),
+    // Clientes recientes (actividad del Inicio, "nuevos hoy/este mes") y la paginación sort=recent.
+    index('clients_business_created_idx').on(t.businessId, t.createdAt.desc().nullsFirst(), t.id.desc().nullsFirst()),
+    // Deduplicar por teléfono en CADA reserva pública (antes: recorrer todos los clientes del negocio).
+    index('clients_business_phone_idx').on(t.businessId, t.phone),
+  ],
 );
 
 /**
@@ -472,7 +486,11 @@ export const loyaltyRedemptions = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     redeemedAt: createdAt(),
   },
-  (t) => [index('loyalty_redemptions_client_idx').on(t.businessId, t.clientId, t.redeemedAt.desc())],
+  (t) => [
+    index('loyalty_redemptions_client_idx').on(t.businessId, t.clientId, t.redeemedAt.desc()),
+    // Historial de canjes de todo el negocio, paginado (el índice de arriba empieza por el cliente).
+    index('loyalty_redemptions_business_idx').on(t.businessId, t.redeemedAt.desc().nullsFirst(), t.id.desc().nullsFirst()),
+  ],
 );
 
 /** Preferencias de notificaciones: una fila por negocio (igual que loyalty_programs), creada al primer guardado. */

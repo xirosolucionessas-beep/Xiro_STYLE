@@ -103,6 +103,7 @@ export function buildCss(): string {
 .xw-icon-btn:hover { background: var(--xw-surface-alt); color: var(--xw-text); }
 .xw-icon-btn:active { background: var(--xw-accent-tint); }
 .xw-hint { margin: var(--xw-space-1) 0 0; color: var(--xw-text-muted); font: var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); overflow-wrap: anywhere; }
+.xw-loadmore { display: flex; flex-direction: column; align-items: center; gap: var(--xw-space-2); margin: var(--xw-space-4) 0; }
 .xw-error { display: flex; gap: var(--xw-space-2); align-items: flex-start; margin: var(--xw-space-1) 0 0; color: var(--xw-danger); font: ${font.weight.semibold} var(--xw-text-sm)/${font.lineHeight.normal} var(--xw-font); overflow-wrap: anywhere; }
 .xw-error:empty { display: none; }
 

@@ -30,7 +30,7 @@ import { appointments } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
 import { cancelReminder, scheduleReminder } from '../jobs/reminders';
 import { formatPushMoment, notifyAppointment } from '../push';
-import { deriveToken, WindowCounter } from '../security';
+import { deriveToken } from '../security';
 import type { BusinessRow } from '../serializers';
 import { selectionFromQuery } from './booking';
 
@@ -38,6 +38,8 @@ const slugParams = z.object({ slug: z.string().min(1).max(60) });
 const TOKEN = /^[A-Za-z0-9_-]{20,100}$/;
 /** Reservas nuevas por IP y por hora: un cliente real hace una o dos; un bot, cientos. */
 const CREATES_PER_IP_PER_HOUR = 20;
+/** El perfil dice si el negocio está "abierto ahora": se guarda poco (lo mismo que ya lo guarda el navegador). */
+const PROFILE_CACHE_SECONDS = 15;
 
 /**
  * Página pública de reservas de un negocio (sin sesión). Reglas de esta capa:
@@ -49,7 +51,7 @@ const CREATES_PER_IP_PER_HOUR = 20;
  */
 export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
-  const createLimiter = new WindowCounter(3_600_000);
+  const createLimiter = ctx.rates.limiter('booking-create-ip', 3_600_000);
 
   app.addHook('onSend', async (request, reply) => {
     const dynamic = /\/(availability|days|appointments)/.test(request.url);
@@ -64,8 +66,8 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (!config.rateLimit.enabled) return;
     const slug = (request.params as { slug?: string } | undefined)?.slug;
     if (!slug) return;
-    const used = ctx.bookingLimiter.hit(slug);
-    if (used > config.booking.publicPerMinutePerBusiness) throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(ctx.bookingLimiter.retryAfterSeconds(slug)) });
+    const used = await ctx.bookingLimiter.hit(slug);
+    if (used > config.booking.publicPerMinutePerBusiness) throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await ctx.bookingLimiter.retryAfterSeconds(slug)) });
   });
 
   /** Negocio de la dirección, solo si su página está publicada (si no, 404 igual que si no existiera). */
@@ -78,11 +80,18 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
   }
 
   const scopedTo = <T>(business: BusinessRow, fn: (tx: Tx) => Promise<T>) => withBusiness(db, business.id, fn);
+  /**
+   * Lecturas públicas guardadas en caché (ver publicCache.ts): iguales para cualquier visitante, por negocio, y se
+   * invalidan en cuanto el negocio guarda un cambio. Que la página siga publicada se comprueba SIEMPRE fuera de la
+   * caché (publishedBusiness), así despublicar surte efecto al instante. Disponibilidad y citas nunca se guardan.
+   */
+  const cached = <T>(business: BusinessRow, name: string, fn: (tx: Tx) => Promise<T>, ttlSeconds?: number) =>
+    ctx.publicCache.wrap(business.id, name, () => scopedTo(business, fn), ttlSeconds);
 
   app.get('/:slug', async (request): Promise<PublicBookingProfile> => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
-    return scopedTo(business, async (tx) => loadPublicProfile(tx, await loadContext(tx, business.id), new Date(), config.booking.turnstileSiteKey, ctx.maps !== null));
+    return cached(business, 'profile', async (tx) => loadPublicProfile(tx, await loadContext(tx, business.id), new Date(), config.booking.turnstileSiteKey, ctx.maps !== null), PROFILE_CACHE_SECONDS);
   });
 
   /**
@@ -96,14 +105,17 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (!ctx.maps) throw notFound();
     const profile = await scopedTo(business, (tx) => loadProfileRow(tx, business.id));
     if (!allSections(profile?.sections).map || profile?.latitude == null || profile.longitude == null) throw notFound();
-    const png = await ctx.maps.staticMap({ lat: profile.latitude, lng: profile.longitude }, { width: 640, height: 360 });
-    return reply.type('image/png').send(png);
+    const { latitude, longitude } = profile;
+    // Cada imagen nueva es una llamada facturada a Google: se guarda por negocio y coordenadas.
+    const maps = ctx.maps;
+    const png = await ctx.publicCache.wrap(business.id, `map:${latitude},${longitude}`, async () => (await maps.staticMap({ lat: latitude, lng: longitude }, { width: 640, height: 360 })).toString('base64'));
+    return reply.type('image/png').send(Buffer.from(png, 'base64'));
   });
 
   app.get('/:slug/catalog', async (request): Promise<PublicBookingCatalog> => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
-    return scopedTo(business, async (tx) => {
+    return cached(business, 'catalog', async (tx) => {
       const profile = await loadProfileRow(tx, business.id);
       return loadPublicCatalog(tx, business.id, allSections(profile?.sections));
     });
@@ -112,7 +124,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
   app.get('/:slug/team', async (request): Promise<PublicTeamMemberDto[]> => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
-    return scopedTo(business, async (tx) => {
+    return cached(business, 'team', async (tx) => {
       const profile = await loadProfileRow(tx, business.id);
       return allSections(profile?.sections).team ? loadPublicTeam(tx, business.id) : [];
     });
@@ -121,7 +133,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
   app.get('/:slug/reviews', async (request): Promise<PublicReviewDto[]> => {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
-    return scopedTo(business, async (tx) => {
+    return cached(business, 'reviews', async (tx) => {
       const profile = await loadProfileRow(tx, business.id);
       return allSections(profile?.sections).reviews ? loadPublicReviews(tx, business.id) : [];
     });
@@ -158,8 +170,8 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
     const input = parse(publicBookingInputSchema, request.body);
     // Campo trampa: una persona no lo ve, un bot lo llena.
     if (input.website.trim() !== '') throw new AppError(400, 'validation_error');
-    if (config.rateLimit.enabled && createLimiter.hit(request.ip) > CREATES_PER_IP_PER_HOUR) {
-      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(createLimiter.retryAfterSeconds(request.ip)) });
+    if (config.rateLimit.enabled && (await createLimiter.hit(request.ip)) > CREATES_PER_IP_PER_HOUR) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await createLimiter.retryAfterSeconds(request.ip)) });
     }
     const business = await publishedBusiness(slug);
     const idempotency = input.idempotencyKey ? { key: input.idempotencyKey, secret: config.jwtSecret } : undefined;

@@ -1,0 +1,24 @@
+# Nada de esto entra a la imagen (ni al contexto de build): dependencias se instalan dentro, y los secretos/datos
+# locales jamás deben quedar en una capa de Docker.
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.github
+.claude
+.expo
+**/.expo
+**/dist
+**/coverage
+**/*.log
+apps/api/data
+apps/api/test
+apps/mobile/test
+apps/public/test
+packages/shared/test
+docs/screenshots
+undefined
+Dockerfile
+.dockerignore
+docker-compose*.yml

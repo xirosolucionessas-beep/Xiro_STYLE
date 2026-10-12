@@ -29,14 +29,33 @@ export interface Notifier {
   sendAppointmentReminder(message: AppointmentReminderMessage): Promise<void>;
 }
 
+/**
+ * Solo desarrollo (la configuración impide usarlo en producción): escribe el mensaje en el log para poder probar los
+ * flujos sin proveedor. Enmascara el destino (correo/teléfono) para no llenar los logs de datos personales.
+ */
 export class ConsoleNotifier implements Notifier {
   constructor(private readonly log: (line: string) => void = console.log) {}
 
   async sendOtp(message: OtpMessage): Promise<void> {
-    this.log(`[otp] canal=${message.channel} destino=${message.to} código=${message.code}`);
+    this.log(`[otp] (solo desarrollo) canal=${message.channel} destino=${maskDestination(message.to)} código=${message.code}`);
   }
 
   async sendAppointmentReminder(message: AppointmentReminderMessage): Promise<void> {
-    this.log(`[recordatorio] canal=${message.channel} destino=${message.to} cliente=${message.clientName} negocio=${message.businessName} cita=${message.when}`);
+    this.log(`[recordatorio] (solo desarrollo) canal=${message.channel} destino=${maskDestination(message.to)} negocio=${message.businessName} cita=${message.when}`);
+  }
+}
+
+/** "ana@correo.com" → "an***@correo.com"; "573001234567" → "57******4567". */
+export function maskDestination(to: string): string {
+  const at = to.indexOf('@');
+  if (at > 0) return `${to.slice(0, Math.min(2, at))}***${to.slice(at)}`;
+  return to.length > 6 ? `${to.slice(0, 2)}${'*'.repeat(to.length - 6)}${to.slice(-4)}` : '***';
+}
+
+/** Elige el notificador según la configuración (hoy solo existe `console`, válido únicamente en desarrollo). */
+export function createNotifier(config: { notifications: { provider: 'console' } }, log: (line: string) => void): Notifier {
+  switch (config.notifications.provider) {
+    case 'console':
+      return new ConsoleNotifier(log);
   }
 }

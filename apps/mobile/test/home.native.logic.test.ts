@@ -100,12 +100,12 @@ describe('alertas', () => {
 
   it('bajo inventario cuenta por reponer y agotados, y enlaza al inventario filtrado', () => {
     expect(lowStock(items)).toEqual({ count: 2, reorder: 1, outOfStock: 1 });
-    const [alert] = buildAlerts({ isOwner: false, canCatalog: true, items });
+    const [alert] = buildAlerts({ isOwner: false, canCatalog: true, stock: lowStock(items) });
     expect(alert).toMatchObject({ id: 'low_stock', priority: 'warning', detailParams: { n: 2 }, href: '/inventory?status=out_of_stock' });
   });
 
   it('sin nada que avisar no hay alertas ("Todo en orden")', () => {
-    expect(buildAlerts({ isOwner: true, canCatalog: true, items: [{ stockStatus: 'available' }], cashOpened: true, subscription: okSub })).toEqual([]);
+    expect(buildAlerts({ isOwner: true, canCatalog: true, stock: lowStock([{ stockStatus: 'available' }]), cashOpened: true, subscription: okSub })).toEqual([]);
   });
 
   it('la caja sin abrir solo se avisa al dueño y solo si se SABE que no está abierta', () => {
@@ -125,7 +125,7 @@ describe('alertas', () => {
   });
 
   it('se ordenan por prioridad: urgente, advertencia, informativa', () => {
-    const alerts = buildAlerts({ isOwner: true, canCatalog: true, items, cashOpened: false, subscription: { ...okSub, status: 'expired', hasAccess: false } });
+    const alerts = buildAlerts({ isOwner: true, canCatalog: true, stock: lowStock(items), cashOpened: false, subscription: { ...okSub, status: 'expired', hasAccess: false } });
     expect(alerts.map((a) => a.priority)).toEqual(['urgent', 'warning', 'info']);
   });
 
@@ -139,7 +139,7 @@ describe('alertas', () => {
 });
 
 describe('estado de lectura de alertas (la campana y la tarjeta usan el MISMO conteo)', () => {
-  const alerts = buildAlerts({ isOwner: true, canCatalog: true, items: [{ stockStatus: 'reorder' }], cashOpened: false });
+  const alerts = buildAlerts({ isOwner: true, canCatalog: true, stock: lowStock([{ stockStatus: 'reorder' }]), cashOpened: false });
 
   it('pendientes = sin leer ni descartar; leer las quita del conteo pero no de la lista', () => {
     let state = emptyAlertState();
@@ -154,7 +154,7 @@ describe('estado de lectura de alertas (la campana y la tarjeta usan el MISMO co
   it('descartar la quita de todo; si la situación cambia (otra firma) vuelve a aparecer sin leer', () => {
     let state = dismissAlert(emptyAlertState(), 'low_stock:1:0');
     expect(visibleAlerts(alerts, state).map((a) => a.id)).toEqual(['cash_closed']);
-    const worse = buildAlerts({ isOwner: true, canCatalog: true, items: [{ stockStatus: 'reorder' }, { stockStatus: 'reorder' }] });
+    const worse = buildAlerts({ isOwner: true, canCatalog: true, stock: lowStock([{ stockStatus: 'reorder' }, { stockStatus: 'reorder' }]) });
     expect(pendingAlerts(worse, state).map((a) => a.signature)).toEqual(['low_stock:2:0']);
     state = markAllRead(state, worse);
     expect(pendingAlerts(worse, state)).toEqual([]);

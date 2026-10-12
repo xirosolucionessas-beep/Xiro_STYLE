@@ -13,24 +13,33 @@
     "test": "vitest run",
     "db:dev": "tsx scripts/dev-db.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx --env-file-if-exists=.env src/db/migrate-cli.ts"
+    "db:migrate": "tsx --env-file-if-exists=.env src/db/migrate-cli.ts",
+    "media:migrate": "tsx --env-file-if-exists=.env scripts/migrate-media-to-s3.ts",
+    "env:check": "tsx --env-file-if-exists=.env scripts/check-env.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1149.0",
     "@date-fns/tz": "^1.5.0",
+    "@fastify/compress": "^9.2.1",
     "@fastify/cors": "^11.3.0",
     "@fastify/helmet": "^13.1.1",
     "@fastify/jwt": "^10.2.2",
     "@fastify/multipart": "^10.1.1",
     "@fastify/rate-limit": "^11.2.0",
     "@fastify/static": "^10.1.4",
+    "@fastify/under-pressure": "^9.2.1",
+    "@node-rs/argon2": "^2.2.2",
+    "@sentry/node": "^11.6.0",
     "@xiro/shared": "*",
     "date-fns": "^4.4.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.12.5",
+    "ioredis": "^6.0.0",
     "pg": "^8.23.0",
     "pg-boss": "^12.35.0",
     "sharp": "^0.35.5",
     "stripe": "^22.6.2",
+    "tsx": "^4.23.15",
     "web-push": "^3.6.7",
     "zod": "^4.6.5"
   },
@@ -40,7 +49,6 @@
     "@types/web-push": "^3.6.4",
     "drizzle-kit": "^0.31.10",
     "embedded-postgres": "^18.4.0-beta.17",
-    "tsx": "^4.23.13",
     "vitest": "^5.0.1"
   }
 }

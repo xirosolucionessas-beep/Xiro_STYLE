@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { translate, type Language, type NotificationCategory, type TranslationKey } from '@xiro/shared';
+import { isAllowedPushEndpoint, translate, type Language, type NotificationCategory, type TranslationKey } from '@xiro/shared';
 import webpush from 'web-push';
 import type { Config } from './config';
 import type { Database } from './db/client';
@@ -66,6 +66,8 @@ async function sendExpoBatch(messages: Array<{ to: string; title: string; body: 
 
 /** Una suscripción Web Push ya cancelada por el navegador responde 404/410: se borra en vez de reintentar para siempre. */
 async function sendWebOne(sub: { token: string; p256dh: string; auth: string }, payload: { title: string; body: string; data?: Record<string, string> }): Promise<{ token: string; ok: boolean; shouldRemove: boolean }> {
+  // Defensa en profundidad (SSRF): solo servicios de push reales, aunque la fila venga de antes de validar al registrar.
+  if (!isAllowedPushEndpoint(sub.token)) return { token: sub.token, ok: false, shouldRemove: true };
   try {
     await webpush.sendNotification({ endpoint: sub.token, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(payload));
     return { token: sub.token, ok: true, shouldRemove: false };

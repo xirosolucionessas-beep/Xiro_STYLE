@@ -4,13 +4,17 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp, mergeConfig } from '../src/app';
 import { hashToken } from '../src/booking/appointments';
 import { loadConfig } from '../src/config';
-import { WindowCounter } from '../src/security';
 import type { Ctx } from '../src/context';
 import { appointments } from '../src/db/schema';
 import { cancelReminder, REMINDER_QUEUE, scheduleReminder, sendReminder, type ReminderJobData } from '../src/jobs/reminders';
 import type { AppointmentReminderMessage, Notifier, OtpMessage } from '../src/notifier';
 import { book, setupBiz, workday, type Biz } from './helpers/booking';
 import { createTestDatabase, testAppConfig, type TestDatabase } from './helpers/db';
+import { PublicCache } from '../src/publicCache';
+import { MemoryRateStore, RateLimits } from '../src/rateStore';
+import { LocalMediaStore } from '../src/storage';
+
+const rates = new RateLimits(new MemoryRateStore());
 
 /** Sustituto mínimo de pg-boss: solo lo que `scheduleReminder`/`cancelReminder` llaman. Guarda la `singletonKey` como
  * clave del "trabajo" para que `findJobs({ key })` se comporte como el filtro real. */
@@ -91,7 +95,7 @@ describe('sendReminder (el trabajo real, contra la base de pruebas)', () => {
       sendAppointmentReminder: async (message) => void reminders.push(message),
     };
     app = await buildApp({ db: testDb.db, config, notifier });
-    ctx = { db: testDb.db, config: mergeConfig(loadConfig(), config), notifier, accountLimiter: new WindowCounter(60_000), bookingLimiter: new WindowCounter(60_000), boss: null, realtime: null, maps: null };
+    ctx = { db: testDb.db, config: mergeConfig(loadConfig(), config), notifier, accountLimiter: rates.limiter('account', 60_000), bookingLimiter: rates.limiter('booking-business', 60_000), rates, redis: null, publicCache: new PublicCache(null, 0), media: new LocalMediaStore(config.mediaDir ?? 'data/media'), boss: null, realtime: null, maps: null };
   });
 
   afterAll(async () => {

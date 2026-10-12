@@ -1,3 +1,4 @@
+import type { SaleDto, SaleItemDto, SalePaymentDto } from '@xiro/shared';
 import { describe, expect, it } from 'vitest';
 import {
   activeClients,
@@ -154,16 +155,22 @@ describe('reportes: rango de fechas dinámico', () => {
   });
 });
 
+/** Los casos escriben líneas y pagos compactos; `sale` los completa con la forma real de `SaleDto` (ids, precio unitario…). */
 interface SaleFixture {
   status: 'completed' | 'voided';
   total: number;
   clientName: string;
   createdAt: string;
-  items: Array<{ kind: 'service' | 'product'; name: string; quantity: number; total: number; employeeId: string | null; employeeName: string | null }>;
-  payments: Array<{ method: string; amount: number }>;
+  items: Array<Pick<SaleItemDto, 'kind' | 'name' | 'quantity' | 'total' | 'employeeId' | 'employeeName'>>;
+  payments: Array<Pick<SalePaymentDto, 'method' | 'amount'>>;
 }
-function sale(over: Partial<SaleFixture> = {}): SaleFixture {
-  return { status: 'completed', total: 30_000, clientName: 'Ana', createdAt: at('20'), items: [{ kind: 'service', name: 'Corte', quantity: 1, total: 30_000, employeeId: 'e1', employeeName: 'Carlos' }], payments: [{ method: 'cash', amount: 30_000 }], ...over };
+function sale(over: Partial<SaleFixture> = {}): Pick<SaleDto, 'status' | 'total' | 'clientName' | 'createdAt' | 'items' | 'payments'> {
+  const base: SaleFixture = { status: 'completed', total: 30_000, clientName: 'Ana', createdAt: at('20'), items: [{ kind: 'service', name: 'Corte', quantity: 1, total: 30_000, employeeId: 'e1', employeeName: 'Carlos' }], payments: [{ method: 'cash', amount: 30_000 }], ...over };
+  return {
+    ...base,
+    items: base.items.map((line, index) => ({ id: `linea-${index}`, itemId: null, unitPrice: line.quantity ? line.total / line.quantity : line.total, loyaltyCounted: false, ...line })),
+    payments: base.payments.map((payment, index) => ({ id: `pago-${index}`, receivedAmount: null, ...payment })),
+  };
 }
 
 describe('reportes: agregados a partir de ventas (reemplaza el cálculo por service_records)', () => {

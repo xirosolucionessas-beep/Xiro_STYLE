@@ -2,6 +2,7 @@ import { Ico } from '../icons';
 import { Button } from '../ui';
 import { EmptyPanel, KpiRow, LoadingRows, Panel, type KpiView } from '../ui/Page';
 import { useWebStyles } from '../ui/shared';
+import { LoadMore, type LoadMoreState } from '../ui/LoadMore';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 
@@ -18,7 +19,7 @@ export interface ClientDetailViewProps {
   /** Filas ya formateadas; "—" cuando no hay dato. */
   rows: Array<{ id: string; label: string; value: string; href?: string }>;
   /** null: esta persona no puede ver los registros de servicio. */
-  history: { loading: boolean; rows: HistoryRowView[] } | null;
+  history: { loading: boolean; rows: HistoryRowView[]; pagination?: LoadMoreState } | null;
   kpis: KpiView[];
   whatsappHref?: string;
   callHref?: string;
@@ -104,6 +105,7 @@ export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHre
                 ))}
               </ul>
             ) : null}
+            {history.pagination && history.rows.length > 0 ? <LoadMore state={history.pagination} t={t} /> : null}
           </Panel>
         ) : null}
       </div>

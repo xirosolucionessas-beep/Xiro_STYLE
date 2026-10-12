@@ -17,6 +17,7 @@ import { addDays, localMinutes, zonedInstant } from '../booking/time';
 import { withBusinessTrusted, type Tx } from '../booking/scope';
 import type { Ctx } from '../context';
 import { appointments, businesses, cashClosings, cashOpenings, clients, expenses, saleItems, salePayments, sales, users } from '../db/schema';
+import { isUniqueViolation } from '../db/errors';
 import { AppError, notFound, parse, uuid } from '../errors';
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -227,6 +228,8 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     const userId = request.user.sub;
     const timezone = await timezoneOf(businessId);
 
+    // Dos cierres simultáneos del mismo día: el índice único (cash_closings_business_day_active_uq) deja pasar uno; el
+    // otro es el mismo 409 "ya cerrada" que si hubiera llegado después (antes era un error 500).
     const result = await withBusinessTrusted(db, businessId, async (tx) => {
       const [already] = await tx.select({ id: cashClosings.id }).from(cashClosings).where(and(eq(cashClosings.businessId, businessId), eq(cashClosings.day, input.day), eq(cashClosings.status, 'completed'))).limit(1);
       if (already) throw new AppError(409, 'already_closed');
@@ -252,6 +255,9 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
         })
         .returning();
       return { row: row!, summary };
+    }).catch((error: unknown) => {
+      if (isUniqueViolation(error, 'cash_closings_business_day_active_uq')) throw new AppError(409, 'already_closed');
+      throw error;
     });
 
     const name = (await namesOf(db, businessId, [userId])).get(userId) ?? '';

@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from './api';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import type { ClientsQuery, ItemsQuery, Page } from '@xiro/shared';
+import { api, fetchAllPages } from './api';
 
 export const keys = {
   items: ['items'] as const,
@@ -34,9 +35,31 @@ export const keys = {
   conversationMessages: ['conversationMessages'] as const,
 };
 
-export const useItems = (enabled = true) => useQuery({ queryKey: keys.items, queryFn: api.items, enabled });
+/* ---------- Listados paginados (cursor) ----------
+ * Pantallas con lista larga → `use…Pages` (useInfiniteQuery + `fetchNextPage` al llegar al final). Buscadores →
+ * primera página con búsqueda en el servidor. Indicadores → `…Summary` (sin descargar listas). Todas las claves cuelgan
+ * de su prefijo (`keys.items`, `keys.clients`, …): las invalidaciones de siempre refrescan listas y resúmenes. */
+
+/** Todas las filas ya cargadas de un useInfiniteQuery, en orden. */
+export const flatPages = <T,>(data: InfiniteData<Page<T>> | undefined): T[] => data?.pages.flatMap((page) => page.data) ?? [];
+const nextPageParam = <T,>(last: Page<T>) => last.nextCursor ?? undefined;
+
+export const useItemsPages = (params: Omit<ItemsQuery, 'cursor'> = {}, enabled = true) =>
+  useInfiniteQuery({ queryKey: [...keys.items, 'pages', params], queryFn: ({ pageParam }) => api.items({ ...params, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+/** Una sola página (buscadores, listas cortas como "bajo stock"). */
+export const useItemsQuery = (params: Omit<ItemsQuery, 'cursor'>, enabled = true) => useQuery({ queryKey: [...keys.items, 'one-page', params], queryFn: () => api.items(params), enabled });
+/** Conjunto COMPLETO que cumple el filtro (configuraciones de servicios, agenda); recorre las páginas de 100 en 100. */
+export const useAllItems = (params: Omit<ItemsQuery, 'cursor' | 'limit'> = {}, enabled = true) =>
+  useQuery({ queryKey: [...keys.items, 'all', params], queryFn: () => fetchAllPages((cursor) => api.items({ ...params, limit: 100, cursor })), enabled });
+export const useItemsSummary = (enabled = true) => useQuery({ queryKey: [...keys.items, 'summary'], queryFn: api.itemsSummary, enabled });
 export const useCategories = () => useQuery({ queryKey: keys.categories, queryFn: api.categories });
-export const useClients = (q = '', enabled = true) => useQuery({ queryKey: [...keys.clients, q], queryFn: () => api.clients(q || undefined), enabled });
+export const useClientsPages = (params: Omit<ClientsQuery, 'cursor'> = {}, enabled = true) =>
+  useInfiniteQuery({ queryKey: [...keys.clients, 'pages', params], queryFn: ({ pageParam }) => api.clients({ ...params, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+/** Buscador de clientes (venta, cita, búsqueda global): primera página con la búsqueda en el servidor. */
+export const useClientSearch = (q: string, enabled = true, limit = 20) => useQuery({ queryKey: [...keys.clients, 'search', q, limit], queryFn: () => api.clients({ q: q || undefined, limit }), enabled });
+/** Los últimos clientes creados (actividad reciente del Inicio). */
+export const useRecentClients = (limit: number, enabled = true) => useQuery({ queryKey: [...keys.clients, 'recent', limit], queryFn: () => api.clients({ sort: 'recent', limit }), enabled });
+export const useClientsSummary = (range?: { from: string; to: string }, enabled = true) => useQuery({ queryKey: [...keys.clients, 'summary', range?.from ?? '', range?.to ?? ''], queryFn: () => api.clientsSummary(range), enabled });
 /** La caja es solo del dueño: para un empleado la consulta no se hace (el servidor respondería 403). */
 export const useCashToday = (enabled = true) => useQuery({ queryKey: keys.cash, queryFn: api.cashToday, enabled });
 /** Bases de caja de un rango de días LOCALES ("YYYY-MM-DD", no instantes ISO — ver `api.cashOpenings`), para Reportes. */
@@ -55,9 +78,9 @@ export function useInvalidateSubscription() {
 /** Historial de Pagos (Mi Suscripción): solo el dueño la pide (el servidor la rechazaría para un empleado). */
 export const useSubscriptionInvoices = (enabled = true) => useQuery({ queryKey: keys.subscriptionInvoices, queryFn: api.subscriptionInvoices, staleTime: 60_000, enabled });
 
+/** Un artículo por id (antes descargaba el catálogo entero para buscarlo). */
 export function useItem(id: string | undefined) {
-  const items = useItems();
-  return { ...items, data: items.data?.find((item) => item.id === id) };
+  return useQuery({ queryKey: [...keys.items, 'one', id], queryFn: () => api.item(id!), enabled: !!id });
 }
 
 export function useClient(id: string | undefined) {
@@ -76,9 +99,22 @@ export function useInvalidateClients() {
 }
 
 export const useLoyaltyProgram = (enabled = true) => useQuery({ queryKey: keys.loyaltyProgram, queryFn: api.loyaltyProgram, enabled });
-export const useLoyaltyClients = () => useQuery({ queryKey: keys.loyaltyClients, queryFn: api.loyaltyClients });
-export const useLoyaltyRedemptions = (clientId?: string, enabled = true) => useQuery({ queryKey: [...keys.loyaltyRedemptions, clientId ?? ''], queryFn: () => api.loyaltyRedemptions(clientId), enabled });
-export const useServiceRecords = (clientId?: string, enabled = true) => useQuery({ queryKey: [...keys.serviceRecords, clientId ?? ''], queryFn: () => api.serviceRecords(clientId), enabled });
+export const useLoyaltySummary = (enabled = true) => useQuery({ queryKey: [...keys.loyaltyClients, 'summary'], queryFn: api.loyaltySummary, enabled });
+export const useLoyaltyClients = (q = '', enabled = true) =>
+  useInfiniteQuery({ queryKey: [...keys.loyaltyClients, q], queryFn: ({ pageParam }) => api.loyaltyClients({ q: q || undefined, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+export const useLoyaltyRedemptions = (clientId?: string, enabled = true) =>
+  useInfiniteQuery({ queryKey: [...keys.loyaltyRedemptions, clientId ?? ''], queryFn: ({ pageParam }) => api.loyaltyRedemptions({ clientId, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+/** Historial de servicios (de un cliente o del negocio), paginado. */
+export const useServiceRecordsPages = (clientId?: string, enabled = true) =>
+  useInfiniteQuery({ queryKey: [...keys.serviceRecords, 'pages', clientId ?? ''], queryFn: ({ pageParam }) => api.serviceRecords({ clientId, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+/** Visitas de los clientes visibles (columnas "Servicios" y "Último servicio" del directorio web). */
+export const useClientVisits = (clientIds: string[], enabled = true) =>
+  useQuery({ queryKey: [...keys.serviceRecords, 'by-client', clientIds.join(',')], queryFn: () => api.serviceRecordsByClient(clientIds), enabled: enabled && clientIds.length > 0 });
+/** Los últimos servicios registrados (actividad reciente del Inicio). */
+export const useRecentServiceRecords = (limit: number, enabled = true) => useQuery({ queryKey: [...keys.serviceRecords, 'recent', limit], queryFn: () => api.serviceRecords({ limit }), enabled });
+/** Cantidad, total, promedio, último y más pedido, sin descargar el historial (de un cliente y/o un rango). */
+export const useServiceRecordsSummary = (params: { clientId?: string; kind?: 'service' | 'product'; from?: string; to?: string }, enabled = true) =>
+  useQuery({ queryKey: [...keys.serviceRecords, 'summary', params.clientId ?? '', params.kind ?? '', params.from ?? '', params.to ?? ''], queryFn: () => api.serviceRecordsSummary(params), enabled });
 
 /** Ventas de un rango (ISO UTC), pensado para "hoy": se refresca cada poco para que una venta recién registrada aparezca sin recargar. */
 export const useSales = (range: { from: string; to: string } | null, enabled = true) => useQuery({ queryKey: [...keys.sales, range?.from, range?.to], queryFn: () => api.sales(range!), enabled: enabled && range !== null, staleTime: 15_000 });
@@ -166,7 +202,8 @@ export const useAppointments = (range: { from: string; to: string; professionalI
 export const useProfessionals = (enabled = true) => useQuery({ queryKey: keys.professionals, queryFn: api.professionals, enabled });
 export const useBookingSettings = (enabled = true) => useQuery({ queryKey: keys.bookingSettings, queryFn: api.bookingSettings, enabled });
 export const useClosures = (enabled = true) => useQuery({ queryKey: keys.closures, queryFn: api.closures, enabled });
-export const useBookingReviews = (enabled = true) => useQuery({ queryKey: keys.bookingReviews, queryFn: api.bookingReviews, enabled });
+export const useBookingReviews = (enabled = true) =>
+  useInfiniteQuery({ queryKey: keys.bookingReviews, queryFn: ({ pageParam }) => api.bookingReviews({ cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
 export const usePackages = (enabled = true) => useQuery({ queryKey: keys.packages, queryFn: api.packages, enabled });
 export const useVariants = (itemId: string | undefined) => useQuery({ queryKey: [...keys.variants, itemId], queryFn: () => api.variants(itemId!), enabled: Boolean(itemId) });
 /** Artículos sin confirmar como servicio o producto (solo quien gestiona el catálogo). */

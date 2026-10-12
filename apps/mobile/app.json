@@ -25,7 +25,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": [
+      "permissions": [],
+      "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -57,7 +58,8 @@
         "expo-image-picker",
         {
           "photosPermission": "Xiro Style accede a tus fotos para el logo y el catálogo.",
-          "cameraPermission": "Xiro Style usa la cámara para fotografiar tus productos y servicios."
+          "cameraPermission": "Xiro Style usa la cámara para fotografiar tus productos y servicios.",
+          "microphonePermission": false
         }
       ],
       "expo-sharing"

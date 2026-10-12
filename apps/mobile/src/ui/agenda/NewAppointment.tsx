@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { ApiError, api } from '@/lib/api';
 import { formatClock, localDate, localTime, todayIn } from '@/lib/agenda';
 import { apiErrors } from '@/lib/forms';
-import { useClients, useItems, usePackages, useProfessionals, useVariants } from '@/lib/queries';
+import { useAllItems, useClientSearch, usePackages, useProfessionals, useVariants } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '../Button';
@@ -68,13 +68,15 @@ export function NewAppointment({ onClose, onCreated, initialDate, initialProfess
   const currency = business?.currency ?? 'COP';
   const seesAll = user ? can({ role: user.role, permissions: user.permissions }, 'agenda_all') : false;
 
-  const items = useItems();
+  // Solo lo reservable (lo único que se ofrece en una cita); el cliente se busca en el servidor.
+  const items = useAllItems({ bookable: true });
   const packages = usePackages();
   const professionals = useProfessionals();
 
   const [clientMode, setClientMode] = useState<'existing' | 'new'>('existing');
   const [query, setQuery] = useState('');
-  const clients = useClients(query.trim(), clientMode === 'existing');
+  const clientSearch = useClientSearch(query.trim(), clientMode === 'existing', 6);
+  const clients = { ...clientSearch, data: clientSearch.data?.data };
   const [client, setClient] = useState<Client | null>(null);
   const [newClient, setNewClient] = useState({ name: '', phone: '', email: '' });
 

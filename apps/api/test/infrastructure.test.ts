@@ -2,15 +2,29 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
 import { loadConfig } from '../src/config';
-import { createDatabase, poolOptions } from '../src/db/client';
+import { createDatabase, directDatabaseConfig, poolOptions } from '../src/db/client';
 import { runMigrations } from '../src/db/migrate';
 import { otpCodes, refreshTokens, resetTokens, users } from '../src/db/schema';
 import { purgeExpired } from '../src/maintenance';
 import { createTestDatabase, testAppConfig, type TestDatabase } from './helpers/db';
 
-const env = (extra: Record<string, string>) => ({ NODE_ENV: 'production', JWT_SECRET: 'x'.repeat(40), DATABASE_URL: 'postgres://u:p@db.example.com:5432/xiro', ...extra }) as NodeJS.ProcessEnv;
+const env = (extra: Record<string, string>) => ({ NODE_ENV: 'production', JWT_SECRET: 'x'.repeat(40), DATABASE_URL: 'postgres://u:p@db.example.com:5432/xiro', REDIS_URL: 'rediss://default:x@redis.example.com:6379', S3_ENDPOINT: 'https://cuenta.r2.cloudflarestorage.com', S3_BUCKET: 'xiro-media', S3_ACCESS_KEY_ID: 'clave', S3_SECRET_ACCESS_KEY: 'secreto', ...extra }) as NodeJS.ProcessEnv;
 
 describe('configuración', () => {
+  it('en producción exige Redis (límites compartidos entre instancias) y valida su URL', () => {
+    expect(() => loadConfig({ ...env({}), REDIS_URL: undefined })).toThrow(/REDIS_URL/);
+    expect(() => loadConfig(env({ REDIS_URL: 'http://redis' }))).toThrow(/REDIS_URL/);
+    expect(loadConfig(env({})).redis.url).toBe('rediss://default:x@redis.example.com:6379');
+    expect(loadConfig({ NODE_ENV: 'development' } as NodeJS.ProcessEnv).redis.url).toBeNull(); // en desarrollo: memoria
+  });
+
+  it('ADMIN_SECRET débil o de ejemplo impide arrancar', () => {
+    expect(() => loadConfig(env({ ADMIN_SECRET: 'corto' }))).toThrow(/32 caracteres/);
+    expect(() => loadConfig(env({ ADMIN_SECRET: 'changeme-changeme-changeme-changeme' }))).toThrow(/ejemplo/);
+    expect(loadConfig(env({ ADMIN_SECRET: 'q'.repeat(10) + 'Zr8!vLm2#pW9xT4kB7nQ1sD6' })).subscriptions.adminSecret).toBeTruthy();
+    expect(loadConfig(env({ ADMIN_ALLOWED_IPS: '10.0.0.5, 10.0.0.6' })).subscriptions.adminAllowedIps).toEqual(['10.0.0.5', '10.0.0.6']);
+  });
+
   it('en producción exige DATABASE_URL, un JWT_SECRET largo y rechaza ajustes inseguros', () => {
     expect(() => loadConfig(env({ DATABASE_URL: '' }))).toThrow(/DATABASE_URL/);
     expect(() => loadConfig({ ...env({}), DATABASE_URL: undefined })).toThrow(/DATABASE_URL/);
@@ -60,6 +74,23 @@ describe('configuración', () => {
       keepAlive: true,
     });
   });
+
+  it('detrás de PgBouncer/pooler (DB_SESSION_PARAMS=none) no envía parámetros de arranque, pero conserva el timeout del cliente', () => {
+    const config = loadConfig(env({ DB_SESSION_PARAMS: 'none', DB_STATEMENT_TIMEOUT_MS: '8000', DATABASE_DIRECT_URL: 'postgres://u:p@db-direct.example.com:5432/xiro' }));
+    const options = poolOptions(config.database);
+    expect(options).not.toHaveProperty('statement_timeout');
+    expect(options).not.toHaveProperty('idle_in_transaction_session_timeout');
+    expect(options.query_timeout).toBe(10_000);
+    expect(() => loadConfig(env({ DB_SESSION_PARAMS: 'otro' }))).toThrow();
+    expect(loadConfig(env({})).shutdownTimeoutMs).toBe(25_000);
+    // En producción, detrás de un pooler hace falta la conexión directa (LISTEN, pg-boss, migraciones).
+    expect(() => loadConfig(env({ DB_SESSION_PARAMS: 'none' }))).toThrow(/DATABASE_DIRECT_URL/);
+    expect(() => loadConfig(env({ DATABASE_DIRECT_URL: 'mysql://x' }))).toThrow(/DATABASE_DIRECT_URL/);
+    // La conexión directa usa la URL directa y SÍ lleva los parámetros de sesión (una conexión directa los acepta).
+    const direct = poolOptions(directDatabaseConfig(config.database, 1));
+    expect(direct).toMatchObject({ connectionString: 'postgres://u:p@db-direct.example.com:5432/xiro', max: 1, statement_timeout: 8_000 });
+    expect(poolOptions(directDatabaseConfig(loadConfig(env({})).database)).connectionString).toBe('postgres://u:p@db.example.com:5432/xiro');
+  });
 });
 
 describe('base de datos', () => {
@@ -77,6 +108,17 @@ describe('base de datos', () => {
     // El número exacto crece con cada migración nueva del proyecto: lo que importa es que 3 arranques a la vez
     // no la apliquen más de una vez cada una (ni se pierda ni se duplique ningún archivo de migración).
     expect(rows[0].n).toBe(before.rows[0].n);
+  });
+
+  it('migra una base nueva con un pool de UNA conexión (como `npm run db:migrate` y el arranque con DATABASE_DIRECT_URL)', async () => {
+    // Antes el candado ocupaba la única conexión y la migración esperaba otra hasta el timeout.
+    const single = await createTestDatabase({ poolMax: 1, connectionTimeoutMs: 3_000 });
+    try {
+      const { rows } = await single.pool.query('select count(*)::int as n from drizzle.__drizzle_migrations');
+      expect(rows[0].n).toBeGreaterThan(20);
+    } finally {
+      await single.drop();
+    }
   });
 
   it('el esquema tiene los índices que respaldan las consultas frecuentes', async () => {
@@ -130,11 +172,11 @@ describe('base de datos', () => {
     const own = createDatabase(testDb.config, () => undefined);
     const s = testAppConfig();
     const app = await buildApp({ db: own.db, config: s.config });
-    expect((await app.inject({ method: 'GET', url: '/api/health/ready' })).json()).toEqual({ status: 'ok', database: 'up' });
+    expect((await app.inject({ method: 'GET', url: '/api/health/ready' })).json()).toEqual({ status: 'ok', database: 'up', redis: 'not_configured' });
     await own.close(); // simula la caída de la base
     const down = await app.inject({ method: 'GET', url: '/api/health/ready' });
     expect(down.statusCode).toBe(503);
-    expect(down.json()).toEqual({ status: 'unavailable', database: 'down' });
+    expect(down.json()).toEqual({ status: 'unavailable', database: 'down', redis: 'not_configured' });
     expect((await app.inject({ method: 'GET', url: '/api/health' })).statusCode).toBe(200);
     await app.close();
     s.cleanup();

@@ -224,7 +224,7 @@ export type ItemKind = (typeof ITEM_KINDS)[number];
 
 export const itemInputSchema = z.object({
   name: required(80),
-  categoryId: z.string().min(1, 'required'),
+  categoryId: z.string().min(1, 'required').max(64),
   shortDescription: trimmed(120).default(''),
   description: trimmed(1500).default(''),
   detail: trimmed(60).default(''),
@@ -256,8 +256,8 @@ export type ClientInput = z.input<typeof clientInputSchema>;
 
 /** `amount` es opcional: si se omite, el servidor usa el precio actual del item elegido. */
 export const serviceRecordInputSchema = z.object({
-  clientId: z.string().min(1, 'required'),
-  itemId: z.string().min(1, 'required'),
+  clientId: z.string().min(1, 'required').max(64),
+  itemId: z.string().min(1, 'required').max(64),
   amount: z.number().int().min(0).max(1_000_000_000).optional(),
   note: trimmed(300).default(''),
 });
@@ -268,7 +268,7 @@ export const loyaltyProgramUpdateSchema = z.object({
   goal: z.number().int().min(1).max(1000).default(10),
   resetOnRedeem: z.boolean().default(true),
   rewardMessage: trimmed(200).default(''),
-  itemIds: z.array(z.string().min(1)).max(300).default([]),
+  itemIds: z.array(z.string().min(1).max(64)).max(300).default([]),
 });
 export type LoyaltyProgramUpdateInput = z.input<typeof loyaltyProgramUpdateSchema>;
 
@@ -288,10 +288,23 @@ export const notificationSettingsUpdateSchema = z.object({
 });
 export type NotificationSettingsUpdateInput = z.input<typeof notificationSettingsUpdateSchema>;
 
+/**
+ * Servicios de Web Push reales (Chrome/Android, Firefox, Safari, Edge). El servidor hace un POST a este `endpoint`, así
+ * que aceptar cualquier URL dejaba usarlo para llamar a direcciones internas (SSRF: 169.254.169.254, localhost…).
+ */
+const PUSH_HOSTS = new Set(['fcm.googleapis.com', 'android.googleapis.com', 'updates.push.services.mozilla.com', 'web.push.apple.com']);
+const PUSH_HOST_SUFFIXES = ['.push.apple.com', '.notify.windows.com'];
+/** https, host sin usuario/contraseña ni puerto, y luego ruta/consulta (sin `URL`: este paquete no depende del DOM). */
+const PUSH_URL = /^https:\/\/([a-z0-9.-]+)(?:[/?][^\s]*)?$/i;
+export function isAllowedPushEndpoint(endpoint: string): boolean {
+  const host = PUSH_URL.exec(endpoint)?.[1]?.toLowerCase();
+  return !!host && (PUSH_HOSTS.has(host) || PUSH_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix)));
+}
+
 const expoPushRegisterSchema = z.object({ platform: z.literal('expo'), token: z.string().min(10).max(400) });
 const webPushRegisterSchema = z.object({
   platform: z.literal('web'),
-  endpoint: z.string().url().max(600),
+  endpoint: z.string().url().max(600).refine(isAllowedPushEndpoint, 'push_endpoint_invalid'),
   keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) }),
 });
 export const pushRegisterSchema = z.discriminatedUnion('platform', [expoPushRegisterSchema, webPushRegisterSchema]);

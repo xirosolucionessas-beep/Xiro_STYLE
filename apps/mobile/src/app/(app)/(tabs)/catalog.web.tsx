@@ -6,9 +6,8 @@ import { formatMoney, type Currency } from '@xiro/shared';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
-import { errorKey, publicBaseUrl, resolveMedia } from '@/lib/api';
-import { catalogStats } from '@/lib/sections';
-import { useBookingSettings, useCategories, useItems } from '@/lib/queries';
+import { api, errorKey, fetchAllPages, publicBaseUrl, resolveMedia } from '@/lib/api';
+import { flatPages, useBookingSettings, useCategories, useItemsPages, useItemsSummary } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { Header, Screen } from '@/ui/Screen';
 import { Ico } from '@/web/icons';
@@ -24,22 +23,22 @@ export default function CatalogWeb() {
   const { t } = useWebText();
   const { user, business } = useAuthed();
   const canManage = meets(actorOf(user), ['catalog_manage']);
-  const items = useItems();
+  const [category, setCategory] = useState<string | null>(null);
+  // Tarjetas paginadas por cursor con el filtro de categoría en el servidor; indicadores de `/items/summary`.
+  const items = useItemsPages({ categoryId: category ?? undefined });
+  const summary = useItemsSummary();
   const categories = useCategories();
   const bookingSettings = useBookingSettings();
-  const [category, setCategory] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const currency = business.currency as Currency;
 
   const cards = useMemo<CatalogCardView[]>(
     () =>
-      (items.data ?? [])
-        .filter((item) => !category || item.categoryId === category)
-        .map((item) => ({ id: item.id, name: item.name, description: item.shortDescription, price: formatMoney(item.price, currency), photo: resolveMedia(item.photos[0]?.url) ?? null, published: item.published, href: `/catalog-item/${item.id}` })),
-    [items.data, category, currency],
+      flatPages(items.data).map((item) => ({ id: item.id, name: item.name, description: item.shortDescription, price: formatMoney(item.price, currency), photo: resolveMedia(item.photos[0]?.url) ?? null, published: item.published, href: `/catalog-item/${item.id}` })),
+    [items.data, currency],
   );
 
-  const stats = items.data ? catalogStats(items.data) : null;
+  const stats = summary.data ?? null;
   const kpis: KpiView[] = [
     { id: 'total', icon: 'book-open', label: t('sec_kpi_services_total'), value: stats ? String(stats.total) : '—', loading: items.isLoading },
     { id: 'published', icon: 'eye', label: t('sec_kpi_published'), value: stats ? String(stats.published) : '—', loading: items.isLoading },
@@ -58,7 +57,8 @@ export default function CatalogWeb() {
     setExportingPdf(true);
     try {
       const categoryLabel = category ? (categories.data ?? []).find((c) => c.id === category)?.name : undefined;
-      const published = (items.data ?? []).filter((item) => item.published && (!category || item.categoryId === category));
+      // Todo lo publicado (no solo las páginas ya cargadas), con el filtro de categoría de la pantalla.
+      const published = await fetchAllPages((cursor) => api.items({ published: true, categoryId: category ?? undefined, limit: 100, cursor }));
       const profile = bookingSettings.data?.profile;
       const bookingUrl = profile?.published ? `${publicBaseUrl()}/catalog/${business.slug}` : null;
 
@@ -143,6 +143,12 @@ export default function CatalogWeb() {
           ) : undefined
         }
         navigate={(href) => router.push(href as never)}
+        pagination={{
+          hasMore: Boolean(items.hasNextPage),
+          loading: items.isFetchingNextPage,
+          error: items.isFetchNextPageError ? t(errorKey(items.error)) : undefined,
+          onLoadMore: () => void items.fetchNextPage(),
+        }}
       />
     </Screen>
   );

@@ -169,6 +169,13 @@
       "when": 1791258745237,
       "tag": "0023_strange_omega_flight",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791747598142,
+      "tag": "0024_search_and_tenant_indexes",
+      "breakpoints": true
     }
   ]
 }

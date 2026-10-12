@@ -5,7 +5,6 @@ import { PLACE_ID, SESSION_TOKEN } from '../booking/google';
 import type { GoogleMaps } from '../booking/google';
 import type { Ctx } from '../context';
 import { AppError, parse } from '../errors';
-import { WindowCounter } from '../security';
 
 const language = z.enum(['es', 'en']).default('es');
 // El token de sesión agrupa las teclas de una búsqueda y su selección en UNA sola facturación en Google (Places API New).
@@ -24,12 +23,12 @@ const PER_MINUTE_PER_BUSINESS = 90;
  */
 export function placesRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { config } = ctx;
-  const limiter = new WindowCounter(60_000);
+  const limiter = ctx.rates.limiter('places', 60_000);
 
-  function client(request: { user: { bid: string } }): GoogleMaps {
+  async function client(request: { user: { bid: string } }): Promise<GoogleMaps> {
     if (!ctx.maps) throw new AppError(503, 'places_not_configured');
-    if (config.rateLimit.enabled && limiter.hit(request.user.bid) > PER_MINUTE_PER_BUSINESS) {
-      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(limiter.retryAfterSeconds(request.user.bid)) });
+    if (config.rateLimit.enabled && (await limiter.hit(request.user.bid)) > PER_MINUTE_PER_BUSINESS) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await limiter.retryAfterSeconds(request.user.bid)) });
     }
     return ctx.maps;
   }
@@ -39,24 +38,24 @@ export function placesRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   app.get('/booking/places/autocomplete', async (request): Promise<PlaceSuggestion[]> => {
     const q = parse(autocompleteQuery, request.query);
-    return client(request).autocomplete(q.q, q.session, q.lang);
+    return (await client(request)).autocomplete(q.q, q.session, q.lang);
   });
 
   app.get('/booking/places/details', async (request): Promise<PickedLocation> => {
     const q = parse(detailsQuery, request.query);
-    return client(request).details(q.placeId, q.session, q.lang);
+    return (await client(request)).details(q.placeId, q.session, q.lang);
   });
 
   app.get('/booking/places/reverse', async (request): Promise<ReverseGeocodeResult> => {
     const q = parse(pointQuery, request.query);
-    return client(request).reverse({ lat: q.lat, lng: q.lng }, q.lang);
+    return (await client(request)).reverse({ lat: q.lat, lng: q.lng }, q.lang);
   });
 
   /** Mapa estático para el selector nativo (que no puede dibujar el interactivo): llega como imagen en base64 porque la app
    * no puede pedir un <Image> con el header de sesión. */
   app.get('/booking/places/static-map', async (request): Promise<{ image: string }> => {
     const q = parse(pointQuery, request.query);
-    const png = await client(request).staticMap({ lat: q.lat, lng: q.lng }, { width: 640, height: 320 });
+    const png = await (await client(request)).staticMap({ lat: q.lat, lng: q.lng }, { width: 640, height: 320 });
     return { image: `data:image/png;base64,${png.toString('base64')}` };
   });
 }

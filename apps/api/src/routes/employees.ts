@@ -12,7 +12,7 @@ import { notifyUser } from '../push';
 import { hashPassword } from '../security';
 import { toEmployee } from '../serializers';
 
-const auditQuery = z.object({ userId: z.string().optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
+const auditQuery = z.object({ userId: z.string().max(64).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
 
 /**
  * Gestión de empleados (solo dueño — ver POLICY). Todo se acota a `request.user.bid` Y a `role = 'employee'`: un dueño
@@ -111,15 +111,15 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
     const id = uuid((request.params as { id?: string }).id);
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    const file = await saveAvatarImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     try {
       const existing = await findEmployee(businessId, id);
       const [row] = await db.update(users).set({ photoFile: file }).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).returning();
-      await removeMedia(config.mediaDir, existing.photoFile);
+      await removeMedia(ctx.media, existing.photoFile);
       return toEmployee(row!);
     } catch (error) {
-      await removeMedia(config.mediaDir, file);
+      await removeMedia(ctx.media, file);
       throw error;
     }
   });
@@ -129,7 +129,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
     const id = uuid((request.params as { id?: string }).id);
     const existing = await findEmployee(businessId, id);
     const row = existing.photoFile ? (await db.update(users).set({ photoFile: null }).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).returning())[0] : existing;
-    await removeMedia(config.mediaDir, existing.photoFile);
+    await removeMedia(ctx.media, existing.photoFile);
     return toEmployee(row!);
   });
 

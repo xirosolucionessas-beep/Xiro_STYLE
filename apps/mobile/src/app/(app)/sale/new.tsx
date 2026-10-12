@@ -4,16 +4,16 @@
  * presentación propia con los componentes nativos. Hermana de sale/new.web.tsx.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { formatMoney, normalizePhone, whatsappLink, type Currency, type SaleDto, type SaleInput } from '@xiro/shared';
+import { formatMoney, normalizePhone, whatsappLink, type Currency, type Item, type SaleDto, type SaleInput } from '@xiro/shared';
 import { useRouter } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
 import { dayRange, formatClock, localTime, summarizeItems, todayIn } from '@/lib/agenda';
 import { api } from '@/lib/api';
 import { apiErrors, toInt } from '@/lib/forms';
-import { useAppointments, useCategories, useClients, useEmployees, useInvalidateAfterSale, useItems } from '@/lib/queries';
-import { changeDue, cartSubtotal, filterCatalog, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, type CartLine, type PaymentRow } from '@/lib/sale';
+import { flatPages, useAppointments, useCategories, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
+import { changeDue, cartSubtotal, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, type CartLine, type PaymentRow } from '@/lib/sale';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { BancolombiaBadge, NequiBadge } from '@/ui/brand/logos';
@@ -52,7 +52,8 @@ export default function SaleNewNative() {
   /* ---------- Cliente ---------- */
   const [clientQuery, setClientQuery] = useState('');
   const searching = clientQuery.trim().length >= 2;
-  const clientResults = useClients(clientQuery, searching);
+  // Búsqueda en el servidor (primera página): no se descarga el directorio.
+  const clientResults = useClientSearch(clientQuery.trim(), searching);
   const [selectedClient, setSelectedClient] = useState<{ id: string; name: string; phone: string | null } | null>(null);
   const [occasional, setOccasional] = useState(false);
   const [newClientOpen, setNewClientOpen] = useState(false);
@@ -93,7 +94,6 @@ export default function SaleNewNative() {
   const todayKey = todayIn(business.timezone);
   const todayRange = useMemo(() => dayRange(todayKey, business.timezone, 1), [todayKey, business.timezone]);
   const appointments = useAppointments(todayRange, canAgenda && Boolean(selectedClient));
-  const items = useItems();
   const categories = useCategories();
   const clientAppointment = useMemo(() => {
     if (!selectedClient || !appointments.data) return null;
@@ -101,12 +101,16 @@ export default function SaleNewNative() {
   }, [selectedClient, appointments.data]);
   const [appointmentLoaded, setAppointmentLoaded] = useState(false);
 
-  function loadAppointment() {
-    if (!clientAppointment || !items.data) return;
+  /** Carga la cita del cliente en el carrito con los precios del catálogo: pide SOLO esos artículos (por id). */
+  async function loadAppointment() {
+    if (!clientAppointment) return;
+    const ids = [...new Set(clientAppointment.items.filter((line) => line.kind !== 'package' && line.itemId).map((line) => line.itemId!))];
+    const fetched = await Promise.all(ids.map((id) => api.item(id).catch(() => null)));
+    const byId = new Map(fetched.filter((item): item is Item => item !== null).map((item) => [item.id, item]));
     const added: CartLine[] = [];
     for (const line of clientAppointment.items) {
       if (line.kind === 'package' || !line.itemId) continue;
-      const catalogItem = items.data.find((i) => i.id === line.itemId);
+      const catalogItem = byId.get(line.itemId);
       if (!catalogItem) continue;
       added.push({
         key: nextKey(),
@@ -129,7 +133,14 @@ export default function SaleNewNative() {
   const [tab, setTab] = useState<'service' | 'product'>('service');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [itemQuery, setItemQuery] = useState('');
-  const catalogRows = useMemo(() => filterCatalog(items.data ?? [], itemQuery, categoryFilter, tab), [items.data, itemQuery, categoryFilter, tab]);
+  const [appliedItemQuery, setAppliedItemQuery] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setAppliedItemQuery(itemQuery.trim()), 300);
+    return () => clearTimeout(id);
+  }, [itemQuery]);
+  // Catálogo del POS paginado: tipo, categoría y búsqueda (sin tildes) en el servidor; "Cargar más" al final.
+  const items = useItemsPages({ kind: tab, categoryId: categoryFilter ?? undefined, q: appliedItemQuery || undefined });
+  const catalogRows = useMemo(() => flatPages(items.data), [items.data]);
 
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<'service' | 'product'>('service');
@@ -141,7 +152,7 @@ export default function SaleNewNative() {
   const [lines, setLines] = useState<CartLine[]>([]);
   const updateLine = (key: string, patch: Partial<CartLine>) => setLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
 
-  function addCatalogLine(row: NonNullable<typeof items.data>[number]) {
+  function addCatalogLine(row: Item) {
     setLines((prev) => {
       const existing = prev.find((l) => l.itemId === row.id && l.kind === tab);
       if (existing) return prev.map((l) => (l === existing ? { ...l, quantity: l.quantity + 1 } : l));
@@ -321,9 +332,9 @@ export default function SaleNewNative() {
             </Card>
           ) : null}
           {searching ? (
-            (clientResults.data ?? []).length > 0 ? (
+            (clientResults.data?.data ?? []).length > 0 ? (
               <View style={{ marginBottom: space.md }}>
-                {(clientResults.data ?? []).map((client) => (
+                {(clientResults.data?.data ?? []).map((client) => (
                   <Pressable key={client.id} accessibilityRole="button" onPress={() => pickClient(client)} style={[styles.clientRow, { borderColor: colors.border }]}>
                     <AppText variant="bodyStrong">{client.name}</AppText>
                     {client.phone ? <AppText variant="small" tone="muted">{client.phone}</AppText> : null}
@@ -347,7 +358,7 @@ export default function SaleNewNative() {
               {t('sale_client_appt_loaded')}
             </AppText>
           ) : (
-            <Button label={t('sale_client_appt_load')} compact variant="secondary" onPress={loadAppointment} style={{ marginTop: space.sm, alignSelf: 'flex-start' }} />
+            <Button label={t('sale_client_appt_load')} compact variant="secondary" onPress={() => void loadAppointment()} style={{ marginTop: space.sm, alignSelf: 'flex-start' }} />
           )}
         </Card>
       ) : null}
@@ -367,7 +378,11 @@ export default function SaleNewNative() {
           ))}
         </ChipRow>
       ) : null}
-      {catalogRows.length === 0 ? (
+      {items.isPending ? (
+        <AppText tone="muted" variant="small" style={{ marginBottom: space.md }}>
+          {t('loading')}
+        </AppText>
+      ) : catalogRows.length === 0 ? (
         <EmptyState icon="search-outline" message={t(tab === 'service' ? 'sale_items_empty_services' : 'sale_items_empty_products')} />
       ) : (
         catalogRows.map((row) => {
@@ -386,6 +401,16 @@ export default function SaleNewNative() {
           );
         })
       )}
+      {items.hasNextPage || items.isFetchNextPageError ? (
+        <Button
+          label={items.isFetchNextPageError ? t('retry') : t('load_more')}
+          variant="ghost"
+          compact
+          loading={items.isFetchingNextPage}
+          onPress={() => void items.fetchNextPage()}
+          style={{ alignSelf: 'center', marginBottom: space.md }}
+        />
+      ) : null}
 
       <Pressable accessibilityRole="button" onPress={() => setManualOpen((v) => !v)} style={{ marginBottom: space.md }}>
         <AppText tone="gold" variant="bodyStrong">

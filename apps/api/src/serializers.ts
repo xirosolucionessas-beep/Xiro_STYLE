@@ -86,6 +86,11 @@ export async function loadItems(db: DbExecutor, businessId: string, options: { i
     .innerJoin(categories, eq(categories.id, items.categoryId))
     .where(and(eq(items.businessId, businessId), options.id ? eq(items.id, options.id) : undefined, options.publishedOnly ? eq(items.published, true) : undefined))
     .orderBy(desc(items.updatedAt), asc(items.name));
+  return hydrateItems(db, rows);
+}
+
+/** Fotos (en su orden) + forma pública de `Item` para filas ya consultadas (con el nombre de su categoría). */
+export async function hydrateItems(db: DbExecutor, rows: ReadonlyArray<{ item: typeof items.$inferSelect; categoryName: string }>): Promise<Item[]> {
   if (rows.length === 0) return [];
 
   const photos = await db

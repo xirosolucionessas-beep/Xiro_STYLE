@@ -1,9 +1,9 @@
-import { formatMoney, normalizePhone, whatsappLink } from '@xiro/shared';
+import { formatMoney, normalizePhone, whatsappLink, type Client } from '@xiro/shared';
 import { useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { publicBaseUrl } from '@/lib/api';
-import { useClients, useItem } from '@/lib/queries';
+import { useClientSearch, useItem } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
@@ -20,13 +20,21 @@ export default function Share() {
   const { business } = useAuthed();
   const { mode, id } = useLocalSearchParams<{ mode?: 'catalog' | 'item'; id?: string }>();
   const item = useItem(mode === 'item' ? id : undefined).data;
-  const clients = useClients().data ?? [];
+  // Selector de cliente con búsqueda en el servidor (20 resultados): no se descarga el directorio completo.
+  const [search, setSearch] = useState('');
+  const [applied, setApplied] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setApplied(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const clients = useClientSearch(applied).data?.data ?? [];
   const [target, setTarget] = useState<Target>(clients.length > 0 ? 'client' : 'number');
-  const [pickedId, setPickedId] = useState<string | null>(null);
+  // Se guarda el cliente elegido (no solo su id): sigue elegido aunque cambie la búsqueda.
+  const [client, setClient] = useState<Client | null>(null);
+  const pickedId = client?.id ?? null;
   const [number, setNumber] = useState('');
   const [error, setError] = useState<string>();
 
-  const client = clients.find((c) => c.id === pickedId);
   const base = `${publicBaseUrl()}/catalog/${business.slug}`;
   const greeting = target === 'client' && client ? `${t('hello')} ${client.name},` : `${t('hello')},`;
 
@@ -61,6 +69,7 @@ export default function Share() {
         <Field label={t('phone')} value={number} onChangeText={setNumber} keyboardType="phone-pad" prefix="+57" error={error} />
       ) : target === 'client' ? (
         <View style={{ gap: 8 }} role="radiogroup" aria-label={t('share_client')}>
+          <Field label={t('search')} value={search} onChangeText={setSearch} autoCapitalize="none" />
           {clients.map((c) => {
             const selected = c.id === pickedId;
             return (
@@ -69,7 +78,7 @@ export default function Share() {
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
                 onPress={() => {
-                  setPickedId(c.id);
+                  setClient(c);
                   setError(undefined);
                 }}
                 style={[styles.client, { borderColor: selected ? colors.gold : colors.border, backgroundColor: selected ? colors.goldTint : colors.surface }]}>

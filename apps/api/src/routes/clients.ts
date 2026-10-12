@@ -1,38 +1,91 @@
-import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
-import { clientInputSchema, resetClientPasswordSchema, type Client } from '@xiro/shared';
+import { and, asc, desc, eq, gte, ilike, lt, or, sql } from 'drizzle-orm';
+import { clientInputSchema, clientsQuerySchema, clientsSummaryQuerySchema, resetClientPasswordSchema, type Client, type ClientsSummary, type Page } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
-import { clientAccounts, clientAuditLog, clientSessions, clients } from '../db/schema';
+import { businesses, clientAccounts, clientAuditLog, clientSessions, clients, serviceRecords } from '../db/schema';
 import { anonymizeClient } from '../booking/privacy';
 import { AppError, notFound, parse, uuid } from '../errors';
 import { removeMedia, saveAvatarImage } from '../media';
+import { decodeCursor, escapeLike, toPage } from '../pagination';
+import { clientSearchText } from '../db/search';
 import { notifyBusiness } from '../push';
-import { hashPassword, readableTempPassword, WindowCounter } from '../security';
+import { hashPassword, readableTempPassword } from '../security';
 import { toClient } from '../serializers';
 
-const listQuery = z.object({ q: z.string().trim().max(80).optional() });
 const TEMP_PASSWORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Escapa los comodines de LIKE para que la búsqueda sea literal (p. ej. "%" no coincide con todo). */
-const escapeLike = (value: string) => value.replace(/[\\%_]/g, (char) => `\\${char}`);
 
 export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
-  const resetLimiter = new WindowCounter(60 * 60 * 1000);
+  const resetLimiter = ctx.rates.limiter('client-reset-password', 60 * 60 * 1000);
   const businessOf = (request: { user: { bid: string } }) => request.user.bid;
   const ownedBy = (businessId: string, id: string) => and(eq(clients.id, id), eq(clients.businessId, businessId));
 
-  app.get('/clients', async (request) => {
-    const { q } = parse(listQuery, request.query);
+  /**
+   * Directorio paginado por cursor (`?limit` 1–100, por defecto 50). `sort=name`: A–Z por nombre (clave
+   * `lower(name)` + id, la del índice clients_business_name_idx). `sort=recent`: los últimos creados primero (actividad
+   * del Inicio). Siempre acotado al negocio de la sesión.
+   */
+  app.get('/clients', async (request): Promise<Page<Client>> => {
+    const { q, sort, limit, cursor, createdFrom, createdTo } = parse(clientsQuerySchema, request.query);
     const pattern = q ? `%${escapeLike(q)}%` : undefined;
+    const lowerName = sql<string>`lower(${clients.name})`;
+    const createdText = sql<string>`${clients.createdAt}::text`;
+    const after = decodeCursor(cursor, ['string', 'string']);
+    const keyset = after
+      ? sort === 'recent'
+        ? sql`(${clients.createdAt}, ${clients.id}) < (${after[0]}::timestamptz, ${after[1]}::uuid)`
+        : sql`(lower(${clients.name}), ${clients.id}) > (${after[0]}, ${after[1]}::uuid)`
+      : undefined;
     const rows = await db
-      .select()
+      .select({ client: clients, lowerName, createdText })
       .from(clients)
       // El cliente "de mostrador" compartido (ventas sin ficha) nunca aparece en el directorio ni en el buscador.
-      .where(and(eq(clients.businessId, businessOf(request)), eq(clients.isOccasional, false), pattern ? or(ilike(clients.name, pattern), ilike(clients.email, pattern), ilike(clients.phone, pattern)) : undefined))
-      .orderBy(asc(sql`lower(${clients.name})`));
-    return rows.map(toClient);
+      .where(
+        and(
+          eq(clients.businessId, businessOf(request)),
+          eq(clients.isOccasional, false),
+          // Primero la unión de los tres campos (usa clients_search_trgm_idx), luego cada campo: mismo resultado de siempre.
+          pattern ? and(ilike(clientSearchText(clients.name, clients.email, clients.phone), pattern), or(ilike(clients.name, pattern), ilike(clients.email, pattern), ilike(clients.phone, pattern))) : undefined,
+          createdFrom ? gte(clients.createdAt, new Date(createdFrom)) : undefined,
+          createdTo ? lt(clients.createdAt, new Date(createdTo)) : undefined,
+          keyset,
+        ),
+      )
+      .orderBy(...(sort === 'recent' ? [desc(clients.createdAt), desc(clients.id)] : [asc(lowerName), asc(clients.id)]))
+      .limit(limit + 1);
+    return toPage(rows, limit, (row) => (sort === 'recent' ? [row.createdText, row.client.id] : [row.lowerName, row.client.id]), (row) => toClient(row.client));
+  });
+
+  /**
+   * Indicadores del directorio sin descargar la lista: total, nuevos (hoy, ayer, este mes — en la zona horaria del
+   * negocio), activos en 30 días (con algún servicio no anulado) y, si se pide un rango [from, to), los nuevos del periodo.
+   */
+  app.get('/clients/summary', async (request): Promise<ClientsSummary> => {
+    const { from, to } = parse(clientsSummaryQuerySchema, request.query);
+    if ((from === undefined) !== (to === undefined) || (from && to && !(new Date(from) < new Date(to)))) throw new AppError(400, 'date_invalid');
+    const businessId = businessOf(request);
+    const [business] = await db.select({ timezone: businesses.timezone }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+    if (!business) throw notFound();
+    const tz = business.timezone;
+    const localDay = sql`(${clients.createdAt} AT TIME ZONE ${tz})::date`;
+    const today = sql`(now() AT TIME ZONE ${tz})::date`;
+    const [counts] = await db
+      .select({
+        total: sql<number>`count(*)::int`,
+        newToday: sql<number>`(count(*) FILTER (WHERE ${localDay} = ${today}))::int`,
+        newYesterday: sql<number>`(count(*) FILTER (WHERE ${localDay} = ${today} - 1))::int`,
+        newThisMonth: sql<number>`(count(*) FILTER (WHERE date_trunc('month', ${clients.createdAt} AT TIME ZONE ${tz}) = date_trunc('month', now() AT TIME ZONE ${tz})))::int`,
+        newInRange: from && to ? sql<number>`(count(*) FILTER (WHERE ${clients.createdAt} >= ${from}::timestamptz AND ${clients.createdAt} < ${to}::timestamptz))::int` : sql<null>`NULL`,
+      })
+      .from(clients)
+      .where(and(eq(clients.businessId, businessId), eq(clients.isOccasional, false)));
+    const [active] = await db
+      .select({ count: sql<number>`count(DISTINCT ${serviceRecords.clientId})::int` })
+      .from(serviceRecords)
+      .where(and(eq(serviceRecords.businessId, businessId), eq(serviceRecords.voided, false), sql`${serviceRecords.createdAt} >= now() - interval '30 days'`));
+    return { total: counts?.total ?? 0, newToday: counts?.newToday ?? 0, newYesterday: counts?.newYesterday ?? 0, newThisMonth: counts?.newThisMonth ?? 0, active30d: active?.count ?? 0, newInRange: counts?.newInRange ?? null };
   });
 
   app.get('/clients/:id', async (request) => {
@@ -72,7 +125,7 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     const [existing] = await db.select({ photoFile: clients.photoFile }).from(clients).where(ownedBy(businessId, id)).limit(1);
     const deleted = await db.delete(clients).where(ownedBy(businessId, id)).returning({ id: clients.id });
     if (deleted.length === 0) throw notFound();
-    await removeMedia(config.mediaDir, existing?.photoFile ?? null);
+    await removeMedia(ctx.media, existing?.photoFile ?? null);
     return reply.status(204).send();
   });
 
@@ -82,17 +135,17 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     const businessId = businessOf(request);
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    const file = await saveAvatarImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     try {
       const [existing] = await db.select({ photoFile: clients.photoFile }).from(clients).where(ownedBy(businessId, id)).limit(1);
       if (!existing) throw notFound();
       const [row] = await db.update(clients).set({ photoFile: file }).where(ownedBy(businessId, id)).returning();
       // Se borra la anterior DESPUÉS de confirmar la nueva: si algo falla antes, el cliente conserva la foto que ya tenía.
-      await removeMedia(config.mediaDir, existing.photoFile);
+      await removeMedia(ctx.media, existing.photoFile);
       return toClient(row!);
     } catch (error) {
-      await removeMedia(config.mediaDir, file);
+      await removeMedia(ctx.media, file);
       throw error;
     }
   });
@@ -103,7 +156,7 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     const [existing] = await db.select({ photoFile: clients.photoFile }).from(clients).where(ownedBy(businessId, id)).limit(1);
     if (!existing) throw notFound();
     const [row] = existing.photoFile ? await db.update(clients).set({ photoFile: null }).where(ownedBy(businessId, id)).returning() : await db.select().from(clients).where(ownedBy(businessId, id));
-    await removeMedia(config.mediaDir, existing.photoFile);
+    await removeMedia(ctx.media, existing.photoFile);
     return toClient(row!);
   });
 
@@ -113,7 +166,7 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     const businessId = businessOf(request);
     const result = await db.transaction((tx) => anonymizeClient(tx, businessId, id));
     if (!result) throw notFound();
-    await removeMedia(config.mediaDir, result.previousPhotoFile);
+    await removeMedia(ctx.media, result.previousPhotoFile);
     const [row] = await db.select().from(clients).where(ownedBy(businessId, id)).limit(1);
     return toClient(row!);
   });
@@ -132,7 +185,7 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     const input = parse(resetClientPasswordSchema, request.body ?? {});
 
     const key = `client-reset-password:${id}`;
-    if (resetLimiter.hit(key) > 5) throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(resetLimiter.retryAfterSeconds(key)) });
+    if ((await resetLimiter.hit(key)) > 5) throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await resetLimiter.retryAfterSeconds(key)) });
 
     const [client] = await db.select({ id: clients.id }).from(clients).where(ownedBy(businessId, id)).limit(1);
     if (!client) throw notFound();

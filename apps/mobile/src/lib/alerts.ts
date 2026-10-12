@@ -1,5 +1,4 @@
-import { subscriptionNotice, type Item, type NotificationCategory, type NotificationDto, type Subscription } from '@xiro/shared';
-import { lowStock } from './homeMetrics';
+import { subscriptionNotice, type NotificationCategory, type NotificationDto, type Subscription } from '@xiro/shared';
 
 /**
  * Alertas del negocio calculadas SOLO con datos que la app ya consulta (inventario, caja del día, suscripción): no
@@ -28,8 +27,11 @@ export interface AlertInputs {
   isOwner: boolean;
   /** Puede ver catálogo e inventario. */
   canCatalog: boolean;
-  /** `undefined` mientras carga o si la persona no puede verlos. */
-  items?: ReadonlyArray<Pick<Item, 'stockStatus'>>;
+  /**
+   * Artículos con inventario por reponer y agotados (de `/items/summary`: el servidor ya cuenta solo lo que lleva
+   * inventario). `undefined` mientras carga o si la persona no puede verlos.
+   */
+  stock?: { reorder: number; outOfStock: number };
   /** `undefined` = no se sabe (cargando / sin permiso): no se alerta. */
   cashOpened?: boolean;
   subscription?: Pick<Subscription, 'status' | 'hasAccess' | 'trialEndsAt' | 'currentPeriodEnd' | 'gracePeriodEndsAt' | 'cancelAtPeriodEnd'>;
@@ -48,8 +50,8 @@ export function buildAlerts(input: AlertInputs): HomeAlert[] {
     else if (notice === 'expiring_soon') alerts.push({ id: 'subscription', signature: 'subscription:expiring', priority: 'info', titleKey: 'alert_sub_expiring', detailKey: 'alert_sub_expiring_detail', href: '/subscription' });
   }
 
-  if (input.canCatalog && input.items) {
-    const stock = lowStock(input.items);
+  if (input.canCatalog && input.stock) {
+    const stock = { ...input.stock, count: input.stock.reorder + input.stock.outOfStock };
     if (stock.count > 0) {
       alerts.push({
         id: 'low_stock',

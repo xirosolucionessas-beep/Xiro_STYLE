@@ -67,6 +67,7 @@ import type {
   SubscriptionPlatform,
   User,
 } from '@xiro/shared';
+import { HTTP_TIMEOUT_MS, withRetry, type ClientsQuery, type ClientVisits, type ClientsSummary, type ItemsQuery, type ItemsSummary, type LoyaltySummary, type Page, type PageParams, type ServiceRecordsQuery, type ServiceRecordsSummary } from '@xiro/shared';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -85,6 +86,22 @@ export class ApiError extends Error {
   }
 }
 
+/** Host imposible (dominio reservado `.invalid`): una compilación de producción mal configurada falla cerrada. */
+export const MISCONFIGURED_API_URL = 'https://api-url-no-configurada.invalid';
+
+/**
+ * URL de la API en el celular. En desarrollo, la de EXPO_PUBLIC_API_URL o la IP del PC que sirve Metro (http, red local).
+ * En una compilación de PRODUCCIÓN solo vale una URL https: sin ella (o con http://) la app NO cae a http en texto
+ * plano —tokens y datos de clientes viajarían sin cifrar—; apunta a un host inválido y cada petición falla.
+ */
+export function resolveNativeApiUrl(input: { dev: boolean; configured?: string; hostUri?: string | null }): string {
+  const configured = input.configured?.trim().replace(/\/$/, '');
+  if (!input.dev) return configured && /^https:\/\/[^/]/i.test(configured) ? configured : MISCONFIGURED_API_URL;
+  if (configured) return configured;
+  const host = input.hostUri?.split(':')[0];
+  return host ? `http://${host}:3000` : 'http://10.0.2.2:3000';
+}
+
 export function apiBaseUrl(): string {
   if (Platform.OS === 'web') {
     // La Web siempre detecta su propia URL: un EXPO_PUBLIC_API_URL puesto para el celular (IP de LAN, modo túnel…)
@@ -93,10 +110,7 @@ export function apiBaseUrl(): string {
     // Servidor de desarrollo de Expo (8081) → API local en 3000. En producción la API sirve la web (mismo origen).
     return port === '8081' ? `http://${hostname}:3000` : origin;
   }
-  const configured = process.env.EXPO_PUBLIC_API_URL;
-  if (configured) return configured.replace(/\/$/, '');
-  const host = Constants.expoConfig?.hostUri?.split(':')[0];
-  return host ? `http://${host}:3000` : 'http://10.0.2.2:3000';
+  return resolveNativeApiUrl({ dev: __DEV__, configured: process.env.EXPO_PUBLIC_API_URL, hostUri: Constants.expoConfig?.hostUri });
 }
 
 /** URL base pública para enlaces compartidos con clientes. */
@@ -113,6 +127,8 @@ export function resolveMedia(url: string | null | undefined): string | undefined
 
 interface SessionHooks {
   getRefreshToken: () => string | null;
+  /** "Recordarme" (solo web): cookie persistente de 30 días o de sesión del navegador. */
+  remembers?: () => boolean;
   onTokens: (session: AuthSession) => void;
   onSignedOut: () => void;
 }
@@ -128,27 +144,60 @@ export function setAccessToken(token: string | null) {
   accessToken = token;
 }
 
+/**
+ * Un intento con tiempo máximo (`HTTP_TIMEOUT_MS`). Se usa AbortController + setTimeout (no `AbortSignal.timeout`,
+ * que no existe en todas las versiones de React Native). Sin respuesta a tiempo = `timeout_error`; sin red = `offline_error`
+ * (ambos con status 0: la sesión no se cierra por un problema de red).
+ */
+async function fetchOnce(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch {
+    throw new ApiError(0, controller.signal.aborted ? 'timeout_error' : 'offline_error');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Panel web: el refresh token vive en una cookie HttpOnly que pone la API (JavaScript nunca lo ve, así un XSS no puede
+ * robarlo). Las rutas /api/auth se piden con `X-Xiro-Session: cookie` y con credenciales; la app móvil no usa esto
+ * (guarda el token en Keychain/Keystore). Ver apps/api/src/routes/auth.ts.
+ */
+export const usesCookieSession = Platform.OS === 'web';
+
+/** Política común (@xiro/shared/http): solo GET se reintenta (hasta 3 intentos, backoff con jitter) y nunca un 4xx. */
 async function rawRequest(path: string, init: RequestInit & { auth: boolean }): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
   if (init.auth && accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-  try {
-    return await fetch(`${apiBaseUrl()}${path}`, { ...init, headers });
-  } catch {
-    throw new ApiError(0, 'offline_error');
+  const { auth: _auth, ...rest } = init;
+  const cookieAuth = usesCookieSession && path.startsWith('/api/auth/');
+  if (cookieAuth) {
+    headers.set('X-Xiro-Session', 'cookie');
+    if (hooks?.remembers?.() === false) headers.set('X-Xiro-Remember', '0');
   }
+  return withRetry(
+    init.method,
+    () => fetchOnce(`${apiBaseUrl()}${path}`, { ...rest, headers, ...(cookieAuth ? { credentials: 'include' as const } : {}) }),
+    (response) => response.status,
+    (error) => error instanceof ApiError && error.isNetwork,
+  );
 }
 
 async function tryRefresh(): Promise<boolean> {
   const refreshToken = hooks?.getRefreshToken();
-  if (!hooks || !refreshToken) return false;
+  // En web el token no está en JavaScript: va en la cookie, así que se intenta igual.
+  if (!hooks || (!refreshToken && !usesCookieSession)) return false;
   refreshing ??= (async () => {
     try {
       const response = await rawRequest('/api/auth/refresh', {
         method: 'POST',
         auth: false,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
+        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
       });
       if (!response.ok) return false;
       hooks?.onTokens((await response.json()) as AuthSession);
@@ -193,13 +242,38 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (await response.json()) as T;
 }
 
+/** `?a=1&b=x` a partir de un objeto; omite `undefined`, `null` y cadenas vacías. */
+function query(params: object): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== null && value !== '') search.set(key, String(value));
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}
+
+/**
+ * Recorre TODAS las páginas de un listado (para lo que de verdad necesita el conjunto completo: configuraciones de
+ * servicios, el catálogo en PDF). `maxPages` es un tope de seguridad (100 × 100 = 10.000 filas).
+ */
+export async function fetchAllPages<T>(fetchPage: (cursor: string | undefined) => Promise<Page<T>>, maxPages = 100): Promise<T[]> {
+  const all: T[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < maxPages; page += 1) {
+    const result = await fetchPage(cursor);
+    all.push(...result.data);
+    if (!result.nextCursor) return all;
+    cursor = result.nextCursor;
+  }
+  return all;
+}
+
 /* ---------- Endpoints ---------- */
 
 export const api = {
   register: (body: RegisterInput) => request<AuthSession>('/api/auth/register', { method: 'POST', body, auth: false }),
   login: (body: LoginInput) => request<AuthSession>('/api/auth/login', { method: 'POST', body, auth: false }),
-  refresh: (refreshToken: string) => request<AuthSession>('/api/auth/refresh', { method: 'POST', body: { refreshToken }, auth: false }),
-  logout: (refreshToken: string) => request<void>('/api/auth/logout', { method: 'POST', body: { refreshToken }, auth: false }),
+  /** Sin token = la cookie HttpOnly del panel web (ver `usesCookieSession`). */
+  refresh: (refreshToken?: string | null) => request<AuthSession>('/api/auth/refresh', { method: 'POST', body: refreshToken ? { refreshToken } : {}, auth: false }),
+  logout: (refreshToken?: string | null) => request<void>('/api/auth/logout', { method: 'POST', body: refreshToken ? { refreshToken } : {}, auth: false }),
   recoverRequest: (identifier: string, channel: RecoveryChannel) =>
     request<{ ok: true; devCode?: string }>('/api/auth/recover/request', { method: 'POST', body: { identifier, channel }, auth: false }),
   recoverVerify: (identifier: string, code: string) =>
@@ -243,7 +317,9 @@ export const api = {
   renameCategory: (id: string, name: string) => request<Category>(`/api/categories/${id}`, { method: 'PATCH', body: { name } }),
   deleteCategory: (id: string) => request<void>(`/api/categories/${id}`, { method: 'DELETE' }),
 
-  items: () => request<Item[]>('/api/items'),
+  /** Catálogo/inventario paginado (`limit` ≤ 100) con filtros en el servidor. */
+  items: (params: ItemsQuery = {}) => request<Page<Item>>(`/api/items${query(params)}`),
+  itemsSummary: () => request<ItemsSummary>('/api/items/summary'),
   item: (id: string) => request<Item>(`/api/items/${id}`),
   createItem: (body: ItemInput) => request<Item>('/api/items', { method: 'POST', body }),
   updateItem: (id: string, body: ItemInput) => request<Item>(`/api/items/${id}`, { method: 'PUT', body }),
@@ -253,7 +329,9 @@ export const api = {
   deletePhoto: (id: string, photoId: string) => request<Item>(`/api/items/${id}/photos/${photoId}`, { method: 'DELETE' }),
   makePrimaryPhoto: (id: string, photoId: string) => request<Item>(`/api/items/${id}/photos/${photoId}/primary`, { method: 'POST' }),
 
-  clients: (q?: string) => request<Client[]>(`/api/clients${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  /** Directorio paginado (`limit` ≤ 100): `q` busca en el servidor; `sort=recent` = los últimos creados primero. */
+  clients: (params: ClientsQuery = {}) => request<Page<Client>>(`/api/clients${query(params)}`),
+  clientsSummary: (range?: { from: string; to: string }) => request<ClientsSummary>(`/api/clients/summary${query(range ?? {})}`),
   client: (id: string) => request<Client>(`/api/clients/${id}`),
   createClient: (body: ClientInput) => request<Client>('/api/clients', { method: 'POST', body }),
   updateClient: (id: string, body: ClientInput) => request<Client>(`/api/clients/${id}`, { method: 'PUT', body }),
@@ -266,10 +344,13 @@ export const api = {
 
   loyaltyProgram: () => request<LoyaltyProgram>('/api/loyalty/program'),
   updateLoyaltyProgram: (body: LoyaltyProgramUpdateInput) => request<LoyaltyProgram>('/api/loyalty/program', { method: 'PUT', body }),
-  loyaltyClients: () => request<LoyaltyClientProgress[]>('/api/loyalty/clients'),
-  loyaltyRedemptions: (clientId?: string) => request<LoyaltyRedemption[]>(`/api/loyalty/redemptions${clientId ? `?clientId=${clientId}` : ''}`),
+  loyaltySummary: () => request<LoyaltySummary>('/api/loyalty/summary'),
+  loyaltyClients: (params: PageParams & { q?: string } = {}) => request<Page<LoyaltyClientProgress>>(`/api/loyalty/clients${query(params)}`),
+  loyaltyRedemptions: (params: PageParams & { clientId?: string } = {}) => request<Page<LoyaltyRedemption>>(`/api/loyalty/redemptions${query(params)}`),
   redeemLoyalty: (clientId: string) => request<LoyaltyClientProgress>(`/api/loyalty/clients/${clientId}/redeem`, { method: 'POST' }),
-  serviceRecords: (clientId?: string) => request<ServiceRecord[]>(`/api/service-records${clientId ? `?clientId=${clientId}` : ''}`),
+  serviceRecords: (params: ServiceRecordsQuery = {}) => request<Page<ServiceRecord>>(`/api/service-records${query(params)}`),
+  serviceRecordsByClient: (clientIds: string[]) => request<ClientVisits[]>(`/api/service-records/by-client${query({ clientIds: clientIds.join(',') })}`),
+  serviceRecordsSummary: (params: { clientId?: string; kind?: 'service' | 'product'; from?: string; to?: string } = {}) => request<ServiceRecordsSummary>(`/api/service-records/summary${query(params)}`),
   createServiceRecord: (body: ServiceRecordInput) => request<ServiceRecord & { rewardJustEarned: boolean }>('/api/service-records', { method: 'POST', body }),
 
   /* ---------- Ventas (POS) ---------- */
@@ -326,7 +407,7 @@ export const api = {
   closures: () => request<ClosureDto[]>('/api/booking/closures'),
   addClosure: (body: { date: string; reason: string }) => request<ClosureDto>('/api/booking/closures', { method: 'POST', body }),
   deleteClosure: (id: string) => request<void>(`/api/booking/closures/${id}`, { method: 'DELETE' }),
-  bookingReviews: () => request<ReviewDto[]>('/api/booking/reviews'),
+  bookingReviews: (params: PageParams & { status?: 'pending' | 'approved' | 'hidden' } = {}) => request<Page<ReviewDto>>(`/api/booking/reviews${query(params)}`),
   moderateReview: (id: string, status: 'approved' | 'hidden') => request<ReviewDto>(`/api/booking/reviews/${id}`, { method: 'PATCH', body: { status } }),
 
   /* ---------- Profesionales ---------- */
@@ -386,7 +467,7 @@ function availabilityParams(query: AvailabilityQuery & { from?: string; days?: n
 /** Traduce un error de API a una clave de i18n (o el mensaje del primer campo inválido). */
 export function errorKey(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.isNetwork) return 'offline_error';
+    if (error.isNetwork) return error.code === 'timeout_error' ? 'timeout_error' : 'offline_error';
     if (error.code === 'validation_error' && error.issues[0]) return error.issues[0].message;
     return error.code;
   }

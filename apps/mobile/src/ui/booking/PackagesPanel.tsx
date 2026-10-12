@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { api, errorKey } from '@/lib/api';
 import { issuesToErrors, toInt } from '@/lib/forms';
-import { keys, useItems, usePackages } from '@/lib/queries';
+import { keys, useAllItems, usePackages } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '../Button';
@@ -24,7 +24,7 @@ export function PackagesPanel() {
   const { confirm, toast } = useDialogs();
   const queryClient = useQueryClient();
   const packages = usePackages();
-  const items = useItems();
+  const items = useAllItems();
   const remove = useAction();
   const [editing, setEditing] = useState<PackageDto | 'new' | null>(null);
   const canManage = user ? can({ role: user.role, permissions: user.permissions }, 'catalog_manage') : false;
@@ -98,7 +98,7 @@ export function PackagesPanel() {
 function PackageForm({ pkg, onClose, onSaved }: { pkg: PackageDto | null; onClose: () => void; onSaved: () => Promise<void> }) {
   const { t } = useSettings();
   const { business } = useSession();
-  const items = useItems();
+  const items = useAllItems();
   const save = useAction();
   const currency = business?.currency ?? 'COP';
   const services = (items.data ?? []).filter((i) => i.kind === 'service');

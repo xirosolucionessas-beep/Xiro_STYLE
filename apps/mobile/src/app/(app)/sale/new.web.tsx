@@ -3,16 +3,16 @@
  * líneas a mano, y el pago — todo en una sola pantalla, pensada para ser rápida en el mostrador. Presentación en
  * src/web/screens/SaleForm.tsx.
  */
-import type { Client, SaleDto, SaleInput } from '@xiro/shared';
+import type { Client, Item, SaleDto, SaleInput } from '@xiro/shared';
 import { formatMoney, normalizePhone, whatsappLink, type Currency } from '@xiro/shared';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
 import { dayRange, formatClock, formatDay, localDate, localTime, summarizeItems, todayIn } from '@/lib/agenda';
-import { api, resolveMedia } from '@/lib/api';
+import { api, errorKey, resolveMedia } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
-import { useAppointments, useCategories, useClients, useEmployees, useInvalidateAfterSale, useItems } from '@/lib/queries';
-import { changeDue, filterCatalog, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, cartSubtotal, type CartLine, type PaymentRow } from '@/lib/sale';
+import { flatPages, useAppointments, useCategories, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
+import { changeDue, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, cartSubtotal, type CartLine, type PaymentRow } from '@/lib/sale';
 import { useAuthed } from '@/lib/session';
 import { Screen } from '@/ui/Screen';
 import { SaleFormView, type SaleAppointmentHint, type SaleCatalogRow, type SaleClientResult, type SaleEmployeeOption } from '@/web/screens/SaleForm';
@@ -43,7 +43,8 @@ export default function SaleNewWeb() {
   const [selectedClient, setSelectedClient] = useState<{ id: string; name: string; phone: string | null } | null>(null);
   const [occasional, setOccasional] = useState(false);
   const searching = appliedQuery.length >= 2 && !selectedClient && !occasional;
-  const clientResults = useClients(appliedQuery, searching);
+  // Búsqueda en el servidor (primera página): no se descarga el directorio.
+  const clientResults = useClientSearch(appliedQuery, searching);
 
   const [newClientOpen, setNewClientOpen] = useState(false);
   const [newClientName, setNewClientName] = useState('');
@@ -84,7 +85,6 @@ export default function SaleNewWeb() {
   const todayKey = todayIn(business.timezone);
   const todayRange = useMemo(() => dayRange(todayKey, business.timezone, 1), [todayKey, business.timezone]);
   const appointments = useAppointments(todayRange, canAgenda && Boolean(selectedClient));
-  const items = useItems();
   const categories = useCategories();
   const clientAppointment = useMemo(() => {
     if (!selectedClient || !appointments.data) return null;
@@ -95,12 +95,16 @@ export default function SaleNewWeb() {
     ? { time: formatClock(localTime(clientAppointment.startsAt, business.timezone), language), items: summarizeItems(clientAppointment.items) }
     : null;
 
-  function loadAppointment() {
-    if (!clientAppointment || !items.data) return;
+  /** Carga la cita del cliente en el carrito con los precios del catálogo: pide SOLO esos artículos (por id). */
+  async function loadAppointment() {
+    if (!clientAppointment) return;
+    const ids = [...new Set(clientAppointment.items.filter((line) => line.kind !== 'package' && line.itemId).map((line) => line.itemId!))];
+    const fetched = await Promise.all(ids.map((id) => api.item(id).catch(() => null)));
+    const byId = new Map(fetched.filter((item): item is Item => item !== null).map((item) => [item.id, item]));
     const added: CartLine[] = [];
     for (const line of clientAppointment.items) {
       if (line.kind === 'package' || !line.itemId) continue; // los paquetes no tienen equivalente en ventas todavía
-      const catalogItem = items.data.find((i) => i.id === line.itemId);
+      const catalogItem = byId.get(line.itemId);
       if (!catalogItem) continue;
       added.push({
         key: nextKey(),
@@ -123,9 +127,16 @@ export default function SaleNewWeb() {
   const [tab, setTab] = useState<'service' | 'product'>('service');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [itemQuery, setItemQuery] = useState('');
+  const [appliedItemQuery, setAppliedItemQuery] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setAppliedItemQuery(itemQuery.trim()), 250);
+    return () => clearTimeout(id);
+  }, [itemQuery]);
+  // Catálogo del POS paginado: tipo, categoría y búsqueda (sin tildes) en el servidor; "Cargar más" al final.
+  const items = useItemsPages({ kind: tab, categoryId: categoryFilter ?? undefined, q: appliedItemQuery || undefined });
   const catalogRows: SaleCatalogRow[] = useMemo(
-    () => filterCatalog(items.data ?? [], itemQuery, categoryFilter, tab).map((i) => ({ id: i.id, name: i.name, price: i.price, stock: i.kind === 'product' ? i.stock : null, categoryId: i.categoryId })),
-    [items.data, itemQuery, categoryFilter, tab],
+    () => flatPages(items.data).map((i) => ({ id: i.id, name: i.name, price: i.price, stock: i.kind === 'product' ? i.stock : null, categoryId: i.categoryId })),
+    [items.data],
   );
 
   const [manualOpen, setManualOpen] = useState(false);
@@ -331,7 +342,7 @@ export default function SaleNewWeb() {
       currency={currency}
       clientQuery={clientQuery}
       onClientQuery={setClientQuery}
-      clientResults={(clientResults.data ?? []).map((c) => ({ id: c.id, name: c.name, phone: c.phone }))}
+      clientResults={(clientResults.data?.data ?? []).map((c) => ({ id: c.id, name: c.name, phone: c.phone }))}
       clientSearchLoading={clientResults.isFetching}
       selectedClient={selectedClient}
       occasional={occasional}
@@ -353,7 +364,7 @@ export default function SaleNewWeb() {
       newClientError={newClientError}
       appointmentHint={appointmentHint}
       appointmentLoaded={appointmentLoaded}
-      onLoadAppointment={loadAppointment}
+      onLoadAppointment={() => void loadAppointment()}
       tab={tab}
       onTab={setTab}
       categories={categories.data ?? []}
@@ -362,6 +373,13 @@ export default function SaleNewWeb() {
       itemQuery={itemQuery}
       onItemQuery={setItemQuery}
       catalogRows={catalogRows}
+      catalogLoading={items.isPending}
+      catalogPagination={{
+        hasMore: Boolean(items.hasNextPage),
+        loading: items.isFetchingNextPage,
+        error: items.isFetchNextPageError ? t(errorKey(items.error)) : undefined,
+        onLoadMore: () => void items.fetchNextPage(),
+      }}
       onAddCatalogItem={addCatalogLine}
       manualOpen={manualOpen}
       onToggleManual={() => setManualOpen((v) => !v)}

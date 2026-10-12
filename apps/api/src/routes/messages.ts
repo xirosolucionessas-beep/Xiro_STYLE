@@ -46,6 +46,8 @@ export function messagesRoutes(app: FastifyInstance, ctx: Ctx): void {
     });
   });
 
+  // Sin paginar a propósito: hay como mucho UNA conversación por cada par de personas del equipo, así que la lista de
+  // cada usuario está acotada por el tamaño del equipo (no crece con clientes, ventas ni mensajes).
   app.get('/messages/conversations', async (request): Promise<ConversationDto[]> => {
     return scoped(request, async (tx) => {
       const me = request.user.sub;
