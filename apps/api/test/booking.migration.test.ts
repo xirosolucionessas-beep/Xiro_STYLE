@@ -81,9 +81,9 @@ describe('migración 0006_citas sobre una base con datos', () => {
     // ventas desde 0014, gastos/cierre de caja desde 0016 y pedidos de productos desde 0025: nacen protegidas en vez de esperar a una fase aparte).
     const rls = await pool.query(`select relname from pg_class where relrowsecurity and relkind = 'r' order by relname`);
     expect(rls.rows.map((r) => r.relname)).toEqual([
-      'appointment_events', 'appointment_items', 'appointments', 'business_closures', 'business_public_profiles', 'business_settings', 'cash_closings', 'conversations',
+      'appointment_events', 'appointment_items', 'appointments', 'business_closures', 'business_public_profiles', 'business_settings', 'cash_closings', 'conversations', 'discount_codes',
       'employee_profiles', 'employee_schedules', 'employee_services', 'employee_time_off', 'expenses', 'messages', 'product_order_items', 'product_orders', 'reviews', 'sale_items', 'sale_payments', 'sales',
-      'service_package_entries', 'service_packages', 'service_variants',
+      'service_package_entries', 'service_packages', 'service_variants', 'waitlist_entries',
     ]);
   });
 

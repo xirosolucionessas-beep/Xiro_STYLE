@@ -78,7 +78,7 @@ export default function Orders() {
   const renderOrder = ({ item: order }: { item: ProductOrderDto }) => {
     const open = order.status === 'pending' || order.status === 'ready';
     const tone = order.status === 'pending' ? colors.gold : order.status === 'ready' ? colors.success : order.status === 'cancelled' ? colors.danger : colors.textMuted;
-    const message = t('order_ready_whatsapp', { name: order.customerName.split(' ')[0] ?? order.customerName, business: business.name, total: formatMoney(order.totalPrice, currency) });
+    const message = t('order_ready_whatsapp', { name: order.customerName.split(' ')[0] ?? order.customerName, business: business.name, total: formatMoney(order.totalPrice - (order.discount?.amount ?? 0), currency) });
     return (
       <Card style={styles.card}>
         <View style={styles.head}>
@@ -106,11 +106,19 @@ export default function Orders() {
               <AppText tone="muted">{formatMoney(line.unitPrice * line.quantity, currency)}</AppText>
             </View>
           ))}
+          {order.discount && order.discount.amount > 0 ? (
+            <View style={styles.line}>
+              <AppText tone="success" style={{ flex: 1 }}>
+                {t('pub_summary_discount', { code: order.discount.code })}
+              </AppText>
+              <AppText tone="success">−{formatMoney(order.discount.amount, currency)}</AppText>
+            </View>
+          ) : null}
           <View style={[styles.line, styles.total, { borderTopColor: colors.border }]}>
             <AppText variant="bodyStrong" style={{ flex: 1 }}>
               {t('pub_summary_total')}
             </AppText>
-            <AppText variant="bodyStrong">{formatMoney(order.totalPrice, currency)}</AppText>
+            <AppText variant="bodyStrong">{formatMoney(order.totalPrice - (order.discount?.amount ?? 0), currency)}</AppText>
           </View>
         </View>
 

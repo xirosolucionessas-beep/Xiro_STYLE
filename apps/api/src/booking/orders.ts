@@ -7,6 +7,7 @@ import type { BusinessRow } from '../serializers';
 import { findOrCreateClient, idempotencyHash, type PublicProfileRow } from './appointments';
 import type { BookingContext } from './availability';
 import type { Tx } from './scope';
+import { discountCodesById, discountOf, redeemDiscount } from './discounts';
 import { allSections } from './view';
 
 export type ProductOrderRow = typeof productOrders.$inferSelect;
@@ -22,6 +23,8 @@ export interface CreateProductOrderInput {
   account: { id: string; clientId: string } | null;
   termsIp: string | null;
   idempotencyKey?: string | undefined;
+  /** Código de descuento (Fase 4); se valida y se cuenta aquí, en la transacción del pedido. */
+  discountCode?: string | undefined;
 }
 
 export interface CreatedProductOrder {
@@ -69,6 +72,11 @@ export async function createProductOrder(tx: Tx, businessId: string, ctx: Bookin
     return { itemId: item.id, name: item.name, unitPrice: item.price, quantity: line.quantity };
   });
   const total = lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+  let discount: { id: string; amount: number } | null = null;
+  if (input.discountCode) {
+    if (!ctx.settings.discountCodesEnabled) throw new AppError(409, 'discount_invalid');
+    discount = await redeemDiscount(tx, businessId, input.discountCode, { subtotal: total, clientId, now: input.now });
+  }
 
   try {
     // Punto de guardado: si otro envío con la misma clave ganó la carrera, la transacción de la petición sigue viva.
@@ -84,6 +92,8 @@ export async function createProductOrder(tx: Tx, businessId: string, ctx: Bookin
           customerEmail: input.customer.email ?? null,
           customerNotes: input.customer.notes,
           totalPrice: total,
+          discountCodeId: discount?.id ?? null,
+          discountAmount: discount?.amount ?? 0,
           idempotencyHash: idem,
           termsAcceptedAt: input.now,
           termsAcceptedIp: input.termsIp,
@@ -127,6 +137,7 @@ export async function loadProductOrderDtos(tx: Tx, businessId: string, rows: Pro
     tx.select({ id: clients.id, name: clients.name }).from(clients).where(and(eq(clients.businessId, businessId), inArray(clients.id, [...new Set(rows.map((r) => r.clientId))]))),
   ]);
   const nameOf = new Map(names.map((n) => [n.id, n.name]));
+  const codes = await discountCodesById(tx, businessId, rows.map((r) => r.discountCodeId));
   return rows.map((row) => ({
     id: row.id,
     status: row.status as ProductOrderStatus,
@@ -138,6 +149,7 @@ export async function loadProductOrderDtos(tx: Tx, businessId: string, rows: Pro
     customerNotes: row.customerNotes,
     items: lines.get(row.id) ?? [],
     totalPrice: row.totalPrice,
+    discount: discountOf(row, codes),
     saleId: row.saleId,
     cancelReason: row.cancelReason,
     createdAt: row.createdAt.toISOString(),
@@ -154,6 +166,7 @@ export async function toPublicProductOrder(tx: Tx, business: BusinessRow, row: P
     status: row.status as ProductOrderStatus,
     items: lines.get(row.id) ?? [],
     totalPrice: row.totalPrice,
+    discount: discountOf(row, await discountCodesById(tx, business.id, [row.discountCodeId])),
     createdAt: row.createdAt.toISOString(),
     business: {
       name: profile?.displayName || business.name,

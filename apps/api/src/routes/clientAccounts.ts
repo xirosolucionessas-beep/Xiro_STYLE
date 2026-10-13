@@ -27,6 +27,7 @@ import { isUniqueViolation } from '../db/errors';
 import { appointments, clientAccounts, clientRecoveryCodes, clientResetTokens, clientSessions, clients, loyaltyPrograms, loyaltyProgress } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
 import { cancelReminder } from '../jobs/reminders';
+import { onSlotReleased } from '../booking/waitlist';
 import { mediaUrl, removeMedia, saveAvatarImage } from '../media';
 import { formatPushMoment, notifyAppointment } from '../push';
 import { DUMMY_HASH, hashPassword, hmac, needsRehash, randomToken, safeEqualHex, sixDigitCode, verifyPassword } from '../security';
@@ -416,6 +417,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
         href: '/agenda',
       });
       void cancelReminder(ctx.boss, id);
+      void onSlotReleased(ctx, business.id, cancelled.startsAt, business.timezone);
     }
     return dto;
   });

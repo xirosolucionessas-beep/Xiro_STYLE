@@ -19,13 +19,15 @@ interface SchedulePickerProps {
   onSlot: (slot: AvailabilitySlot) => void;
   maxDaysAhead: number;
   language: Language;
+  /** Lista de espera (Fase 4, si el negocio la activó): se ofrece cuando el día abre pero ya no tiene cupo. */
+  onWaitlist?: () => void;
 }
 
 /**
  * Elegir día y hora reales: un calendario que marca los días con cupo (los cerrados, deshabilitados) y, debajo, solo los horarios
  * libres de ese día. Si el día elegido no tiene horarios, lo dice y ofrece saltar al siguiente día que sí tenga.
  */
-export function SchedulePicker({ slug, timezone, selection, professionalId, date, onDate, slot, onSlot, maxDaysAhead, language }: SchedulePickerProps) {
+export function SchedulePicker({ slug, timezone, selection, professionalId, date, onDate, slot, onSlot, maxDaysAhead, language, onWaitlist }: SchedulePickerProps) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
   const today = todayIn(timezone);
   const [month, setMonth] = useState(`${date.slice(0, 7)}-01`);
@@ -113,6 +115,16 @@ export function SchedulePicker({ slug, timezone, selection, professionalId, date
         ) : dayState.data ? (
           <>
             {dayIsEmpty ? <p className="xp-muted">{t('pub_no_slots_day')}</p> : null}
+            {dayIsEmpty && onWaitlist ? (
+              <div className="xp-notice xp-notice--compact xp-waitlist-cta">
+                <p>
+                  <Icon name="bell" size={16} /> {t('pub_waitlist_offer')}
+                </p>
+                <Button variant="secondary" size="sm" full={false} onClick={onWaitlist}>
+                  {t('pub_waitlist_cta')}
+                </Button>
+              </div>
+            ) : null}
             <SlotGrid slots={dayState.data.slots} value={slot} onChange={onSlot} language={language} />
             <p className="xp-hint">{t('pub_summary_duration', { minutes: dayState.data.totalMinutes })}</p>
           </>

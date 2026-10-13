@@ -43,9 +43,38 @@ describe('scheduleReminder / cancelReminder (lógica pura, sin pg-boss real)', (
     expect(boss.send).toHaveBeenCalledOnce();
     const [name, data, options] = boss.send.mock.calls[0]!;
     expect(name).toBe(REMINDER_QUEUE);
-    expect(data).toEqual({ businessId: 'biz-1', appointmentId: 'appt-1' });
-    expect(options.singletonKey).toBe('appt-1');
+    // Por defecto, el recordatorio de siempre (3 h antes), ahora con su anticipación en los datos y en la clave.
+    expect(data).toEqual({ businessId: 'biz-1', appointmentId: 'appt-1', hoursBefore: 3 });
+    expect(options.singletonKey).toBe('appt-1:3');
     expect((options.startAfter as Date).getTime()).toBe(startsAt.getTime() - 3 * 3_600_000);
+  });
+
+  it('Fase 4: [24, 2] programa DOS avisos (24 h y 2 h antes), cada uno con su clave', async () => {
+    const boss = fakeBoss();
+    const startsAt = new Date(Date.now() + 72 * 3_600_000);
+    await scheduleReminder(boss as never, 'biz-1', 'appt-9', startsAt, [24, 2]);
+    const jobs = [...boss.jobs.values()].sort((a, b) => a.startAfter!.getTime() - b.startAfter!.getTime());
+    expect(jobs.map((j) => [j.key, j.data.hoursBefore, startsAt.getTime() - j.startAfter!.getTime()])).toEqual([
+      ['appt-9:24', 24, 24 * 3_600_000],
+      ['appt-9:2', 2, 2 * 3_600_000],
+    ]);
+  });
+
+  it('Fase 4: un aviso cuya hora ya pasó no se programa (cita en 5 h con [24, 2] → solo el de 2 h); [] = ninguno', async () => {
+    const boss = fakeBoss();
+    await scheduleReminder(boss as never, 'biz-1', 'appt-8', new Date(Date.now() + 5 * 3_600_000), [24, 2]);
+    expect([...boss.jobs.values()].map((j) => j.key)).toEqual(['appt-8:2']);
+    const none = fakeBoss();
+    await scheduleReminder(none as never, 'biz-1', 'appt-7', new Date(Date.now() + 72 * 3_600_000), []);
+    expect(none.send).not.toHaveBeenCalled();
+  });
+
+  it('Fase 4: cancelar quita TODOS los avisos de la cita, incluido uno programado con la versión anterior (clave = id)', async () => {
+    const boss = fakeBoss();
+    await scheduleReminder(boss as never, 'biz-1', 'appt-6', new Date(Date.now() + 72 * 3_600_000), [24, 2]);
+    boss.jobs.set('legacy', { id: 'legacy', key: 'appt-6', data: { businessId: 'biz-1', appointmentId: 'appt-6' } });
+    await cancelReminder(boss as never, 'appt-6');
+    expect(boss.jobs.size).toBe(0);
   });
 
   it('reprogramar cancela primero el pendiente anterior: nunca quedan dos activos para la misma cita', async () => {

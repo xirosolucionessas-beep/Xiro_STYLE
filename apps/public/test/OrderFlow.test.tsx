@@ -58,6 +58,7 @@ const profile: PublicBookingProfile = {
   accentColor: null,
   bookingTitle: '',
   trustBadges: [],
+  features: { waitlist: false, discountCodes: false, rememberCustomer: false },
 };
 
 const products: PublicBookingCatalog['products'] = [
@@ -79,6 +80,7 @@ const orderFixture: PublicProductOrderDto = {
   ],
   totalPrice: 52000,
   createdAt: '2026-10-12T15:00:00.000Z',
+  discount: null,
   business: { name: 'Mi Tienda', slug: 'mi-tienda', currency: 'COP', whatsapp: '573001112233', address: 'Calle 1 # 2-3', city: 'Bogotá', location: null },
 };
 

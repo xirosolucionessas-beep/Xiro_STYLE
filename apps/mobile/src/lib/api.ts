@@ -67,6 +67,7 @@ import type {
   SubscriptionPlatform,
   User,
 } from '@xiro/shared';
+import type { DiscountCodeDto, DiscountCodeInput, WaitlistEntryDto } from '@xiro/shared';
 import { HTTP_TIMEOUT_MS, withRetry, type ClientsQuery, type ClientVisits, type ClientsSummary, type ItemsQuery, type ItemsSummary, type LoyaltySummary, type Page, type PageParams, type ProductOrderDto, type ProductOrdersQuery, type ProductOrdersSummary, type ServiceRecordsQuery, type ServiceRecordsSummary } from '@xiro/shared';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
@@ -424,6 +425,14 @@ export const api = {
   deleteClosure: (id: string) => request<void>(`/api/booking/closures/${id}`, { method: 'DELETE' }),
   bookingReviews: (params: PageParams & { status?: 'pending' | 'approved' | 'hidden' } = {}) => request<Page<ReviewDto>>(`/api/booking/reviews${query(params)}`),
   moderateReview: (id: string, status: 'approved' | 'hidden') => request<ReviewDto>(`/api/booking/reviews/${id}`, { method: 'PATCH', body: { status } }),
+
+  /* ---------- Códigos de descuento y lista de espera (Fase 4) ---------- */
+  discountCodes: () => request<DiscountCodeDto[]>('/api/discount-codes'),
+  createDiscountCode: (body: DiscountCodeInput) => request<DiscountCodeDto>('/api/discount-codes', { method: 'POST', body }),
+  updateDiscountCode: (id: string, body: DiscountCodeInput) => request<DiscountCodeDto>(`/api/discount-codes/${id}`, { method: 'PUT', body }),
+  deleteDiscountCode: (id: string) => request<void>(`/api/discount-codes/${id}`, { method: 'DELETE' }),
+  waitlist: (params: { from?: string; status?: 'waiting' | 'notified' | 'cancelled' } = {}) => request<WaitlistEntryDto[]>(`/api/waitlist${query(params)}`),
+  cancelWaitlistEntry: (id: string) => request<WaitlistEntryDto>(`/api/waitlist/${id}/cancel`, { method: 'POST', body: {} }),
 
   /* ---------- Profesionales ---------- */
   professionals: () => request<ProfessionalDto[]>('/api/professionals'),

@@ -11,7 +11,8 @@ import type { CartLine } from './sale';
  */
 export function useOrderPrefill(
   orderId: string | undefined,
-  apply: (prefill: { client: { id: string; name: string; phone: string | null }; lines: CartLine[] }) => void,
+  /** `discount`: lo que el código de descuento del pedido ya le prometió al cliente (Fase 4); 0 sin código. */
+  apply: (prefill: { client: { id: string; name: string; phone: string | null }; lines: CartLine[]; discount: number }) => void,
   nextKey: () => string,
   /** Ajustar el precio de una venta exige el permiso del catálogo: sin él, se cobra el precio actual del catálogo (el servidor rechazaría otro). */
   canOverridePrice: boolean,
@@ -45,7 +46,7 @@ export function useOrderPrefill(
       });
       if (cancelled) return;
       setOrder(loaded);
-      applyRef.current({ client: { id: loaded.clientId, name: loaded.clientName, phone: loaded.customerPhone }, lines });
+      applyRef.current({ client: { id: loaded.clientId, name: loaded.clientName, phone: loaded.customerPhone }, lines, discount: loaded.discount?.amount ?? 0 });
     })()
       .catch((e: unknown) => !cancelled && setError(e))
       .finally(() => !cancelled && setLoading(false));

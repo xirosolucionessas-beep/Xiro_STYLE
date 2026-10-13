@@ -87,6 +87,15 @@ export const POLICY: Record<string, PolicyRule> = {
   'POST /orders/:id/ready': ['services_record'],
   'POST /orders/:id/cancel': ['services_record'],
 
+  // Códigos de descuento de la página pública (Fase 4): los gestiona quien gestiona la página.
+  'GET /discount-codes': ['public_page_manage'],
+  'POST /discount-codes': ['public_page_manage'],
+  'PUT /discount-codes/:id': ['public_page_manage'],
+  'DELETE /discount-codes/:id': ['public_page_manage'],
+  // Lista de espera: ver a TODA la gente que espera es de quien ve la agenda completa o gestiona la página (donde se activa).
+  'GET /waitlist': ['agenda_all', 'public_page_manage'],
+  'POST /waitlist/:id/cancel': ['agenda_all', 'public_page_manage'],
+
   // Servicios realizados y fidelización (la configuración del programa es del dueño)
   'GET /service-records': ['services_record'],
   'GET /service-records/summary': ['services_record'],

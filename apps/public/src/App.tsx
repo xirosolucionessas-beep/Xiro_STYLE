@@ -8,6 +8,8 @@ import { AccountPage } from './pages/AccountPage';
 import { ManagePage } from './pages/ManagePage';
 import { MyAccountPage } from './pages/MyAccountPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { ReviewLinkPage } from './pages/ReviewLinkPage';
+import { WaitlistPage } from './pages/WaitlistPage';
 import { TopBar } from './ui/TopBar';
 
 function usePathname(): string {
@@ -55,6 +57,8 @@ export function App() {
     <>
       {topBar}
       {route.name === 'manage' ? <ManagePage slug={route.slug} token={route.token} language={language} /> : null}
+      {route.name === 'waitlist' ? <WaitlistPage slug={route.slug} token={route.token} language={language} /> : null}
+      {route.name === 'review' ? <ReviewLinkPage slug={route.slug} token={route.token} language={language} /> : null}
       {route.name === 'profile' ? <ProfilePage slug={route.slug} itemId={route.itemId} language={language} account={session.account} /> : null}
       {route.name === 'account' && route.view !== 'cuenta' ? <AccountPage slug={route.slug} view={route.view} language={language} account={session.account} onAuthenticated={session.setAccount} /> : null}
       {route.name === 'account' && route.view === 'cuenta' ? <MyAccountPage slug={route.slug} language={language} account={session.account} onAccountChange={session.setAccount} onLogout={() => void session.logout()} /> : null}

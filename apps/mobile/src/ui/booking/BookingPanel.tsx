@@ -10,11 +10,13 @@ import { Header, Screen } from '../Screen';
 import { AppText } from '../Text';
 import { InfoTab } from './InfoTab';
 import { LinkTab } from './LinkTab';
+import { DiscountsTab } from './DiscountsTab';
 import { ReviewsTab } from './ReviewsTab';
+import { WaitlistTab } from './WaitlistTab';
 import { RulesTab } from './RulesTab';
 import { TeamTab } from './TeamTab';
 
-const TABS = ['link', 'info', 'rules', 'team', 'reviews'] as const;
+const TABS = ['link', 'info', 'rules', 'team', 'reviews', 'promos', 'waitlist'] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -49,6 +51,8 @@ export function BookingPanel() {
         {settings.data && tab === 'rules' ? <RulesTab data={settings.data} /> : null}
         {tab === 'team' ? <TeamTab /> : null}
         {tab === 'reviews' ? <ReviewsTab /> : null}
+        {settings.data && tab === 'promos' ? <DiscountsTab data={settings.data} onGoTab={setTab} /> : null}
+        {settings.data && tab === 'waitlist' ? <WaitlistTab data={settings.data} onGoTab={setTab} /> : null}
       </View>
     </Screen>
   );

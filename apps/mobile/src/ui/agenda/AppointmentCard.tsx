@@ -34,7 +34,7 @@ export function AppointmentCard({ appointment, timezone, currency, showProfessio
           <View style={{ flex: 1 }} />
         )}
         <AppText variant="bodyStrong" tone="gold">
-          {formatMoney(appointment.totalPrice, currency)}
+          {formatMoney(appointment.totalPrice - (appointment.discount?.amount ?? 0), currency)}
         </AppText>
       </View>
     </Card>

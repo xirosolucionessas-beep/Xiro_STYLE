@@ -153,12 +153,15 @@ export default function SaleNewWeb() {
 
   // Entregar un pedido de la página pública (Pedidos → "Entregar y cobrar"): cliente y productos precargados; la venta lo marca entregado.
   const { orderId } = useLocalSearchParams<{ orderId?: string }>();
+  // Declarado antes de precargar: un pedido con código de descuento trae ya su descuento.
+  const [discount, setDiscount] = useState(0);
   const orderPrefill = useOrderPrefill(
     orderId,
-    ({ client, lines: orderLines }) => {
+    ({ client, lines: orderLines, discount: promised }) => {
       setSelectedClient(client);
       setOccasional(false);
       setLines(orderLines);
+      if (promised > 0) setDiscount(promised);
     },
     nextKey,
     canOverridePrice,
@@ -198,7 +201,6 @@ export default function SaleNewWeb() {
   }, [employeesQuery.data, user.id, t]);
 
   /* ---------- Descuento, propina y pago ---------- */
-  const [discount, setDiscount] = useState(0);
   const [tip, setTip] = useState(0);
   const [payments, setPayments] = useState<PaymentRow[]>([{ key: 'pay-1', method: 'cash', amount: 0, receivedAmount: null }]);
 

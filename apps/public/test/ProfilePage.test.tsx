@@ -55,6 +55,7 @@ const base: PublicBookingProfile = {
   accentColor: null,
   bookingTitle: '',
   trustBadges: [],
+  features: { waitlist: false, discountCodes: false, rememberCustomer: false },
 };
 
 const emptyCatalog: PublicBookingCatalog = { services: [], packages: [], products: [] };

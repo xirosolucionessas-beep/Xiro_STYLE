@@ -42,7 +42,10 @@ describe('textos del módulo de Citas', () => {
       ...['confirm', 'start', 'complete', 'no_show', 'cancel'].flatMap((a) => [`appt_action_${a}`, `appt_done_${a}`]),
       ...['cancel', 'no_show', 'complete'].flatMap((a) => [`appt_confirm_${a}_title`, `appt_confirm_${a}_text`]),
       ...SLOT_STATES.map((s) => `slot_${s}`),
-      ...['link', 'info', 'rules', 'team', 'reviews'].map((tab) => `booking_tab_${tab}`),
+      ...['link', 'info', 'rules', 'team', 'reviews', 'promos', 'waitlist'].map((tab) => `booking_tab_${tab}`),
+      // Fase 4: lista de espera y códigos de descuento.
+      ...['waiting', 'notified', 'cancelled'].map((s) => `waitlist_status_${s}`),
+      'discount_invalid', 'discount_min_total', 'discount_already_used', 'discount_code_exists', 'discount_code_format', 'discount_percent_range', 'discount_dates', 'waitlist_disabled',
       ...PUBLIC_SECTIONS.map((s) => `bk_section_${s}`),
       ...['pending', 'approved', 'hidden'].map((s) => `reviews_status_${s}`),
       ...[0, 1, 2, 3, 4, 5, 6].map((d) => `day_${d}`),

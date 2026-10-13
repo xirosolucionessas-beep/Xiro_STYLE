@@ -10,6 +10,7 @@ import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
 import { SchedulePicker } from '../ui/SchedulePicker';
 import { StarRating } from '../ui/StarRating';
+import { TotalRows } from '../ui/TotalRows';
 
 const STATUS_TONE: Record<PublicAppointmentDto['status'], string> = { pending: 'warning', confirmed: 'success', in_progress: 'success', completed: 'success', cancelled: 'muted', no_show: 'danger' };
 
@@ -164,10 +165,7 @@ export function ManagePage({ slug, token, language }: { slug: string; token: str
                 </li>
               ))}
             </ul>
-            <div className="xp-summary-row xp-summary-total">
-              <span>{t('pub_summary_total')}</span>
-              <span className="xp-item-price">{formatMoney(current.totalPrice, currency)}</span>
-            </div>
+            <TotalRows total={current.totalPrice} discount={current.discount} currency={currency} t={t} rowClass="xp-summary-row xp-summary-total" priceClass="xp-item-price" />
           </div>
 
           <div className="xp-card xp-stack">

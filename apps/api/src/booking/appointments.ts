@@ -7,6 +7,7 @@ import { AppError, notFound } from '../errors';
 import { deriveToken, randomToken } from '../security';
 import { alternativesAround, evaluateStart, orderedCandidates, pickProfessional, prepare, type BookingContext, type Prepared } from './availability';
 import type { Tx } from './scope';
+import { discountCodesById, discountOf } from './discounts';
 import { allSections } from './view';
 
 export const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex');
@@ -211,6 +212,7 @@ export async function loadAppointmentDtos(tx: Tx, businessId: string, where: SQL
     .select()
     .from(appointmentItems)
     .where(and(eq(appointmentItems.businessId, businessId), inArray(appointmentItems.appointmentId, rows.map((r) => r.a.id))));
+  const codes = await discountCodesById(tx, businessId, rows.map((r) => r.a.discountCodeId));
   return rows.map(({ a, clientName, clientPhone, clientEmail, proName }) => ({
     id: a.id,
     status: a.status as AppointmentStatus,
@@ -219,6 +221,7 @@ export async function loadAppointmentDtos(tx: Tx, businessId: string, where: SQL
     endsAt: a.endsAt.toISOString(),
     durationMinutes: a.durationMinutes,
     totalPrice: a.totalPrice,
+    discount: discountOf(a, codes),
     customerNotes: a.customerNotes,
     internalNotes: a.internalNotes,
     modificationCount: a.modificationCount,
@@ -252,6 +255,7 @@ export async function toPublicAppointment(tx: Tx, ctx: BookingContext, businessI
     endsAt: row.endsAt.toISOString(),
     durationMinutes: row.durationMinutes,
     totalPrice: row.totalPrice,
+    discount: discountOf(row, await discountCodesById(tx, businessId, [row.discountCodeId])),
     professionalName: pro?.publicName || pro?.name || '',
     items: lines.map(toItemDto),
     business: {

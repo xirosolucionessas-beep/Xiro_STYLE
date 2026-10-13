@@ -2,6 +2,7 @@ import { googleMapsDirectionsUrl, googleMapsSearchUrl, productOrderWhatsappText,
 import { money } from '../lib/format';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
+import { TotalRows } from '../ui/TotalRows';
 
 /**
  * Pantalla final de un pedido de solo productos: qué se pidió, el total, que se recoge y paga en el local, y — si el negocio
@@ -73,10 +74,7 @@ export function OrderDoneStep({ order, profile, language, customer, onClose }: {
               </div>
             ) : null}
           </dl>
-          <div className="xp-summary-total">
-            <span>{t('pub_summary_total')}</span>
-            <span className="xp-price xp-price--lg">{money(order.totalPrice, business.currency)}</span>
-          </div>
+          <TotalRows total={order.totalPrice} discount={order.discount} currency={business.currency} t={t} />
         </div>
 
         {whatsapp || directions ? (

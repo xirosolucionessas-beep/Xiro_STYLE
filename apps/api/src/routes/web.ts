@@ -141,7 +141,7 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
       },
     });
 
-    async function ogTagsForBooking(request: FastifyRequest, slug: string, itemId?: string): Promise<string> {
+    async function ogTagsForBooking(request: FastifyRequest, slug: string, itemId?: string, privateLink = false): Promise<string> {
       const generic = '<title>Reserva tu cita | Xiro Style</title><meta name="robots" content="noindex">';
       const resolved = await resolveSlug(db, slug.slice(0, 60));
       if (!resolved) return generic;
@@ -154,18 +154,39 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
       const item = itemId ? (await loadItems(db, resolved.business.id, { id: itemId, publishedOnly: true }))[0] : undefined;
       const title = item ? `${item.name} | ${businessName}` : `Reserva tu cita | ${businessName}`;
       const description = (item ? item.shortDescription || item.description : '') || profile.tagline || profile.description || 'Agenda tu cita en línea, cuando quieras.';
+      // Dirección canónica (Fase 4, SEO): la del negocio o la del artículo, siempre con el slug vigente.
+      const canonical = `${origin}/reservar/${encodeURIComponent(resolved.business.slug)}${item ? `/articulo/${item.id}` : ''}`;
       const tags = [
         `<title>${escapeHtml(title)}</title>`,
         `<meta property="og:type" content="website">`,
+        `<meta property="og:site_name" content="${escapeHtml(businessName)}">`,
         `<meta property="og:title" content="${escapeHtml(title)}">`,
         `<meta property="og:description" content="${escapeHtml(description.slice(0, 200))}">`,
+        `<meta property="og:url" content="${escapeHtml(canonical)}">`,
         `<meta name="description" content="${escapeHtml(description.slice(0, 200))}">`,
+        `<link rel="canonical" href="${escapeHtml(canonical)}">`,
       ];
+      // Enlaces personales (gestión de cita, lista de espera, reseña): llevan un token en la URL, nunca se indexan.
+      if (privateLink) tags.push('<meta name="robots" content="noindex, nofollow">');
       const itemPhoto = item?.photos[0]?.url;
-      if (itemPhoto) tags.push(`<meta property="og:image" content="${escapeHtml(origin + itemPhoto)}">`);
+      // Imagen de la vista previa: la foto del artículo; si no, la portada del negocio; si no, su logo.
+      const shareImage = itemPhoto ? origin + itemPhoto : profile.coverFile ? `${origin}/media/${profile.coverFile}` : resolved.business.logoFile ? `${origin}/media/${resolved.business.logoFile}` : null;
+      if (shareImage) tags.push(`<meta property="og:image" content="${escapeHtml(shareImage)}">`);
+      tags.push(`<meta name="twitter:card" content="${shareImage && (itemPhoto || profile.coverFile) ? 'summary_large_image' : 'summary'}">`);
+      // Datos estructurados del negocio (schema.org) en su página principal: ayudan a los buscadores a mostrarlo bien.
+      if (!item && !privateLink) {
+        const address = [resolved.business.address, resolved.business.city].filter(Boolean).join(', ');
+        const data: Record<string, unknown> = { '@context': 'https://schema.org', '@type': 'LocalBusiness', name: businessName, url: canonical };
+        if (description) data.description = description.slice(0, 300);
+        if (shareImage) data.image = shareImage;
+        if (profile.phone) data.telephone = profile.phone;
+        if (address) data.address = { '@type': 'PostalAddress', streetAddress: resolved.business.address || undefined, addressLocality: resolved.business.city || undefined };
+        if (profile.latitude !== null && profile.longitude !== null) data.geo = { '@type': 'GeoCoordinates', latitude: profile.latitude, longitude: profile.longitude };
+        // "<" escapado: un texto del negocio con "</script>" no puede cerrar la etiqueta.
+        tags.push(`<script type="application/ld+json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`);
+      }
       if (resolved.business.logoFile) {
         const logoUrl = escapeHtml(`${origin}/media/${resolved.business.logoFile}`);
-        if (!itemPhoto) tags.push(`<meta property="og:image" content="${logoUrl}">`);
         // Favicon dinámico (Tarea 4): el logo del negocio si lo tiene; si no, la etiqueta estática del propio HTML
         // (favicon.png de Xiro, ver index.html) queda como único <link rel="icon">, sin nada que pisarla aquí.
         tags.push(`<link rel="icon" sizes="16x16" href="${logoUrl}">`, `<link rel="icon" sizes="32x32" href="${logoUrl}">`, `<link rel="apple-touch-icon" sizes="180x180" href="${logoUrl}">`);
@@ -174,7 +195,8 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
     }
 
     async function reservarPage(request: FastifyRequest<{ Params: { slug: string } }>, reply: FastifyReply) {
-      const tags = await ogTagsForBooking(request, request.params.slug);
+      const privateLink = /^\/reservar\/[^/]+\/(gestion|espera|resena|cuenta|ingresar|registro|recuperar)(\/|$)/.test(request.url.split('?')[0] ?? '');
+      const tags = await ogTagsForBooking(request, request.params.slug, undefined, privateLink);
       return reply
         .header('Content-Security-Policy', RESERVAR_CSP)
         .header('Cache-Control', 'no-cache')
@@ -185,6 +207,10 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
     app.get<{ Params: { slug: string } }>('/reservar/:slug', reservarPage);
     // Enlace de gestión de una cita (ver, cancelar, mover, eliminar datos): misma página, el token lo procesa el cliente.
     app.get<{ Params: { slug: string } }>('/reservar/:slug/gestion/:token', reservarPage as never);
+    // Enlace personal de la lista de espera (Fase 4): igual, el token lo procesa el cliente.
+    app.get<{ Params: { slug: string } }>('/reservar/:slug/espera/:token', reservarPage as never);
+    // Enlace firmado para reseñar una cita completada (Fase 4).
+    app.get<{ Params: { slug: string } }>('/reservar/:slug/resena/:token', reservarPage as never);
     // Enlace directo a un artículo (Fase 2): la página del negocio con su detalle abierto. Si ese artículo NO se ve en la página
     // moderna, al catálogo de siempre, que muestra todo lo publicado (regla única: itemOnPublicPage, sin bucles).
     app.get<{ Params: { slug: string; id: string } }>('/reservar/:slug/articulo/:id', async (request, reply) => {

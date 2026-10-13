@@ -26,6 +26,8 @@ export const keys = {
   bookingSettings: ['bookingSettings'] as const,
   closures: ['closures'] as const,
   bookingReviews: ['bookingReviews'] as const,
+  discountCodes: ['discountCodes'] as const,
+  waitlist: ['waitlist'] as const,
   packages: ['packages'] as const,
   variants: ['variants'] as const,
   classification: ['classification'] as const,
@@ -225,6 +227,8 @@ export const useBookingSettings = (enabled = true) => useQuery({ queryKey: keys.
 export const useClosures = (enabled = true) => useQuery({ queryKey: keys.closures, queryFn: api.closures, enabled });
 export const useBookingReviews = (enabled = true) =>
   useInfiniteQuery({ queryKey: keys.bookingReviews, queryFn: ({ pageParam }) => api.bookingReviews({ cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+export const useDiscountCodes = () => useQuery({ queryKey: keys.discountCodes, queryFn: api.discountCodes });
+export const useWaitlist = () => useQuery({ queryKey: keys.waitlist, queryFn: () => api.waitlist() });
 export const usePackages = (enabled = true) => useQuery({ queryKey: keys.packages, queryFn: api.packages, enabled });
 export const useVariants = (itemId: string | undefined) => useQuery({ queryKey: [...keys.variants, itemId], queryFn: () => api.variants(itemId!), enabled: Boolean(itemId) });
 /** Artículos sin confirmar como servicio o producto (solo quien gestiona el catálogo). */

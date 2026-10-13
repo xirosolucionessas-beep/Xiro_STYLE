@@ -120,3 +120,30 @@ describe('enlace de un artículo: la ruta canónica moderna, sin romper los enla
     expect(page.body).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
   });
 });
+
+describe('vista previa y buscadores (Fase 4)', () => {
+  it('página del negocio: dirección canónica, tarjeta para redes y datos estructurados; el texto del negocio no cierra el <script>', async () => {
+    const biz = await setupBiz(app, 'SEO');
+    await app.inject({ method: 'PUT', url: '/api/booking/profile', headers: auth(biz.session), payload: { tagline: 'Cortes </script><b>x</b>' } });
+    const page = await get(`/reservar/${biz.slug}`);
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toMatch(new RegExp(`<link rel="canonical" href="http://localhost(:[0-9]+)?/reservar/${biz.slug}">`));
+    expect(page.body).toContain('<meta property="og:url"');
+    expect(page.body).toContain('<meta name="twitter:card"');
+    expect(page.body).toContain('"@type":"LocalBusiness"');
+    const ld = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(page.body)![1]!;
+    expect(ld).not.toContain('</script>');
+    expect(JSON.parse(ld)).toMatchObject({ '@type': 'LocalBusiness', description: 'Cortes </script><b>x</b>' });
+    expect(page.body).not.toContain('noindex');
+  });
+
+  it('enlaces personales (gestión, lista de espera, reseña, cuenta): nunca se indexan', async () => {
+    const biz = await setupBiz(app, 'SEO privado');
+    for (const url of [`/reservar/${biz.slug}/gestion/abc`, `/reservar/${biz.slug}/espera/abc`, `/reservar/${biz.slug}/resena/abc`, `/reservar/${biz.slug}/cuenta`]) {
+      const page = await get(url);
+      expect(page.statusCode, url).toBe(200);
+      expect(page.body, url).toContain('<meta name="robots" content="noindex, nofollow">');
+      expect(page.body, url).not.toContain('application/ld+json');
+    }
+  });
+});

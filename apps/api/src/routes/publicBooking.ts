@@ -1,5 +1,6 @@
 import {
   availabilityQuerySchema,
+  discountCodeSchema,
   formatMoney,
   daysQuerySchema,
   publicBookingInputSchema,
@@ -7,6 +8,7 @@ import {
   publicProductOrderInputSchema,
   publicReviewInputSchema,
   publicRescheduleInputSchema,
+  publicWaitlistInputSchema,
   type AvailabilityResponse,
   type Currency,
   type DaySummary,
@@ -16,6 +18,7 @@ import {
   type PublicBookingResult,
   type PublicReviewDto,
   type PublicTeamMemberDto,
+  type PublicWaitlistDto,
 } from '@xiro/shared';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -24,15 +27,18 @@ import { assertClientMayChange, createAppointment, findByIdempotency, hashToken,
 import { loadContext, prepare, slotsForDays, toPublicSlot } from '../booking/availability';
 import { verifyCaptcha } from '../booking/captcha';
 import { anonymizeClient } from '../booking/privacy';
+import { findUsableDiscount, redeemDiscount, toPublicDiscount } from '../booking/discounts';
 import { createProductOrder, toPublicProductOrder, type ProductOrderRow } from '../booking/orders';
 import { withBusiness, type Tx } from '../booking/scope';
 import { allSections, loadProfileRow, loadPublicCatalog, loadPublicProfile, loadPublicReviews, loadPublicTeam, resolveSlug } from '../booking/view';
 import { CLIENT_COOKIE_NAME, resolveClientAccount } from '../clientSession';
 import { parseCookies } from '../cookies';
 import type { Ctx } from '../context';
-import { appointments, businessPublicProfiles, businesses, productOrders } from '../db/schema';
+import { appointments, businessPublicProfiles, businesses, productOrders, waitlistEntries } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
-import { cancelReminder, scheduleReminder } from '../jobs/reminders';
+import { cancelReminder, scheduleAppointmentReminders } from '../jobs/reminders';
+import { verifyReviewToken } from '../booking/reviewRequests';
+import { joinWaitlist, onSlotReleased, toPublicWaitlist, waitlistByToken } from '../booking/waitlist';
 import { formatPushMoment, notifyAppointment, notifyBusiness } from '../push';
 import { deriveToken } from '../security';
 import type { BusinessRow } from '../serializers';
@@ -42,6 +48,10 @@ const slugParams = z.object({ slug: z.string().min(1).max(60) });
 const TOKEN = /^[A-Za-z0-9_-]{20,100}$/;
 /** Reservas nuevas por IP y por hora: un cliente real hace una o dos; un bot, cientos. */
 const CREATES_PER_IP_PER_HOUR = 20;
+/** Consultas de códigos de descuento por IP y por hora (vista previa; el canje se cuenta aparte). */
+const DISCOUNT_CHECKS_PER_IP_PER_HOUR = 30;
+/** Anotarse en listas de espera: pocas veces por hora por IP (cada una crea un cliente y un registro). */
+const WAITLIST_JOINS_PER_IP_PER_HOUR = 10;
 /** Pedidos de productos nuevos por IP y por hora (mismo criterio que las reservas). */
 const ORDERS_PER_IP_PER_HOUR = 20;
 /** El perfil dice si el negocio está "abierto ahora": se guarda poco (lo mismo que ya lo guarda el navegador). */
@@ -59,9 +69,12 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
   const createLimiter = ctx.rates.limiter('booking-create-ip', 3_600_000);
   const orderLimiter = ctx.rates.limiter('order-create-ip', 3_600_000);
+  // Probar códigos al azar: pocas consultas por IP y por hora (un cliente real escribe uno o dos).
+  const discountLimiter = ctx.rates.limiter('discount-check-ip', 3_600_000);
+  const waitlistLimiter = ctx.rates.limiter('waitlist-join-ip', 3_600_000);
 
   app.addHook('onSend', async (request, reply) => {
-    const dynamic = /\/(availability|days|appointments|orders)/.test(request.url);
+    const dynamic = /\/(availability|days|appointments|orders|discount|waitlist|review-link)/.test(request.url);
     // El mapa lo guarda el navegador una hora (cambia solo si mueven el pin, y para eso la URL lleva `?v=`): cada vista de la página
     // sin esto sería una consulta facturada a Google.
     if (/\/map\.png(\?|$)/.test(request.url)) return void reply.header('Cache-Control', 'public, max-age=3600');
@@ -228,7 +241,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
 
       const p = await prepare(tx, business.id, { selection: input.selection, professionalId: input.professionalId, staff: false, ctx: context });
       const now = new Date();
-      const { row, token, replayed } = await createAppointment(tx, business.id, p, {
+      const created_ = await createAppointment(tx, business.id, p, {
         now,
         startsAt: new Date(input.startsAt),
         source: 'web',
@@ -242,6 +255,15 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         remindersOptIn: input.remindersOptIn,
         ...(idempotency ? { idempotency } : {}),
       });
+      const { token, replayed } = created_;
+      let { row } = created_;
+      // Código de descuento (Fase 4): se canjea en ESTA transacción sobre el total del servidor. Si no aplica, toda la reserva
+      // se revierte con el motivo (la persona puede quitar el código y confirmar). Un reintento (replayed) ya trae el suyo.
+      if (!replayed && input.discountCode) {
+        if (!context.settings.discountCodesEnabled) throw new AppError(409, 'discount_invalid');
+        const discount = await redeemDiscount(tx, business.id, input.discountCode, { subtotal: row.totalPrice, clientId: row.clientId, now });
+        [row] = (await tx.update(appointments).set({ discountCodeId: discount.id, discountAmount: discount.amount }).where(and(eq(appointments.id, row.id), eq(appointments.businessId, business.id))).returning()) as [typeof row];
+      }
       // Si otro envío idéntico ganó la carrera por unos milisegundos, esta petición devuelve SU cita y no avisa ni programa nada otra vez.
       repeated = replayed;
       if (!replayed) created = row;
@@ -257,9 +279,113 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         dedupeKey: `appt_new:${created.id}`,
         href: '/agenda',
       });
-      void scheduleReminder(ctx.boss, business.id, created.id, created.startsAt);
+      void scheduleAppointmentReminders(ctx, business.id, created.id, created.startsAt);
     }
     return reply.status(repeated ? 200 : 201).send(result);
+  });
+
+  /* ---------- Códigos de descuento (Fase 4) ---------- */
+
+  /**
+   * Vista previa de un código para mostrar el descuento antes de confirmar. No cuenta un uso (eso pasa al confirmar) y responde
+   * igual para "no existe", "vencido" o "agotado". Límite por IP: no sirve para adivinar códigos.
+   */
+  app.get('/:slug/discount', async (request) => {
+    const { slug } = parse(slugParams, request.params);
+    const { code } = parse(z.object({ code: discountCodeSchema }), request.query);
+    if (config.rateLimit.enabled && (await discountLimiter.hit(request.ip)) > DISCOUNT_CHECKS_PER_IP_PER_HOUR) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await discountLimiter.retryAfterSeconds(request.ip)) });
+    }
+    const business = await publishedBusiness(slug);
+    return scopedTo(business, async (tx) => {
+      const context = await loadContext(tx, business.id);
+      if (!context.settings.discountCodesEnabled) throw new AppError(409, 'discount_invalid');
+      return toPublicDiscount(await findUsableDiscount(tx, business.id, code, new Date()));
+    });
+  });
+
+  /* ---------- Enlace para reseñar (Fase 4) ---------- */
+
+  /** La cita a reseñar con el enlace firmado que se envió al completarla (solo sirve para reseñar). */
+  const reviewLinkParams = z.object({ slug: z.string().min(1).max(60), token: z.string().min(40).max(200) });
+  app.get('/:slug/review-link/:token', async (request): Promise<PublicAppointmentDto> => {
+    const { slug, token } = parse(reviewLinkParams, request.params);
+    const business = await publishedBusiness(slug);
+    const appointmentId = verifyReviewToken(config.jwtSecret, business.id, token);
+    return scopedTo(business, (tx) => view(tx, business, appointmentId, new Date()));
+  });
+
+  app.post('/:slug/review-link/:token', async (request): Promise<PublicAppointmentDto> => {
+    const { slug, token } = parse(reviewLinkParams, request.params);
+    const input = parse(publicReviewInputSchema, request.body);
+    const business = await publishedBusiness(slug);
+    const appointmentId = verifyReviewToken(config.jwtSecret, business.id, token);
+    let review: { authorName: string; rating: number; professionalId: string } | undefined;
+    const dto = await scopedTo(business, async (tx) => {
+      const created = await submitReview(tx, business.id, appointmentId, input);
+      const [row] = await tx.select({ professionalId: appointments.professionalId }).from(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.businessId, business.id))).limit(1);
+      review = { authorName: created.authorName, rating: created.rating, professionalId: row!.professionalId };
+      return view(tx, business, appointmentId, new Date());
+    });
+    if (review) {
+      void notifyAppointment({ db, config }, business.id, review.professionalId, null, 'reviews', {
+        titleKey: 'push_review_new_title',
+        bodyKey: 'push_review_new_body',
+        params: { author: review.authorName, rating: review.rating },
+        dedupeKey: `review:${appointmentId}`,
+        href: '/booking?tab=reviews',
+      });
+    }
+    return dto;
+  });
+
+  /* ---------- Lista de espera ---------- */
+
+  /**
+   * Anotarse en la lista de un día lleno (si el negocio la activó). Mismas defensas que una reserva (campo trampa, límite por
+   * IP, captcha). Devuelve el enlace personal UNA vez: con él la persona ve o quita su lugar.
+   */
+  app.post('/:slug/waitlist', async (request, reply) => {
+    const { slug } = parse(slugParams, request.params);
+    const input = parse(publicWaitlistInputSchema, request.body);
+    if (input.website.trim() !== '') throw new AppError(400, 'validation_error');
+    if (config.rateLimit.enabled && (await waitlistLimiter.hit(request.ip)) > WAITLIST_JOINS_PER_IP_PER_HOUR) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await waitlistLimiter.retryAfterSeconds(request.ip)) });
+    }
+    const business = await publishedBusiness(slug);
+    if (!(await verifyCaptcha(config.booking.turnstileSecret, input.captchaToken, request.ip))) throw new AppError(400, 'captcha_failed');
+    const name = `${input.customer.firstName} ${input.customer.lastName}`.trim();
+    const result = await scopedTo(business, async (tx) => {
+      const context = await loadContext(tx, business.id);
+      if (!context.settings.waitlistEnabled) throw new AppError(403, 'waitlist_disabled');
+      const { row, token } = await joinWaitlist(tx, business.id, context, {
+        date: input.date,
+        serviceIds: input.services,
+        professionalId: input.professionalId,
+        customer: { name, phone: input.customer.phone, email: input.customer.email || undefined },
+        now: new Date(),
+        termsIp: request.ip,
+      });
+      const profile = await loadProfileRow(tx, business.id);
+      return { entry: await toPublicWaitlist(tx, business, row, profile?.displayName ?? ''), token };
+    });
+    return reply.status(201).send({ ...result, manageUrl: `/reservar/${business.slug}/espera/${result.token}` });
+  });
+
+  app.get('/:slug/waitlist/:token', async (request): Promise<PublicWaitlistDto> => {
+    const { slug, token } = parse(tokenParams, request.params);
+    const business = await publishedBusiness(slug);
+    return scopedTo(business, async (tx) => toPublicWaitlist(tx, business, await waitlistByToken(tx, business.id, token), (await loadProfileRow(tx, business.id))?.displayName ?? ''));
+  });
+
+  app.post('/:slug/waitlist/:token/cancel', async (request): Promise<PublicWaitlistDto> => {
+    const { slug, token } = parse(tokenParams, request.params);
+    const business = await publishedBusiness(slug);
+    return scopedTo(business, async (tx) => {
+      const current = await waitlistByToken(tx, business.id, token);
+      const [row] = current.status === 'cancelled' ? [current] : await tx.update(waitlistEntries).set({ status: 'cancelled' }).where(and(eq(waitlistEntries.id, current.id), eq(waitlistEntries.businessId, business.id))).returning();
+      return toPublicWaitlist(tx, business, row!, (await loadProfileRow(tx, business.id))?.displayName ?? '');
+    });
   });
 
   /* ---------- Pedir productos sin cita ---------- */
@@ -305,6 +431,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         account: account ? { id: account.id, clientId: account.clientId } : null,
         termsIp: request.ip,
         idempotencyKey: input.idempotencyKey,
+        discountCode: input.discountCode,
       });
       if (!result.replayed) created = result.row;
       return toPublicProductOrder(tx, business, result.row, profile);
@@ -374,6 +501,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         href: '/agenda',
       });
       void cancelReminder(ctx.boss, appointmentId);
+      void onSlotReleased(ctx, business.id, cancelled.startsAt, business.timezone);
     }
     return dto;
   });
@@ -423,6 +551,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
     const input = parse(publicRescheduleInputSchema, request.body);
     const { business, appointmentId } = await ownAppointment(slug, token);
     let moved: AppointmentRow | undefined;
+    let previousStart: Date | undefined;
     const dto = await scopedTo(business, async (tx) => {
       const now = new Date();
       const context = await loadContext(tx, business.id);
@@ -432,7 +561,10 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         professionalId: input.professionalId,
         actor: { kind: 'client' },
         clientInitiated: true,
-        guard: (row) => assertClientMayChange(context, row, now, 'reschedule'),
+        guard: (row) => {
+          assertClientMayChange(context, row, now, 'reschedule');
+          previousStart = row.startsAt;
+        },
       });
       return view(tx, business, appointmentId, now);
     });
@@ -444,7 +576,8 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         dedupeKey: `appt_reschedule:${appointmentId}:${moved.startsAt.toISOString()}`,
         href: '/agenda',
       });
-      void scheduleReminder(ctx.boss, business.id, appointmentId, moved.startsAt);
+      void scheduleAppointmentReminders(ctx, business.id, appointmentId, moved.startsAt);
+      if (previousStart && previousStart.getTime() !== moved.startsAt.getTime()) void onSlotReleased(ctx, business.id, previousStart, business.timezone);
     }
     return dto;
   });

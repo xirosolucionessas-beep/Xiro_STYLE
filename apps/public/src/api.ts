@@ -10,9 +10,11 @@ import type {
   PublicBookingCatalog,
   PublicBookingProfile,
   PublicBookingResult,
+  PublicDiscountDto,
   PublicProductOrderDto,
   PublicReviewDto,
   PublicTeamMemberDto,
+  PublicWaitlistDto,
 } from '@xiro/shared';
 import { HTTP_TIMEOUT_MS, withRetry } from '@xiro/shared';
 
@@ -93,6 +95,15 @@ export const publicApi = {
   book: (slug: string, body: unknown) => request<PublicBookingResult>(`/${slug}/appointments`, { method: 'POST', body: JSON.stringify(body) }),
   /** Pedido de solo productos (recoger y pagar en el local). Repetir el mismo `idempotencyKey` devuelve el mismo pedido. */
   order: (slug: string, body: unknown) => request<{ order: PublicProductOrderDto }>(`/${slug}/orders`, { method: 'POST', body: JSON.stringify(body) }),
+
+  /** Vista previa de un código de descuento (el canje real lo hace el servidor al confirmar). */
+  discount: (slug: string, code: string) => request<PublicDiscountDto>(`/${slug}/discount?code=${encodeURIComponent(code)}`),
+  joinWaitlist: (slug: string, body: unknown) => request<{ entry: PublicWaitlistDto; token: string; manageUrl: string }>(`/${slug}/waitlist`, { method: 'POST', body: JSON.stringify(body) }),
+  waitlist: (slug: string, token: string) => request<PublicWaitlistDto>(`/${slug}/waitlist/${token}`),
+  cancelWaitlist: (slug: string, token: string) => request<PublicWaitlistDto>(`/${slug}/waitlist/${token}/cancel`, { method: 'POST' }),
+  /** Enlace firmado para reseñar (llega al completar la cita, si el negocio lo activó): solo sirve para reseñar. */
+  reviewLink: (slug: string, token: string) => request<PublicAppointmentDto>(`/${slug}/review-link/${token}`),
+  submitReviewLink: (slug: string, token: string, rating: number, comment: string) => request<PublicAppointmentDto>(`/${slug}/review-link/${token}`, { method: 'POST', body: JSON.stringify({ rating, comment }) }),
 
   appointment: (slug: string, token: string) => request<PublicAppointmentDto>(`/${slug}/appointments/${token}`),
   cancel: (slug: string, token: string, reason: string) => request<PublicAppointmentDto>(`/${slug}/appointments/${token}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicCustomerSchema } from './booking';
+import { discountCodeSchema } from './discounts';
 import { pageQuerySchema } from './pagination';
 
 const trimmed = (max: number) => z.string().trim().max(max);
@@ -31,6 +32,8 @@ export const publicProductOrderInputSchema = z.object({
   captchaToken: z.string().max(4096).optional(),
   /** Un UUID por intento de confirmar: repetir la MISMA petición (doble clic, reintento) devuelve el pedido ya creado. */
   idempotencyKey: uuidString.optional(),
+  /** Código de descuento (Fase 4, si el negocio los activó). */
+  discountCode: discountCodeSchema.optional(),
 });
 export type PublicProductOrderInput = z.input<typeof publicProductOrderInputSchema>;
 
@@ -49,6 +52,8 @@ export interface PublicProductOrderDto {
   status: ProductOrderStatus;
   items: ProductOrderItemDto[];
   totalPrice: number;
+  /** Descuento aplicado (total a pagar = totalPrice − amount). */
+  discount: { code: string; amount: number } | null;
   createdAt: string;
   business: { name: string; slug: string; currency: string; whatsapp: string | null; address: string; city: string; location: { latitude: number; longitude: number; placeId: string | null; address: string } | null };
 }
@@ -65,6 +70,7 @@ export interface ProductOrderDto {
   customerNotes: string;
   items: ProductOrderItemDto[];
   totalPrice: number;
+  discount: { code: string; amount: number } | null;
   /** Venta con la que se entregó (null mientras no se entrega). */
   saleId: string | null;
   cancelReason: string;

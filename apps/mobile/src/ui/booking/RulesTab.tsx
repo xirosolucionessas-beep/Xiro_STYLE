@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { SLOT_INTERVALS, type BookingAdminSettings, type BookingSettingsInput, type CustomField } from '@xiro/shared';
+import { REMINDER_HOUR_OPTIONS, SLOT_INTERVALS, type BookingAdminSettings, type BookingSettingsInput, type CustomField } from '@xiro/shared';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { blocksFromHours, blocksProblem } from '@/lib/bookingPage';
@@ -162,6 +162,59 @@ export function RulesTab({ data }: { data: BookingAdminSettings }) {
         <ToggleRow label={t('rules_product_orders')} value={settings.productOrdersEnabled ?? false} onChange={(v) => patch({ productOrdersEnabled: v })} />
         <AppText variant="small" tone="muted">
           {settings.productOrdersEnabled ? t('rules_product_orders_on') : t('rules_product_orders_off')}
+        </AppText>
+      </Card>
+
+      {/* Fase 4: recordatorios a la medida (hasta 3 por cita) y funciones para ganar clientes, cada una apagada por defecto. */}
+      <SectionTitle>{t('rules_reminders_title')}</SectionTitle>
+      <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>
+        {t('rules_reminders_hint')}
+      </AppText>
+      <ChipRow label={t('rules_reminders_title')}>
+        {REMINDER_HOUR_OPTIONS.map((hours) => {
+          const current = settings.reminderHours ?? [3];
+          const selected = current.includes(hours);
+          return (
+            <Chip
+              key={hours}
+              label={t('rules_hours', { hours })}
+              selected={selected}
+              onPress={() => {
+                if (selected) patch({ reminderHours: current.filter((h) => h !== hours) });
+                else if (current.length < 3) patch({ reminderHours: [...current, hours].sort((a, b) => b - a) });
+                else toast(t('rules_reminders_max'));
+              }}
+            />
+          );
+        })}
+      </ChipRow>
+      <AppText variant="small" tone="muted">
+        {(settings.reminderHours ?? [3]).length === 0 ? t('rules_reminders_none') : t('rules_reminders_summary', { list: (settings.reminderHours ?? [3]).map((h) => t('rules_hours', { hours: h })).join(', ') })}
+      </AppText>
+
+      <SectionTitle>{t('rules_growth_title')}</SectionTitle>
+      <Card>
+        <ToggleRow label={t('rules_waitlist')} value={settings.waitlistEnabled ?? false} onChange={(v) => patch({ waitlistEnabled: v })} />
+        <AppText variant="small" tone="muted">
+          {settings.waitlistEnabled ? t('rules_waitlist_on') : t('rules_waitlist_off')}
+        </AppText>
+      </Card>
+      <Card>
+        <ToggleRow label={t('rules_discount_codes')} value={settings.discountCodesEnabled ?? false} onChange={(v) => patch({ discountCodesEnabled: v })} />
+        <AppText variant="small" tone="muted">
+          {settings.discountCodesEnabled ? t('rules_discount_codes_on') : t('rules_discount_codes_off')}
+        </AppText>
+      </Card>
+      <Card>
+        <ToggleRow label={t('rules_review_requests')} value={settings.reviewRequestsEnabled ?? false} onChange={(v) => patch({ reviewRequestsEnabled: v })} />
+        <AppText variant="small" tone="muted">
+          {settings.reviewRequestsEnabled ? t('rules_review_requests_on') : t('rules_review_requests_off')}
+        </AppText>
+      </Card>
+      <Card>
+        <ToggleRow label={t('rules_remember_customer')} value={settings.rememberCustomerEnabled ?? false} onChange={(v) => patch({ rememberCustomerEnabled: v })} />
+        <AppText variant="small" tone="muted">
+          {settings.rememberCustomerEnabled ? t('rules_remember_customer_on') : t('rules_remember_customer_off')}
         </AppText>
       </Card>
 

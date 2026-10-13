@@ -671,6 +671,13 @@ export const businessSettings = pgTable(
     hideOutOfStockInCatalog: boolean('hide_out_of_stock_in_catalog').notNull().default(false),
     /** Pedidos de solo productos desde la página pública (recoger y pagar en el local). Apagado por defecto: cada negocio decide. */
     productOrdersEnabled: boolean('product_orders_enabled').notNull().default(false),
+    /* Funciones de la Fase 4 del plan: cada negocio decide (todas apagadas por defecto, salvo el recordatorio de siempre). */
+    /** Horas antes de la cita en que se recuerda (hasta 3; p. ej. [24, 2]). Por defecto [3], el recordatorio de siempre. */
+    reminderHours: jsonb('reminder_hours').$type<number[]>().notNull().default(sql`'[3]'::jsonb`),
+    waitlistEnabled: boolean('waitlist_enabled').notNull().default(false),
+    discountCodesEnabled: boolean('discount_codes_enabled').notNull().default(false),
+    reviewRequestsEnabled: boolean('review_requests_enabled').notNull().default(false),
+    rememberCustomerEnabled: boolean('remember_customer_enabled').notNull().default(false),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -976,6 +983,9 @@ export const appointments = pgTable(
     tokenExpiresAt: ts('token_expires_at'),
     /** Hash SHA-256 de (negocio + clave de idempotencia) de la confirmación pública: un reintento de la misma confirmación devuelve esta cita. */
     idempotencyHash: text('idempotency_hash'),
+    /** Código de descuento usado (Fase 4) y cuánto descontó; el total bruto (`totalPrice`) no cambia: se cobra totalPrice − discountAmount. */
+    discountCodeId: uuid('discount_code_id').references(() => discountCodes.id, { onDelete: 'set null' }),
+    discountAmount: integer('discount_amount').notNull().default(0),
     modificationCount: integer('modification_count').notNull().default(0),
     termsAcceptedAt: ts('terms_accepted_at'),
     termsAcceptedIp: text('terms_accepted_ip'),
@@ -1297,6 +1307,9 @@ export const productOrders = pgTable(
     customerNotes: text('customer_notes').notNull().default(''),
     totalPrice: integer('total_price').notNull(),
     idempotencyHash: text('idempotency_hash'),
+    /** Código de descuento usado (Fase 4) y cuánto descontó; el total bruto (`totalPrice`) no cambia: se cobra totalPrice − discountAmount. */
+    discountCodeId: uuid('discount_code_id').references(() => discountCodes.id, { onDelete: 'set null' }),
+    discountAmount: integer('discount_amount').notNull().default(0),
     termsAcceptedAt: ts('terms_accepted_at'),
     termsAcceptedIp: text('terms_accepted_ip'),
     /** Venta con la que se entregó (descuenta el inventario); null mientras no se entrega. */
@@ -1334,5 +1347,85 @@ export const productOrderItems = pgTable(
     index('product_order_items_order_idx').on(t.orderId),
     check('product_order_items_qty_ck', sql`${t.quantity} between 1 and 20`),
     check('product_order_items_price_ck', sql`${t.unitPrice} between 0 and 1000000000`),
+  ],
+);
+
+/* ---------- Códigos de descuento (Fase 4) ---------- */
+
+/**
+ * Código promocional de un negocio para su página pública. El servidor lo valida y calcula el descuento sobre el subtotal real
+ * (nunca confía en lo que mande el navegador). `uses` se incrementa de forma atómica al confirmar (dos reservas a la vez no
+ * superan `maxUses`). `code` se guarda en mayúsculas y es único por negocio.
+ */
+export const discountCodes = pgTable(
+  'discount_codes',
+  {
+    id: id(),
+    businessId: businessRef(),
+    code: text('code').notNull(),
+    description: text('description').notNull().default(''),
+    /** percent = porcentaje (1–100); fixed = monto fijo en la moneda del negocio. */
+    kind: text('kind').notNull(),
+    value: integer('value').notNull(),
+    /** Subtotal mínimo para aplicarlo (0 = sin mínimo). */
+    minTotal: integer('min_total').notNull().default(0),
+    /** Usos totales permitidos (null = sin tope) y usados hasta ahora. */
+    maxUses: integer('max_uses'),
+    uses: integer('uses').notNull().default(0),
+    /** Solo una vez por cliente (por su ficha: celular o cuenta). */
+    oncePerClient: boolean('once_per_client').notNull().default(false),
+    startsAt: ts('starts_at'),
+    endsAt: ts('ends_at'),
+    active: boolean('active').notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('discount_codes_business_code_uq').on(t.businessId, t.code),
+    index('discount_codes_business_idx').on(t.businessId, t.createdAt.desc()),
+    check('discount_codes_kind_ck', sql`${t.kind} in ('percent','fixed')`),
+    check('discount_codes_value_ck', sql`(${t.kind} = 'percent' and ${t.value} between 1 and 100) or (${t.kind} = 'fixed' and ${t.value} between 1 and 1000000000)`),
+    check('discount_codes_code_ck', sql`${t.code} ~ '^[A-Z0-9_-]{3,30}$'`),
+    check('discount_codes_uses_ck', sql`${t.uses} >= 0 and (${t.maxUses} is null or ${t.maxUses} >= 1)`),
+    check('discount_codes_dates_ck', sql`${t.startsAt} is null or ${t.endsAt} is null or ${t.startsAt} < ${t.endsAt}`),
+  ],
+);
+
+/* ---------- Lista de espera (Fase 4) ---------- */
+
+/**
+ * Alguien quiere un día que está lleno: deja sus datos y lo que quiere reservar. Cuando se libera un horario ese día
+ * (cancelación o cambio), el sistema comprueba la disponibilidad REAL para su selección y avisa en orden de llegada al negocio
+ * (push) y a la persona (su canal). El enlace personal (`tokenHash`: solo el hash en la base) le deja ver o quitar su lugar.
+ */
+export const waitlistEntries = pgTable(
+  'waitlist_entries',
+  {
+    id: id(),
+    businessId: businessRef(),
+    clientId: uuid('client_id').notNull(),
+    /** Fecha de calendario local del negocio ("AAAA-MM-DD") que quiere. */
+    date: date('date', { mode: 'string' }).notNull(),
+    /** Servicios elegidos (ids); con ellos se calcula si hay un horario libre que le sirva. */
+    serviceIds: jsonb('service_ids').$type<string[]>().notNull(),
+    /** null = cualquier profesional. */
+    professionalId: uuid('professional_id'),
+    customerName: text('customer_name').notNull(),
+    customerPhone: text('customer_phone').notNull(),
+    customerEmail: text('customer_email'),
+    status: text('status').notNull().default('waiting'),
+    tokenHash: text('token_hash').notNull(),
+    notifiedAt: ts('notified_at'),
+    termsAcceptedAt: ts('terms_accepted_at').notNull(),
+    termsAcceptedIp: text('terms_accepted_ip'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'waitlist_client_business_fk' }).onDelete('cascade'),
+    uniqueIndex('waitlist_token_uq').on(t.tokenHash),
+    // Una sola espera activa por cliente y día (pedirla otra vez devuelve la misma).
+    uniqueIndex('waitlist_client_date_uq').on(t.businessId, t.clientId, t.date).where(sql`${t.status} = 'waiting'`),
+    index('waitlist_business_date_idx').on(t.businessId, t.date, t.createdAt),
+    check('waitlist_status_ck', sql`${t.status} in ('waiting','notified','cancelled')`),
   ],
 );

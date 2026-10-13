@@ -27,6 +27,30 @@ export interface Notifier {
   /** Recordatorio de cita al CLIENTE (el push al profesional va por push.ts, no por aquí). Pendiente de credenciales
    * reales (Resend / WhatsApp Cloud API); ver apps/api/src/jobs/reminders.ts. */
   sendAppointmentReminder(message: AppointmentReminderMessage): Promise<void>;
+  /** Fase 4: se liberó un horario el día que alguien esperaba (opcional: un proveedor que aún no lo implementa simplemente no avisa). */
+  sendWaitlistAvailable?(message: WaitlistAvailableMessage): Promise<void>;
+  /** Fase 4: pedir una reseña después de una cita completada. */
+  sendReviewRequest?(message: ReviewRequestMessage): Promise<void>;
+}
+
+export interface WaitlistAvailableMessage {
+  channel: 'whatsapp' | 'email';
+  to: string;
+  clientName: string;
+  businessName: string;
+  /** Fecha local "AAAA-MM-DD". */
+  date: string;
+  /** Ruta de la página de reservas del negocio (el proveedor la convierte en enlace completo con su dominio). */
+  bookingPath: string;
+}
+
+export interface ReviewRequestMessage {
+  channel: 'whatsapp' | 'email';
+  to: string;
+  clientName: string;
+  businessName: string;
+  /** Enlace de gestión de la cita (ahí está el formulario de reseña). */
+  reviewPath: string;
 }
 
 /**
@@ -42,6 +66,14 @@ export class ConsoleNotifier implements Notifier {
 
   async sendAppointmentReminder(message: AppointmentReminderMessage): Promise<void> {
     this.log(`[recordatorio] (solo desarrollo) canal=${message.channel} destino=${maskDestination(message.to)} negocio=${message.businessName} cita=${message.when}`);
+  }
+
+  async sendWaitlistAvailable(message: WaitlistAvailableMessage): Promise<void> {
+    this.log(`[lista de espera] (solo desarrollo) canal=${message.channel} destino=${maskDestination(message.to)} negocio=${message.businessName} día=${message.date}`);
+  }
+
+  async sendReviewRequest(message: ReviewRequestMessage): Promise<void> {
+    this.log(`[reseña] (solo desarrollo) canal=${message.channel} destino=${maskDestination(message.to)} negocio=${message.businessName}`);
   }
 }
 

@@ -29,7 +29,9 @@ import { formatPushMoment, notifyAppointment, notifyBusiness, notifyLowStockIfNe
 import type { Ctx } from '../context';
 import { appointments, categories, items, servicePackageEntries, servicePackages, serviceVariants } from '../db/schema';
 import { AppError, notFound, parse, uuid } from '../errors';
-import { cancelReminder, scheduleReminder } from '../jobs/reminders';
+import { cancelReminder, scheduleAppointmentReminders } from '../jobs/reminders';
+import { onSlotReleased } from '../booking/waitlist';
+import { requestReview } from '../booking/reviewRequests';
 import { issueSseTicket } from '../sseTickets';
 
 /** Lo elegido viaja en la consulta como `services=id:estilo,id` y `packages=id,id`. */
@@ -119,7 +121,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       dedupeKey: `appt_new:${dto.id}`,
       href: '/agenda',
     });
-    void scheduleReminder(ctx.boss, request.user.bid, dto.id, new Date(dto.startsAt));
+    void scheduleAppointmentReminders(ctx, request.user.bid, dto.id, new Date(dto.startsAt));
     return reply.status(201).send(dto);
   });
 
@@ -130,11 +132,12 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (own && input.professionalId && input.professionalId.toLowerCase() !== own) throw new AppError(403, 'forbidden');
     let moved = false;
     let timezone = '';
+    let previousStart: Date | undefined;
     const dto = await scoped(request, async (tx) => {
       const bookingCtx = await loadContext(tx, request.user.bid);
       timezone = bookingCtx.business.timezone;
       if (input.startsAt || input.professionalId) {
-        await rescheduleAppointment(tx, request.user.bid, bookingCtx, id, { now: new Date(), startsAt: input.startsAt ? new Date(input.startsAt) : undefined, professionalId: input.professionalId, actor: staffActor(request), clientInitiated: false, scopeProfessionalId: own });
+        await rescheduleAppointment(tx, request.user.bid, bookingCtx, id, { now: new Date(), startsAt: input.startsAt ? new Date(input.startsAt) : undefined, professionalId: input.professionalId, actor: staffActor(request), clientInitiated: false, scopeProfessionalId: own, guard: (row) => void (previousStart = row.startsAt) });
         moved = true;
       }
       if (input.internalNotes !== undefined || input.customerNotes !== undefined) {
@@ -152,7 +155,8 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         dedupeKey: `appt_reschedule:${dto.id}:${dto.startsAt}`,
         href: '/agenda',
       });
-      void scheduleReminder(ctx.boss, request.user.bid, dto.id, new Date(dto.startsAt));
+      void scheduleAppointmentReminders(ctx, request.user.bid, dto.id, new Date(dto.startsAt));
+      if (previousStart && previousStart.getTime() !== new Date(dto.startsAt).getTime()) void onSlotReleased(ctx, request.user.bid, previousStart, timezone);
     }
     return dto;
   });
@@ -178,6 +182,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         });
       }
       if (input.status === 'cancelled' || input.status === 'no_show') void cancelReminder(ctx.boss, id);
+      if (input.status === 'cancelled') void onSlotReleased(ctx, businessId, dto.startsAt, timezone);
       return dto;
     }
     // Completar cobra los servicios, suma sellos y descuenta productos: todo en una transacción (ver booking/completion.ts).
@@ -193,6 +198,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx): void {
     }
     for (const item of effects.stockMoved) void notifyLowStockIfNeeded({ db, config: ctx.config }, businessId, item);
     void cancelReminder(ctx.boss, id);
+    void requestReview(ctx, businessId, id);
     return { ...dto, rewardJustEarned: effects.rewardJustEarned };
   });
 

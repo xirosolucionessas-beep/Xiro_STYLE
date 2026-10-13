@@ -5,6 +5,7 @@ import { Alert } from '../ui/Alert';
 import { Icon } from '../ui/Icon';
 import { MemberMeta } from '../ui/MemberMeta';
 import { ListSkeleton } from '../ui/Skeleton';
+import { TotalRows } from '../ui/TotalRows';
 import { Turnstile } from '../ui/Turnstile';
 import type { DetailItem } from '../profile/ItemDetailModal';
 import type { Chosen } from './BookingFlow';
@@ -292,6 +293,8 @@ export function ReviewStep({
   website,
   onWebsite,
   onCaptcha,
+  discount = null,
+  discountSlot,
 }: {
   /** Pedido de solo productos: sin profesional ni horario; se recoge y paga en el local. */
   orderMode?: boolean;
@@ -311,6 +314,10 @@ export function ReviewStep({
   website: string;
   onWebsite: (value: string) => void;
   onCaptcha: (token: string | undefined) => void;
+  /** Código de descuento aplicado (Fase 4): el total muestra el ahorro estimado. */
+  discount?: { code: string; amount: number } | null;
+  /** El campo "¿Tienes un código?" (solo si el negocio usa códigos). */
+  discountSlot?: ReactNode;
 }) {
   const currency = profile.currency;
   const lines: Array<{ key: string; name: string; price: number }> = [
@@ -385,11 +392,9 @@ export function ReviewStep({
             </div>
           ) : null}
         </dl>
-        <div className="xp-summary-total">
-          <span>{t('pub_summary_total')}</span>
-          <span className="xp-price xp-price--lg">{money(totals.price, currency)}</span>
-        </div>
+        <TotalRows total={totals.price} discount={discount} currency={currency} t={t} />
       </div>
+      {discountSlot}
 
       {/* Campo trampa: invisible y fuera del orden de tabulación para una persona; un bot que rellena todo lo encuentra. */}
       <label className="xp-trap" aria-hidden="true">

@@ -57,6 +57,7 @@ const profile: PublicBookingProfile = {
   accentColor: null,
   bookingTitle: '',
   trustBadges: [],
+  features: { waitlist: false, discountCodes: false, rememberCustomer: false },
 };
 
 const catalog: PublicBookingCatalog = {
@@ -79,6 +80,7 @@ const appointmentFixture: PublicAppointmentDto = {
   modificationsLeft: 2,
   changeableUntil: '2026-10-06T12:00:00.000Z',
   canReview: false,
+  discount: null,
 };
 
 const days = vi.mocked(publicApi.days);

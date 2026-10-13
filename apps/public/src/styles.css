@@ -3351,3 +3351,91 @@ img {
 .xp-member-rating svg {
   color: var(--accent-text);
 }
+
+/* ---------- Fase 4: código de descuento, lista de espera y recordar datos ---------- */
+.xp-summary-total.xp-summary-sub,
+.xp-summary-row.xp-summary-sub {
+  margin-top: 0;
+  padding-top: var(--space-2);
+  border-top: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+.xp-summary-total.xp-summary-sub:first-of-type {
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border-strong);
+}
+.xp-summary-discount span:last-child {
+  color: var(--success);
+}
+.xp-discount {
+  display: grid;
+  gap: var(--space-2);
+}
+.xp-discount-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+.xp-discount-row .xp-input {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.xp-discount.is-applied {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--accent-border);
+  border-radius: var(--radius-lg);
+  background: var(--accent-tint);
+}
+.xp-discount.is-applied > svg {
+  flex: none;
+  color: var(--success);
+}
+.xp-discount-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.xp-discount-text strong {
+  letter-spacing: 0.06em;
+}
+.xp-discount-save {
+  display: block;
+  color: var(--success);
+  font-weight: 700;
+}
+.xp-waitlist-cta p {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.xp-waitlist-cta p svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--accent-text);
+}
+.xp-remember {
+  margin-top: var(--space-2);
+}
+.xp-block {
+  display: block;
+  margin-top: 2px;
+}
+.xp-waitlist-done {
+  justify-items: center;
+  text-align: center;
+}
+.xp-done-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-tint);
+  color: var(--accent-text);
+}

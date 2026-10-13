@@ -80,9 +80,12 @@ async function seed(label: string): Promise<Seeded> {
   await send(s, 'POST', `/api/appointments/${appt!.id}/status`, { status: 'completed' });
   await testDb.db.insert(reviews).values({ businessId: biz.session.business.id, appointmentId: appt!.id, rating: 5, comment: `Reseña ${label}`, authorName: `Autor ${label}` });
   // Pedido de solo productos desde la página pública (Fase 1 del plan): el barrido cubre también /orders.
-  await ok(await send(s, 'PUT', '/api/booking/settings', { productOrdersEnabled: true }), 'activar pedidos');
+  await ok(await send(s, 'PUT', '/api/booking/settings', { productOrdersEnabled: true, discountCodesEnabled: true, waitlistEnabled: true }), 'activar pedidos, códigos y lista de espera');
+  await ok(await send(s, 'POST', '/api/discount-codes', { code: `COD${label}`.slice(0, 30), kind: 'percent', value: 10 }), 'código de descuento');
   const productOrder = await app.inject({ method: 'POST', url: `${biz.base}/orders`, payload: { products: [{ itemId: product.id, quantity: 1 }], customer: { firstName: 'Ana', lastName: label, email: '', phone: nextPhone(), notes: `Pedido ${label}`, custom: {} }, acceptTerms: true, website: '' } });
   expect(productOrder.statusCode, productOrder.body).toBe(201);
+  const waiting = await app.inject({ method: 'POST', url: `${biz.base}/waitlist`, payload: { date: workday(6), services: [biz.serviceId], customer: { firstName: 'Eva', lastName: label, email: '', phone: nextPhone(), notes: '', custom: {} }, acceptTerms: true, website: '' } });
+  expect(waiting.statusCode, waiting.body).toBe(201);
   await ok(await send(s, 'POST', '/api/cash/close', { day: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()), /* día del negocio, no UTC */ countedAmount: 95000, note: `Cierre caja ${label}` }), 'cierre de caja');
   return { biz, categoryId, productId: product.id, clientId: client.id, employee, galleryFile };
 }
@@ -202,6 +205,8 @@ const BODIES: Record<string, (a: Seeded) => unknown> = {
   'POST /messages/conversations/:id/read': () => ({}),
   'POST /orders/:id/ready': () => ({}),
   'POST /orders/:id/cancel': () => ({ reason: 'prueba' }),
+  'PUT /discount-codes/:id': () => ({ code: 'CAMBIADO', kind: 'percent', value: 5 }),
+  'POST /waitlist/:id/cancel': () => ({}),
 };
 /** Rutas que reciben una foto (multipart). */
 const MULTIPART = new Set(['PUT /clients/:id/photo', 'PUT /professionals/:id/photo', 'PUT /employees/:id/photo', 'POST /items/:id/photos']);
@@ -356,6 +361,8 @@ describe('aislamiento multi-negocio (BOLA/IDOR) en todas las rutas autenticadas'
       // Mismo pedido: primero listo (pendiente → listo) y luego cancelado (listo → cancelado); ambas transiciones válidas.
       'POST /orders/:id/ready': await own('product_orders', "and status = 'pending'"),
       'POST /orders/:id/cancel': await own('product_orders', "and status = 'pending'"),
+      'PUT /discount-codes/:id': await own('discount_codes'),
+      'POST /waitlist/:id/cancel': await own('waitlist_entries', "and status = 'waiting'"),
     };
     const failures: string[] = [];
     for (const [key, id] of Object.entries(ids)) {
@@ -399,7 +406,9 @@ describe('las respuestas nunca exponen campos sensibles', () => {
       checked += 1;
       for (const key of keysOf(json)) {
         const leaf = key.split('.').pop()!.replace('[]', '');
-        if (SENSITIVE.test(leaf) && !ALLOWED.has(leaf)) exposed.push(`${url} → ${key}`);
+        // Excepción puntual: el código PROMOCIONAL que el dueño creó para compartir (no un OTP ni un secreto).
+        const promoCode = url.startsWith('/discount-codes') && leaf === 'code';
+        if (SENSITIVE.test(leaf) && !ALLOWED.has(leaf) && !promoCode) exposed.push(`${url} → ${key}`);
       }
     };
     const a = A.biz.session.business.id;

@@ -220,6 +220,7 @@ export async function loadPublicProfile(tx: Tx, ctx: BookingContext, now: Date, 
     accentColor: profile?.accentColor ?? null,
     bookingTitle: profile?.bookingTitle ?? '',
     trustBadges: profile?.trustBadges ?? [],
+    features: { waitlist: ctx.settings.waitlistEnabled, discountCodes: ctx.settings.discountCodesEnabled, rememberCustomer: ctx.settings.rememberCustomerEnabled },
   };
 }
 

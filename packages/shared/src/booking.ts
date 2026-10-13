@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { discountCodeSchema } from './discounts';
 import { emailSchema, phoneSchema } from './schemas';
 
 /**
@@ -97,6 +98,9 @@ export const customFieldSchema = z.object({
 });
 export type CustomField = z.infer<typeof customFieldSchema>;
 
+/** Opciones de recordatorio (horas antes de la cita) que el negocio puede combinar. */
+export const REMINDER_HOUR_OPTIONS = [1, 2, 3, 6, 12, 24, 48] as const;
+
 export const bookingSettingsInputSchema = z.object({
   slotIntervalMinutes: z.union([z.literal(15), z.literal(30), z.literal(60)]).default(30),
   minNoticeMinutes: z.number().int().min(0).max(10_080).default(60),
@@ -113,6 +117,21 @@ export const bookingSettingsInputSchema = z.object({
   hideOutOfStockInCatalog: z.boolean().default(false),
   /** Pedidos de solo productos desde la página pública (recoger y pagar en el local). Apagado por defecto. */
   productOrdersEnabled: z.boolean().default(false),
+  /* ---- Fase 4: funciones por negocio (apagadas por defecto, salvo el recordatorio de siempre) ---- */
+  /** Horas antes de la cita en que se recuerda (hasta 3 distintas, p. ej. [24, 2]); [] = sin recordatorios. */
+  reminderHours: z
+    .array(z.number().int().refine((h) => (REMINDER_HOUR_OPTIONS as readonly number[]).includes(h), { message: 'validation_error' }))
+    .max(3)
+    .refine((hours) => new Set(hours).size === hours.length, { message: 'validation_error' })
+    .default([3]),
+  /** Lista de espera cuando un día está lleno: avisa al liberarse un horario. */
+  waitlistEnabled: z.boolean().default(false),
+  /** Códigos de descuento en la página pública (validados en el servidor). */
+  discountCodesEnabled: z.boolean().default(false),
+  /** Pedir reseña automáticamente después de una cita completada. */
+  reviewRequestsEnabled: z.boolean().default(false),
+  /** Ofrecer al cliente recordar sus datos en SU dispositivo (con su consentimiento) para reservar más rápido. */
+  rememberCustomerEnabled: z.boolean().default(false),
 });
 export type BookingSettingsInput = z.input<typeof bookingSettingsInputSchema>;
 export type BookingSettings = z.infer<typeof bookingSettingsInputSchema>;
@@ -287,6 +306,8 @@ export const publicBookingInputSchema = z.object({
    * por mala señal— devuelve la cita ya creada en vez de fallar o duplicarla. Opcional: sin él, cada envío cuenta como nuevo.
    */
   idempotencyKey: uuidString.optional(),
+  /** Código de descuento (Fase 4, si el negocio los activó). El servidor lo valida y calcula el descuento. */
+  discountCode: discountCodeSchema.optional(),
 });
 export type PublicBookingInput = z.input<typeof publicBookingInputSchema>;
 
@@ -370,6 +391,8 @@ export interface AppointmentDto {
   endsAt: string;
   durationMinutes: number;
   totalPrice: number;
+  /** Código de descuento usado (Fase 4): se cobra totalPrice − amount. null = sin descuento. */
+  discount: { code: string; amount: number } | null;
   customerNotes: string;
   internalNotes: string;
   modificationCount: number;
@@ -414,6 +437,8 @@ export interface PublicAppointmentDto {
   endsAt: string;
   durationMinutes: number;
   totalPrice: number;
+  /** Código de descuento usado (Fase 4): total a pagar = totalPrice − amount. */
+  discount: { code: string; amount: number } | null;
   professionalName: string;
   items: AppointmentItemDto[];
   business: {
@@ -579,6 +604,8 @@ export interface PublicBookingProfile {
   accentColor: string | null;
   bookingTitle: string;
   trustBadges: string[];
+  /** Funciones de la Fase 4 que este negocio activó (la página solo muestra las suyas). */
+  features: { waitlist: boolean; discountCodes: boolean; rememberCustomer: boolean };
 }
 
 /** Los cuatro requisitos para reservar en línea; `ready` = todos cumplidos. Es la única fuente de esta regla (servidor). */

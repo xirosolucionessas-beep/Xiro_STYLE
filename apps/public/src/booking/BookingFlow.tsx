@@ -1,4 +1,5 @@
 import {
+  computeDiscount,
   formatClock,
   formatDay,
   isValidPhone,
@@ -15,18 +16,22 @@ import {
   type PublicBookingCatalog,
   type PublicBookingProfile,
   type PublicBookingResult,
+  type PublicDiscountDto,
   type PublicProductOrderDto,
   type PublicTeamMemberDto,
 } from '@xiro/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, publicApi } from '../api';
+import { forgetRememberedCustomer, loadRememberedCustomer, saveRememberedCustomer } from '../lib/rememberCustomer';
 import { errorKey } from '../lib/useAsync';
 import { newUuid } from '../lib/uuid';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
 import { SchedulePicker } from '../ui/SchedulePicker';
+import { DiscountField, discountErrorText } from './DiscountField';
 import { DoneStep } from './DoneStep';
+import { WaitlistModal } from './WaitlistModal';
 import { OrderDoneStep } from './OrderDoneStep';
 import { SelectionBar, type SelectionSummary } from './SelectionBar';
 import { Stepper, type StepId } from './Stepper';
@@ -112,7 +117,12 @@ export function BookingFlow({
   const [stepError, setStepError] = useState<string>();
   const [alternatives, setAlternatives] = useState<Array<{ time: string; startsAt: string }>>([]);
 
-  const [customer, setCustomer] = useState<CustomerForm>(() => customerFromAccount(account));
+  // Con sesión, los datos de la cuenta; si no, los que la persona pidió recordar en este dispositivo (si el negocio lo permite).
+  const remembered = useMemo(() => (!account && profile.features.rememberCustomer ? loadRememberedCustomer(slug) : null), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [customer, setCustomer] = useState<CustomerForm>(() => (remembered ? { ...remembered, notes: '' } : customerFromAccount(account)));
+  const [rememberMe, setRememberMe] = useState(Boolean(remembered));
+  const [discount, setDiscount] = useState<PublicDiscountDto | null>(null);
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [consent, setConsent] = useState({ acceptTerms: false, remindersOptIn: false });
   const [website, setWebsite] = useState(''); // campo trampa
@@ -172,6 +182,9 @@ export function BookingFlow({
     for (const p of chosen.products) price += (catalog.products.find((i) => i.id === p.itemId)?.price ?? 0) * p.quantity;
     return { price, minutes };
   }, [chosen, catalog]);
+  // Ahorro estimado del código (el servidor lo vuelve a calcular y lo cuenta al confirmar).
+  const discountAmount = discount ? computeDiscount(totals.price, discount) : 0;
+  const discountLine = discount && discountAmount > 0 ? { code: discount.code, amount: discountAmount } : null;
 
   // Se puede seguir con un servicio o paquete (cita), o solo con productos si el negocio acepta pedidos.
   const hasSelection = hasBookable || orderMode;
@@ -191,7 +204,7 @@ export function BookingFlow({
     professional: !orderMode && stepIndex > steps.indexOf('professional') && team.length > 0 ? professionalName : null,
     when: slotLabel,
     minutes: totals.minutes,
-    price: totals.price,
+    price: totals.price - discountAmount,
     currency: profile.currency,
   };
 
@@ -261,6 +274,7 @@ export function BookingFlow({
       website,
       captchaToken,
       idempotencyKey,
+      ...(discount ? { discountCode: discount.code } : {}),
     };
     const parsed = publicBookingInputSchema.safeParse(payload);
     if (!parsed.success) return setSubmitError(t('pub_err_fix'));
@@ -268,8 +282,11 @@ export function BookingFlow({
     setSubmitting(true);
     try {
       setResult(await publicApi.book(slug, parsed.data));
+      rememberCustomer();
     } catch (error) {
-      if (error instanceof ApiError && error.code === 'slot_taken') {
+      if (rejectedDiscount(error)) {
+        // ya mostrado
+      } else if (error instanceof ApiError && error.code === 'slot_taken') {
         // Otra persona tomó el horario primero: se vuelve a "Fecha y hora" (que recarga los horarios) con alternativas cercanas.
         setAlternatives((error.extra.alternatives as Array<{ time: string; startsAt: string }> | undefined) ?? []);
         setSlot(null);
@@ -283,6 +300,21 @@ export function BookingFlow({
     }
   }
 
+  /** Guarda (o borra) los datos en este dispositivo según lo que la persona marcó, solo si el negocio ofrece recordarlos. */
+  function rememberCustomer() {
+    if (!profile.features.rememberCustomer) return;
+    if (rememberMe) saveRememberedCustomer(slug, { firstName: customer.firstName.trim(), lastName: customer.lastName.trim(), phone: customer.phone.trim(), email: customer.email.trim() });
+    else forgetRememberedCustomer(slug);
+  }
+
+  /** El servidor rechazó el código al confirmar (se agotó, venció o no llega al mínimo): se quita y se dice por qué; nada se creó. */
+  function rejectedDiscount(error: unknown): boolean {
+    if (!(error instanceof ApiError) || !error.code.startsWith('discount_')) return false;
+    setSubmitError(discountErrorText(error, t, profile.currency));
+    if (error.code !== 'discount_min_total') setDiscount(null);
+    return true;
+  }
+
   /** Pedido de solo productos: mismo formulario y mismas garantías (idempotente, campo trampa, captcha); el servidor pone precios. */
   async function submitOrder() {
     const payload = {
@@ -292,14 +324,18 @@ export function BookingFlow({
       website,
       captchaToken,
       idempotencyKey,
+      ...(discount ? { discountCode: discount.code } : {}),
     };
     const parsed = publicProductOrderInputSchema.safeParse(payload);
     if (!parsed.success) return setSubmitError(t('pub_err_fix'));
     setSubmitting(true);
     try {
       setOrderResult((await publicApi.order(slug, parsed.data)).order);
+      rememberCustomer();
     } catch (error) {
-      if (error instanceof ApiError && (error.code === 'out_of_stock' || error.code === 'product_unavailable')) {
+      if (rejectedDiscount(error)) {
+        // ya mostrado
+      } else if (error instanceof ApiError && (error.code === 'out_of_stock' || error.code === 'product_unavailable')) {
         // Se agotó o se retiró algo mientras elegía: de vuelta a la selección, diciendo QUÉ, para quitarlo o cambiar la cantidad.
         const ids = (error.extra.itemIds as string[] | undefined) ?? [];
         const names = ids.map((id) => catalog.products.find((p) => p.id === id)?.name).filter(Boolean).join(', ');
@@ -395,10 +431,28 @@ export function BookingFlow({
           onSlot={(s) => setSlot(s.startsAt)}
           maxDaysAhead={profile.rules.maxDaysAhead}
           language={language}
+          // La lista de espera es por servicios (un paquete se reserva directo o se consulta con el negocio).
+          onWaitlist={profile.features.waitlist && chosen.services.length > 0 && chosen.packages.length === 0 ? () => setWaitlistOpen(true) : undefined}
         />
       ) : null}
 
       {step === 'details' ? <DetailsStep orderMode={orderMode} profile={profile} customer={customer} custom={custom} errors={errors} t={t} onCustomer={(patch) => setCustomer((c) => ({ ...c, ...patch }))} onCustom={(key, value) => setCustom((c) => ({ ...c, [key]: value }))} /> : null}
+      {step === 'details' && profile.features.rememberCustomer && !account ? (
+        <label className="xp-check xp-remember">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(e) => {
+              setRememberMe(e.target.checked);
+              if (!e.target.checked) forgetRememberedCustomer(slug);
+            }}
+          />
+          <span>
+            {t('pub_remember_me')}
+            <span className="xp-hint xp-block">{t('pub_remember_me_hint')}</span>
+          </span>
+        </label>
+      ) : null}
 
       {step === 'review' && (slot || orderMode) ? (
         <ReviewStep
@@ -419,6 +473,8 @@ export function BookingFlow({
           website={website}
           onWebsite={setWebsite}
           onCaptcha={setCaptchaToken}
+          discount={discountLine}
+          discountSlot={profile.features.discountCodes ? <DiscountField slug={slug} subtotal={totals.price} currency={profile.currency} applied={discount} onApplied={setDiscount} t={t} /> : undefined}
         />
       ) : null}
     </>
@@ -526,6 +582,20 @@ export function BookingFlow({
           </aside>
         </div>
       </div>
+
+      {waitlistOpen ? (
+        <WaitlistModal
+          slug={slug}
+          profile={profile}
+          date={date}
+          services={[...new Set(chosen.services.map((s) => s.itemId))]}
+          professionalId={professionalId}
+          initial={customer}
+          language={language}
+          t={t}
+          onClose={() => setWaitlistOpen(false)}
+        />
+      ) : null}
 
       {detail
         ? (() => {
