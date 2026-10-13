@@ -6,10 +6,10 @@ import { api, errorKey } from '@/lib/api';
 import { keys, useDiscountCodes } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
-import { Button } from '../Button';
 import { useDialogs } from '../Dialogs';
 import { Field } from '../Field';
-import { Card, Chip, ChipRow, EmptyState, SectionTitle, ToggleRow } from '../Kit';
+import { EmptyState } from '../Kit';
+import { Button, Card, Chip, ChipRow, SectionTitle, ToggleRow } from './PanelKit';
 import { AppText } from '../Text';
 import { useAction } from './useAction';
 

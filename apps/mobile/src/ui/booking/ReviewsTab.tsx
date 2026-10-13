@@ -4,8 +4,8 @@ import { api, errorKey } from '@/lib/api';
 import { flatPages, keys, useBookingReviews } from '@/lib/queries';
 import { LoadMoreButton } from '../PagedFooter';
 import { useSettings } from '@/lib/settings';
-import { Button } from '../Button';
-import { Card, EmptyState } from '../Kit';
+import { EmptyState } from '../Kit';
+import { Button, Card } from './PanelKit';
 import { AppText } from '../Text';
 import { useAction } from './useAction';
 

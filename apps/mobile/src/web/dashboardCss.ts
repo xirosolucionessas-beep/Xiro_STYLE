@@ -118,6 +118,8 @@ export function buildDashboardCss(): string {
 .xw-kpi { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: var(--xw-space-1); box-sizing: border-box; min-width: 0; padding: var(--xw-space-4); text-align: left; font-family: var(--xw-font);
   background: transparent; border-right: 1px solid var(--xw-border-subtle); border-bottom: 1px solid var(--xw-border-subtle); }
 .xw-kpi:last-child { border-right: 0; }
+/* Inicio: la tira de cifras con el mismo borde dorado fino que los accesos de módulos. */
+.xw-dash .xw-kpis { border-color: color-mix(in srgb, var(--xw-accent) 45%, transparent); }
 .xw-kpi--action { cursor: pointer; transition: background-color var(--xw-fast); }
 .xw-kpi--action:hover { background: var(--xw-surface-alt); }
 .xw-kpi--action:active { transform: scale(.99); }

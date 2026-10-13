@@ -678,6 +678,10 @@ export const businessSettings = pgTable(
     discountCodesEnabled: boolean('discount_codes_enabled').notNull().default(false),
     reviewRequestsEnabled: boolean('review_requests_enabled').notNull().default(false),
     rememberCustomerEnabled: boolean('remember_customer_enabled').notNull().default(false),
+    /** Distintivo "✓ Reserva fácil · Sin pago anticipado" en la cabecera pública (solo si el negocio lo activa). */
+    noPrepayBadgeEnabled: boolean('no_prepay_badge_enabled').notNull().default(false),
+    /** Campo de comentarios del cliente al reservar (encendido por defecto: así era siempre). */
+    customerNotesEnabled: boolean('customer_notes_enabled').notNull().default(true),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -1010,6 +1014,8 @@ export const appointments = pgTable(
     index('appointments_business_start_idx').on(t.businessId, t.startsAt),
     index('appointments_professional_start_idx').on(t.businessId, t.professionalId, t.startsAt),
     index('appointments_client_idx').on(t.businessId, t.clientId),
+    // Fase 5: la llave foránea al código de descuento (borrar un código pone NULL aquí) sin recorrer todas las citas.
+    index('appointments_discount_code_idx').on(t.discountCodeId).where(sql`${t.discountCodeId} is not null`),
     check('appointments_status_ck', sql`${t.status} in ('pending','confirmed','in_progress','completed','cancelled','no_show')`),
     check('appointments_source_ck', sql`${t.source} in ('app','web','walk_in')`),
     check('appointments_order_ck', sql`${t.startsAt} < ${t.endsAt} and ${t.endsAt} <= ${t.busyUntil}`),
@@ -1324,6 +1330,7 @@ export const productOrders = pgTable(
     uniqueIndex('product_orders_idem_uq').on(t.businessId, t.idempotencyHash).where(sql`${t.idempotencyHash} is not null`),
     index('product_orders_business_created_idx').on(t.businessId, t.createdAt.desc(), t.id.desc()),
     index('product_orders_business_status_idx').on(t.businessId, t.status),
+    index('product_orders_discount_code_idx').on(t.discountCodeId).where(sql`${t.discountCodeId} is not null`),
     check('product_orders_status_ck', sql`${t.status} in ('pending','ready','delivered','cancelled')`),
     check('product_orders_total_ck', sql`${t.totalPrice} between 0 and 1000000000`),
     check('product_orders_delivered_sale_ck', sql`${t.status} <> 'delivered' or ${t.saleId} is not null`),

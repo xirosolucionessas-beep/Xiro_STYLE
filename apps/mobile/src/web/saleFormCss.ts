@@ -81,10 +81,12 @@ export function buildSaleFormCss(): string {
 .xw-sale-done-icon .xw-celebrate-confetti { inset: -10px -50px auto; height: 70px; }
 
 @media print {
-  /* Solo el recibo sale en la impresión/"Guardar como PDF": el resto de la app (barra lateral, botones…) se oculta. */
+  /* Respaldo de Ctrl+P (el botón "Imprimir" usa un ticket propio, ver web/services/print.ts). La maquetación de la app tiene
+     alturas fijas y desplazamiento interno: se liberan para que nada quede recortado, y solo el comprobante se ve. */
+  html, body, #root, #root * { height: auto !important; max-height: none !important; overflow: visible !important; position: static !important; }
   body * { visibility: hidden; }
   #xw-sale-receipt, #xw-sale-receipt * { visibility: visible; }
-  #xw-sale-receipt { position: absolute; inset: 0; }
+  #xw-sale-receipt { position: absolute !important; top: 0; left: 0; width: 72mm; margin: 0; color: #000; background: #fff; font-size: 12pt; }
 }
 `;
 }

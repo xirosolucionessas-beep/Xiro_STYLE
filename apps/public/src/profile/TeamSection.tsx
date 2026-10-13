@@ -1,7 +1,6 @@
 import { translate, type Language, type PublicServiceDto, type PublicTeamMemberDto } from '@xiro/shared';
 import { useState } from 'react';
 import { initials } from '../lib/format';
-import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
 import { MemberMeta } from '../ui/MemberMeta';
@@ -48,7 +47,7 @@ export function TeamSection({ team, services, language }: { team: PublicTeamMemb
       </ul>
 
       {open ? (
-        <Modal title={open.name} closeLabel={t('close')} onClose={() => setOpenId(null)} footer={<Button variant="secondary" full={false} onClick={() => setOpenId(null)}>{t('close')}</Button>}>
+        <Modal title={open.name} closeLabel={t('close')} onClose={() => setOpenId(null)}>
           <div className="xp-member-detail">
             {open.photoUrl ? (
               <img className="xp-member-detail-photo" src={open.photoUrl} alt="" width={96} height={96} />

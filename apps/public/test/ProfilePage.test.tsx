@@ -55,7 +55,7 @@ const base: PublicBookingProfile = {
   accentColor: null,
   bookingTitle: '',
   trustBadges: [],
-  features: { waitlist: false, discountCodes: false, rememberCustomer: false },
+  features: { waitlist: false, discountCodes: false, rememberCustomer: false, noPrepayBadge: false, customerNotes: true }, businessType: 'barbershop',
 };
 
 const emptyCatalog: PublicBookingCatalog = { services: [], packages: [], products: [] };
@@ -206,6 +206,8 @@ describe('ProfilePage', () => {
   });
 
   describe('ubicación', () => {
+    // La dirección también va en la cabecera (rediseño): estas pruebas miran la sección de ubicación.
+    const loc = () => within(document.getElementById('ubicacion')!);
     const withPin: PublicBookingProfile = {
       ...base,
       latitude: 4.6533,
@@ -226,7 +228,7 @@ describe('ProfilePage', () => {
       await open(withPin);
       const map = screen.getByRole('img', { name: 'Mapa con la ubicación de Mi Barbería' });
       expect(map.getAttribute('src')).toBe('/api/public/booking/mi-barberia/map.png?v=4.6533,-74.0836');
-      expect(screen.getByText('Cra. 7 #71-21, Bogotá')).toBeTruthy();
+      expect(loc().getByText('Cra. 7 #71-21, Bogotá')).toBeTruthy();
       expect(screen.getByRole('link', { name: 'Abrir en Google Maps' }).getAttribute('href')).toBe('https://www.google.com/maps/dir/?api=1&destination=4.6533,-74.0836&destination_place_id=ChIJ_lugar_de_prueba_123');
       expect(screen.getByRole('link', { name: 'Abrir en Waze' }).getAttribute('href')).toBe('https://waze.com/ul?ll=4.6533,-74.0836&navigate=yes');
       for (const name of ['Abrir en Google Maps', 'Abrir en Waze']) expect(screen.getByRole('link', { name }).getAttribute('target')).toBe('_blank');
@@ -240,7 +242,7 @@ describe('ProfilePage', () => {
     it('sin imagen del mapa (el servidor no lo tiene configurado) quedan la dirección y los botones', async () => {
       await open({ ...withPin, mapImageUrl: null });
       expect(screen.queryByRole('img', { name: /Mapa con la ubicación/ })).toBeNull();
-      expect(screen.getByText('Cra. 7 #71-21, Bogotá')).toBeTruthy();
+      expect(loc().getByText('Cra. 7 #71-21, Bogotá')).toBeTruthy();
       expect(screen.getByRole('link', { name: 'Abrir en Waze' })).toBeTruthy();
     });
 
@@ -253,13 +255,13 @@ describe('ProfilePage', () => {
 
     it('sin dirección del pin usa la del negocio', async () => {
       await open({ ...withPin, mapAddress: '', address: 'Calle 1 # 2-3', city: 'Cali' });
-      expect(screen.getByText('Calle 1 # 2-3, Cali')).toBeTruthy();
+      expect(loc().getByText('Calle 1 # 2-3, Cali')).toBeTruthy();
     });
 
     it('solo con la dirección escrita: sin imagen de mapa, y "Cómo llegar" busca ese texto', async () => {
       await open({ ...base, address: 'Calle 1 # 2-3' });
       expect(screen.queryByRole('img', { name: /Mapa con la ubicación/ })).toBeNull();
-      expect(screen.getByText('Calle 1 # 2-3')).toBeTruthy();
+      expect(loc().getByText('Calle 1 # 2-3')).toBeTruthy();
       const href = screen.getByRole('link', { name: 'Abrir en Google Maps' }).getAttribute('href')!;
       expect(href).toContain('google.com/maps/search');
       expect(decodeURIComponent(href)).toContain('Calle 1 # 2-3');

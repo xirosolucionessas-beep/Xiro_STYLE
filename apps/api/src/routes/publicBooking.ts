@@ -54,6 +54,13 @@ const DISCOUNT_CHECKS_PER_IP_PER_HOUR = 30;
 const WAITLIST_JOINS_PER_IP_PER_HOUR = 10;
 /** Pedidos de productos nuevos por IP y por hora (mismo criterio que las reservas). */
 const ORDERS_PER_IP_PER_HOUR = 20;
+/**
+ * Fase 5 del plan: además del límite por IP, un tope de CREACIONES por negocio y por minuto (todas las IP juntas), para que una
+ * ráfaga distribuida no llene la agenda, el inventario o la lista de espera de un negocio. Holgado para un negocio real.
+ */
+const WRITES_PER_MINUTE_PER_BUSINESS = { appointment: 30, order: 10, waitlist: 10 } as const;
+/** Reseñas por IP y por hora (con enlace de gestión o con el enlace firmado). */
+const REVIEWS_PER_IP_PER_HOUR = 10;
 /** El perfil dice si el negocio está "abierto ahora": se guarda poco (lo mismo que ya lo guarda el navegador). */
 const PROFILE_CACHE_SECONDS = 15;
 
@@ -72,6 +79,21 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
   // Probar códigos al azar: pocas consultas por IP y por hora (un cliente real escribe uno o dos).
   const discountLimiter = ctx.rates.limiter('discount-check-ip', 3_600_000);
   const waitlistLimiter = ctx.rates.limiter('waitlist-join-ip', 3_600_000);
+  const reviewLimiter = ctx.rates.limiter('review-ip', 3_600_000);
+  const businessWrites = ctx.rates.limiter('public-writes-business', 60_000);
+
+  async function limitBusinessWrites(kind: keyof typeof WRITES_PER_MINUTE_PER_BUSINESS, businessId: string): Promise<void> {
+    if (!config.rateLimit.enabled) return;
+    const key = `${kind}:${businessId}`;
+    if ((await businessWrites.hit(key)) > WRITES_PER_MINUTE_PER_BUSINESS[kind]) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await businessWrites.retryAfterSeconds(key)) });
+    }
+  }
+  async function limitReviews(ip: string): Promise<void> {
+    if (config.rateLimit.enabled && (await reviewLimiter.hit(ip)) > REVIEWS_PER_IP_PER_HOUR) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await reviewLimiter.retryAfterSeconds(ip)) });
+    }
+  }
 
   app.addHook('onSend', async (request, reply) => {
     const dynamic = /\/(availability|days|appointments|orders|discount|waitlist|review-link)/.test(request.url);
@@ -208,6 +230,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await createLimiter.retryAfterSeconds(request.ip)) });
     }
     const business = await publishedBusiness(slug);
+    await limitBusinessWrites('appointment', business.id);
     const idempotency = input.idempotencyKey ? { key: input.idempotencyKey, secret: config.jwtSecret } : undefined;
 
     // Una confirmación repetida (doble clic, reintento por mala señal) devuelve la cita que ya se creó. Se resuelve ANTES de
@@ -237,7 +260,9 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       // El correo siempre es opcional al agendar: solo nombre y celular son obligatorios, sin excepción por negocio.
       const custom = context.settings.customFields.map((field) => ({ field, value: (customer.custom[field.key] ?? '').trim() }));
       if (custom.some(({ field, value }) => field.required && value === '')) throw new AppError(400, 'validation_error');
-      const notes = [customer.notes, ...custom.filter(({ value }) => value !== '').map(({ field, value }) => `${field.label}: ${value}`)].filter(Boolean).join('\n');
+      // Comentarios apagados por el negocio: la nota libre no se guarda (los campos propios sí, como siempre).
+      const freeNote = context.settings.customerNotesEnabled ? customer.notes : '';
+      const notes = [freeNote, ...custom.filter(({ value }) => value !== '').map(({ field, value }) => `${field.label}: ${value}`)].filter(Boolean).join('\n');
 
       const p = await prepare(tx, business.id, { selection: input.selection, professionalId: input.professionalId, staff: false, ctx: context });
       const now = new Date();
@@ -318,6 +343,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
   app.post('/:slug/review-link/:token', async (request): Promise<PublicAppointmentDto> => {
     const { slug, token } = parse(reviewLinkParams, request.params);
     const input = parse(publicReviewInputSchema, request.body);
+    await limitReviews(request.ip);
     const business = await publishedBusiness(slug);
     const appointmentId = verifyReviewToken(config.jwtSecret, business.id, token);
     let review: { authorName: string; rating: number; professionalId: string } | undefined;
@@ -353,6 +379,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await waitlistLimiter.retryAfterSeconds(request.ip)) });
     }
     const business = await publishedBusiness(slug);
+    await limitBusinessWrites('waitlist', business.id);
     if (!(await verifyCaptcha(config.booking.turnstileSecret, input.captchaToken, request.ip))) throw new AppError(400, 'captcha_failed');
     const name = `${input.customer.firstName} ${input.customer.lastName}`.trim();
     const result = await scopedTo(business, async (tx) => {
@@ -402,6 +429,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await orderLimiter.retryAfterSeconds(request.ip)) });
     }
     const business = await publishedBusiness(slug);
+    await limitBusinessWrites('order', business.id);
     const now = new Date();
 
     // Un reintento del MISMO envío devuelve el pedido ya creado, antes de pedir otra vez el captcha (de un solo uso).
@@ -427,7 +455,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       const result = await createProductOrder(tx, business.id, context, {
         now,
         lines: input.products,
-        customer: { name, phone: input.customer.phone, email: input.customer.email, notes: input.customer.notes },
+        customer: { name, phone: input.customer.phone, email: input.customer.email, notes: context.settings.customerNotesEnabled ? input.customer.notes : '' },
         account: account ? { id: account.id, clientId: account.clientId } : null,
         termsIp: request.ip,
         idempotencyKey: input.idempotencyKey,
@@ -526,6 +554,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
   app.post('/:slug/appointments/:token/review', async (request): Promise<PublicAppointmentDto> => {
     const { slug, token } = parse(tokenParams, request.params);
     const input = parse(publicReviewInputSchema, request.body);
+    await limitReviews(request.ip);
     const { business, appointmentId } = await ownAppointment(slug, token);
     let review: { authorName: string; rating: number; professionalId: string } | undefined;
     const dto = await scopedTo(business, async (tx) => {

@@ -3,8 +3,7 @@ import type { BookingReadiness } from '@xiro/shared';
 import { View } from 'react-native';
 import { setupSteps, type SetupStepId } from '@/lib/bookingPage';
 import { useSettings } from '@/lib/settings';
-import { Button } from '../Button';
-import { Card } from '../Kit';
+import { Button, Card } from './PanelKit';
 import { AppText } from '../Text';
 
 const ACTION_KEY: Record<SetupStepId, string> = {

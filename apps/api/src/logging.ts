@@ -12,7 +12,8 @@ import type { FastifyServerOptions } from 'fastify';
 export const REDACTED = '[redactado]';
 
 const SENSITIVE_QUERY = /([?&](?:ticket|token|code|secret|password|refreshToken|resetToken)=)[^&#]*/gi;
-const SENSITIVE_PATH = /(\/(?:appointments|gestion)\/)[^/?#]+/gi;
+// Enlaces personales: gestión de cita, lista de espera y reseña (Fase 4), en la API y en la página pública.
+const SENSITIVE_PATH = /(\/(?:appointments|gestion|waitlist|espera|review-link|resena)\/)[^/?#]+/gi;
 
 export function redactUrl(url: string): string {
   return url.replace(SENSITIVE_PATH, `$1${REDACTED}`).replace(SENSITIVE_QUERY, `$1${REDACTED}`);

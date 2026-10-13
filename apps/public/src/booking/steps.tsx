@@ -86,7 +86,7 @@ export function ServicesStep({
                 type="button"
                 className="xp-link-btn xp-choice-detail"
                 aria-label={t('pub_detail_open', { name: service.name })}
-                onClick={() => onOpenDetail({ id: service.id, name: service.name, category: service.category, description: usefulDescription(description, service.name), images: service.images, durationMinutes: service.durationMinutes, price: service.price, fromPrice: service.variants.some((v) => v.price !== service.price) }, 'service')}>
+                onClick={() => onOpenDetail({ id: service.id, name: service.name, category: service.category, description: usefulDescription(service.fullDescription || description, service.name), detail: service.detail ?? '', images: service.images, durationMinutes: service.durationMinutes, price: service.price, fromPrice: service.variants.some((v) => v.price !== service.price) }, 'service')}>
                 <Icon name="image" size={16} /> {t('pub_detail_short')}
               </button>
             ) : null}
@@ -145,7 +145,7 @@ export function ServicesStep({
                       type="button"
                       className="xp-link-btn xp-choice-detail"
                       aria-label={t('pub_detail_open', { name: product.name })}
-                      onClick={() => onOpenDetail({ id: product.id, name: product.name, description: usefulDescription(product.description, product.name), images: product.images, price: product.price }, 'product')}>
+                      onClick={() => onOpenDetail({ id: product.id, name: product.name, description: usefulDescription(product.fullDescription || product.description, product.name), detail: product.detail ?? '', images: product.images, price: product.price }, 'product')}>
                       <Icon name="image" size={16} /> {t('pub_detail_short')}
                     </button>
                   ) : null}
@@ -268,7 +268,10 @@ export function DetailsStep({
           errors[`custom.${f.key}`],
         ),
       )}
-      {field('xp-notes', t('pub_notes'), <textarea id="xp-notes" className="xp-textarea" value={customer.notes} onChange={(e) => onCustomer({ notes: e.target.value })} maxLength={500} />, undefined, t('pub_notes_hint'))}
+      {/* Comentarios: opcionales, y solo si el negocio los tiene activados (lo están por defecto). */}
+      {profile.features.customerNotes
+        ? field('xp-notes', `${t('pub_notes')} (${t('pub_optional')})`, <textarea id="xp-notes" className="xp-textarea" value={customer.notes} onChange={(e) => onCustomer({ notes: e.target.value })} maxLength={500} rows={3} />, undefined, `${t('pub_notes_hint')} · ${t('pub_chars_left', { n: 500 - customer.notes.length })}`)
+        : null}
     </div>
   );
 }

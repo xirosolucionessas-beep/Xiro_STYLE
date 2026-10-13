@@ -28,6 +28,7 @@ import { newUuid } from '../lib/uuid';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
+import { Lightbox } from '../ui/Lightbox';
 import { SchedulePicker } from '../ui/SchedulePicker';
 import { DiscountField, discountErrorText } from './DiscountField';
 import { DoneStep } from './DoneStep';
@@ -186,6 +187,23 @@ export function BookingFlow({
   const discountAmount = discount ? computeDiscount(totals.price, discount) : 0;
   const discountLine = discount && discountAmount > 0 ? { code: discount.code, amount: discountAmount } : null;
 
+  // Foto del resumen: la del primer servicio, paquete o producto elegido que tenga foto (cambia con la selección). Sin nada
+  // elegido con foto, el resumen no muestra imagen (antes era la portada fija del negocio).
+  const summaryPhoto = useMemo(() => {
+    const picked = [
+      ...chosen.services.map((s) => catalog.services.find((i) => i.id === s.itemId)),
+      ...chosen.packages.map((id) => catalog.packages.find((p) => p.id === id)),
+      ...chosen.products.map((p) => catalog.products.find((i) => i.id === p.itemId)),
+    ];
+    const withPhoto = picked.find((item) => item?.image);
+    if (!withPhoto) return null;
+    // Todas sus fotos para el visor (los paquetes traen solo una).
+    const images = 'images' in withPhoto && withPhoto.images.length > 0 ? withPhoto.images : [withPhoto.image!];
+    return { src: withPhoto.image!, name: withPhoto.name, images };
+  }, [chosen, catalog]);
+  // Visor de fotos del artículo del resumen (índice de la foto abierta; null = cerrado).
+  const [photoIndex, setPhotoIndex] = useState<number | null>(null);
+
   // Se puede seguir con un servicio o paquete (cita), o solo con productos si el negocio acepta pedidos.
   const hasSelection = hasBookable || orderMode;
   const professionalName = professionalId === 'any' ? t('pub_sel_professional_any') : (team.find((m) => m.id === professionalId)?.name ?? '');
@@ -268,7 +286,7 @@ export function BookingFlow({
       selection: { services: chosen.services, packages: chosen.packages, products: chosen.products },
       professionalId,
       startsAt: slot!,
-      customer: { firstName: customer.firstName.trim(), lastName: customer.lastName.trim(), phone: customer.phone.trim(), email: customer.email.trim() || undefined, notes: customer.notes.trim(), custom },
+      customer: { firstName: customer.firstName.trim(), lastName: customer.lastName.trim(), phone: customer.phone.trim(), email: customer.email.trim() || undefined, notes: profile.features.customerNotes ? customer.notes.trim() : '', custom },
       acceptTerms: true as const,
       remindersOptIn: consent.remindersOptIn,
       website,
@@ -539,7 +557,20 @@ export function BookingFlow({
           <aside className={`xp-sum${summaryOpen ? ' is-open' : ''}`} aria-label={t(orderMode ? 'pub_sum_order' : 'pub_sum_appointment')}>
             <div className="xp-sum-detail" id="xp-sum-detail">
               <div className="xp-sum-business">
-                {profile.coverUrl ? <img className="xp-sum-cover" src={profile.coverUrl} alt="" loading="lazy" decoding="async" /> : null}
+                {summaryPhoto ? (
+                  <button
+                    type="button"
+                    key={summaryPhoto.src}
+                    className="xp-sum-photo-btn xp-sum-photo"
+                    aria-label={t('pub_gallery_open', { n: 1, total: summaryPhoto.images.length })}
+                    onClick={() => setPhotoIndex(0)}>
+                    <img className="xp-sum-cover xp-sum-cover--contain" src={summaryPhoto.src} alt={summaryPhoto.name} decoding="async" />
+                    <span className="xp-sum-photo-zoom" aria-hidden="true">
+                      <Icon name="image" size={14} />
+                      {summaryPhoto.images.length > 1 ? t('pub_gallery_count', { n: 1, total: summaryPhoto.images.length }) : null}
+                    </span>
+                  </button>
+                ) : null}
                 <div className="xp-sum-biz-text">
                   <strong className="xp-sum-biz-name">{profile.name}</strong>
                   {profile.rating.count > 0 && profile.rating.average !== null ? (
@@ -582,6 +613,8 @@ export function BookingFlow({
           </aside>
         </div>
       </div>
+
+      {summaryPhoto && photoIndex !== null ? <Lightbox photos={summaryPhoto.images} index={Math.min(photoIndex, summaryPhoto.images.length - 1)} onChange={setPhotoIndex} onClose={() => setPhotoIndex(null)} language={language} /> : null}
 
       {waitlistOpen ? (
         <WaitlistModal

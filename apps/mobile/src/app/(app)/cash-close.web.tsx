@@ -15,6 +15,7 @@ import { useAuthed } from '@/lib/session';
 import { Header, Screen } from '@/ui/Screen';
 import { CashCloseView, type CashCloseHistoryRow, type CashCloseRankRow } from '@/web/screens/CashClose';
 import { parseAmountInput } from '@/web/money';
+import { printTicket } from '@/web/services/print';
 import { useWebText } from '@/web/services/useWebText';
 import { VoidCashClosingModal } from '@/web/ui/VoidCashClosingModal';
 
@@ -119,6 +120,32 @@ export default function CashCloseWeb() {
     return lines.join('\n');
   }
 
+  /** Imprimir el cierre: comprobante vertical propio (ver web/services/print.ts), no la pantalla con gráficas y botones. */
+  function printClosing() {
+    if (!summary) return;
+    printTicket({
+      title: `${t('nav_cash_close')} ${dayLabel}`,
+      lang: language,
+      header: [business.name, t('nav_cash_close'), dayLabel],
+      meta: closedForDay ? [{ label: t('cash_close_closed_by', { name: closedForDay.closedByName }), value: '' }] : [],
+      lines: (summary.salesByMethod ?? []).map((m) => ({ name: t(`sale_pay_${m.method}`), detail: times(m.count, t), amount: money(m.total) })),
+      totals: [
+        { label: t('cash_close_kpi_sales'), value: money(summary.totalSales), strong: true },
+        { label: t('cash_close_kpi_expenses'), value: money(summary.totalExpenses) },
+        ...(closedForDay
+          ? [
+              { label: t('cash_close_expected'), value: money(closedForDay.expectedAmount) },
+              { label: t('cash_close_counted'), value: money(closedForDay.countedAmount) },
+              { label: t(closedForDay.difference >= 0 ? 'cash_close_surplus' : 'cash_close_shortfall'), value: money(Math.abs(closedForDay.difference)), strong: true },
+            ]
+          : summary.expectedCash !== null
+            ? [{ label: t('cash_close_expected'), value: money(summary.expectedCash) }]
+            : []),
+      ],
+      footer: closedForDay?.note || undefined,
+    });
+  }
+
   const hourly = Array.from({ length: 24 }, (_, hour) => summary?.hourly.find((h) => h.hour === hour)?.total ?? 0);
   const peak = Math.max(0, ...hourly);
   const bars = hourly.map((total, hour) => ({
@@ -207,7 +234,7 @@ export default function CashCloseWeb() {
         expectedCashPreview={summary?.expectedCash ?? null}
         onOpenVoid={() => setVoidOpen(true)}
         onWhatsapp={() => window.open(whatsappLink('', shareText()), '_blank', 'noopener')}
-        onPrint={() => window.print()}
+        onPrint={printClosing}
         history={history}
       />
       <VoidCashClosingModal open={voidOpen} onClose={() => setVoidOpen(false)} t={t} onSubmit={confirmVoid} />

@@ -58,7 +58,7 @@ const profile: PublicBookingProfile = {
   accentColor: null,
   bookingTitle: '',
   trustBadges: [],
-  features: { waitlist: false, discountCodes: false, rememberCustomer: false },
+  features: { waitlist: false, discountCodes: false, rememberCustomer: false, noPrepayBadge: false, customerNotes: true }, businessType: 'barbershop',
 };
 
 const products: PublicBookingCatalog['products'] = [

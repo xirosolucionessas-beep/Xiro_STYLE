@@ -7,10 +7,10 @@ import { pickFromLibrary, uploadableImage } from '@/lib/images';
 import { keys } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
-import { Button } from '../Button';
 import { useDialogs } from '../Dialogs';
 import { Field } from '../Field';
-import { Photo, SectionTitle, ToggleRow } from '../Kit';
+import { Photo } from '../Kit';
+import { Button, SectionTitle, ToggleRow } from './PanelKit';
 import { AppText } from '../Text';
 import { LocationPicker } from './LocationPicker';
 import { useAction } from './useAction';
@@ -128,7 +128,8 @@ export function InfoTab({ data }: { data: BookingAdminSettings }) {
   return (
     <View>
       <SectionTitle>{t('bk_cover')}</SectionTitle>
-      <Photo url={p.coverUrl} icon="image-outline" />
+      {/* Vista previa compacta de la portada (16:9, ancho máximo): no ocupa media pantalla. */}
+      <Photo url={p.coverUrl} icon="image-outline" style={{ aspectRatio: 16 / 9, maxWidth: 480, borderRadius: 14 }} />
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
         <Button label={p.coverUrl ? t('bk_cover_change') : t('bk_cover_add')} icon="image-outline" variant="secondary" compact loading={media.busy} onPress={() => void chooseCover()} />
         {p.coverUrl ? (

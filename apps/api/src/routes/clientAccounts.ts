@@ -8,6 +8,7 @@ import {
   clientRegisterSchema,
   clientUpdateProfileSchema,
   publicCancelInputSchema,
+  publicReviewInputSchema,
   type ClientAccountDto,
   type ClientAppointmentDto,
   type ClientSessionDeviceDto,
@@ -16,7 +17,7 @@ import {
 import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { assertClientMayChange, toPublicAppointment, transitionAppointment } from '../booking/appointments';
+import { assertClientMayChange, submitReview, toPublicAppointment, transitionAppointment } from '../booking/appointments';
 import { loadContext } from '../booking/availability';
 import { withBusiness, type Tx } from '../booking/scope';
 import { loadProfileRow, resolveSlug } from '../booking/view';
@@ -384,6 +385,40 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       const now = new Date();
       return Promise.all(rows.map(async (row) => ({ id: row.id, ...(await toPublicAppointment(tx, bookingContext, business.id, row, now, profile)) })));
     });
+  });
+
+  /**
+   * Calificar UNA de las propias citas COMPLETADAS desde la página del negocio o "Mi cuenta" (la sesión es la autorización,
+   * igual que al cancelar). Mismo `submitReview` que el enlace de gestión: una reseña por cita, queda "por revisar" hasta que el
+   * negocio la apruebe (solo las aprobadas cuentan en el promedio), y otro negocio o cita ajena → 404.
+   */
+  const reviewLimiter = ctx.rates.limiter('account-review', 3_600_000);
+  app.post('/:slug/account/appointments/:id/review', async (request): Promise<ClientAppointmentDto> => {
+    const { slug, id } = parse(slugParams.extend({ id: z.string().uuid() }), request.params);
+    const input = parse(publicReviewInputSchema, request.body);
+    const business = await publishedBusiness(slug);
+    const account = await requireAccount(request, business);
+    if (config.rateLimit.enabled && (await reviewLimiter.hit(account.id)) > 20) throw new AppError(429, 'too_many_requests');
+    const [owned] = await db.select({ id: appointments.id, professionalId: appointments.professionalId }).from(appointments).where(and(eq(appointments.id, id), eq(appointments.businessId, business.id), eq(appointments.clientAccountId, account.id))).limit(1);
+    if (!owned) throw notFound();
+    let created: { authorName: string; rating: number } | undefined;
+    const dto = await withBusiness(db, business.id, async (tx: Tx) => {
+      const review = await submitReview(tx, business.id, id, input);
+      created = { authorName: review.authorName, rating: review.rating };
+      const bookingContext = await loadContext(tx, business.id);
+      const [row] = await tx.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.businessId, business.id))).limit(1);
+      return { id, ...(await toPublicAppointment(tx, bookingContext, business.id, row!, new Date(), await loadProfileRow(tx, business.id))) };
+    });
+    if (created) {
+      void notifyAppointment(ctx, business.id, owned.professionalId, null, 'reviews', {
+        titleKey: 'push_review_new_title',
+        bodyKey: 'push_review_new_body',
+        params: { author: created.authorName, rating: created.rating },
+        dedupeKey: `review:${id}`,
+        href: '/booking?tab=reviews',
+      });
+    }
+    return dto;
   });
 
   /**

@@ -10,7 +10,8 @@ function detailFromProduct(product: Product): DetailItem {
   return {
     id: product.id,
     name: product.name,
-    description: product.description && product.description !== product.name && !/^[\d\s.,-]+$/.test(product.description) ? product.description : '',
+    description: [product.fullDescription, product.description].find((d) => d && d !== product.name && !/^[\d\s.,-]+$/.test(d)) ?? '',
+    detail: product.detail ?? '',
     images: product.images,
     price: product.price,
   };

@@ -15,6 +15,11 @@ describe('redacción de URLs', () => {
     expect(redactUrl('/reservar/mi-negocio/gestion/AbC123secreto')).toBe('/reservar/mi-negocio/gestion/[redactado]');
     expect(redactUrl('/api/booking/events?ticket=tkt_secreto&x=1')).toBe('/api/booking/events?ticket=[redactado]&x=1');
     expect(redactUrl('/algo?token=1&code=123456&password=x')).toBe('/algo?token=[redactado]&code=[redactado]&password=[redactado]');
+    // Fase 4: enlaces de lista de espera y de reseña.
+    expect(redactUrl('/api/public/booking/mi-negocio/waitlist/AbC123secreto/cancel')).toBe('/api/public/booking/mi-negocio/waitlist/[redactado]/cancel');
+    expect(redactUrl('/api/public/booking/mi-negocio/review-link/id.firma')).toBe('/api/public/booking/mi-negocio/review-link/[redactado]');
+    expect(redactUrl('/reservar/mi-negocio/espera/AbC123secreto')).toBe('/reservar/mi-negocio/espera/[redactado]');
+    expect(redactUrl('/reservar/mi-negocio/resena/id.firma')).toBe('/reservar/mi-negocio/resena/[redactado]');
     expect(redactUrl('/api/clients?q=ana')).toBe('/api/clients?q=ana'); // lo normal no se toca
   });
 

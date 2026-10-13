@@ -220,7 +220,8 @@ export async function loadPublicProfile(tx: Tx, ctx: BookingContext, now: Date, 
     accentColor: profile?.accentColor ?? null,
     bookingTitle: profile?.bookingTitle ?? '',
     trustBadges: profile?.trustBadges ?? [],
-    features: { waitlist: ctx.settings.waitlistEnabled, discountCodes: ctx.settings.discountCodesEnabled, rememberCustomer: ctx.settings.rememberCustomerEnabled },
+    features: { waitlist: ctx.settings.waitlistEnabled, discountCodes: ctx.settings.discountCodesEnabled, rememberCustomer: ctx.settings.rememberCustomerEnabled, noPrepayBadge: ctx.settings.noPrepayBadgeEnabled, customerNotes: ctx.settings.customerNotesEnabled },
+    businessType: ctx.business.type,
   };
 }
 
@@ -250,6 +251,8 @@ export async function loadPublicCatalog(tx: Tx, businessId: string, sections: Re
     name: item.name,
     category: categoryName,
     description: item.shortDescription || item.description,
+    fullDescription: item.description,
+    detail: item.detail,
     price: item.price,
     durationMinutes: item.durationMinutes,
     image: photos.get(item.id)?.[0] ?? null,
@@ -293,6 +296,8 @@ export async function loadPublicCatalog(tx: Tx, businessId: string, sections: Re
     id: p.id,
     name: p.name,
     description: p.shortDescription || p.description,
+    fullDescription: p.description,
+    detail: p.detail,
     price: p.price,
     image: productPhotos.get(p.id)?.[0] ?? null,
     images: productPhotos.get(p.id) ?? [],

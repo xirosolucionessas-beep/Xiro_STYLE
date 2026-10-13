@@ -5,9 +5,9 @@ import { formatDay, upperFirst } from '@/lib/agenda';
 import { api, errorKey } from '@/lib/api';
 import { keys, useWaitlist } from '@/lib/queries';
 import { useSettings } from '@/lib/settings';
-import { Button } from '../Button';
 import { useDialogs } from '../Dialogs';
-import { Card, EmptyState } from '../Kit';
+import { EmptyState } from '../Kit';
+import { Button, Card } from './PanelKit';
 import { AppText } from '../Text';
 import { useAction } from './useAction';
 

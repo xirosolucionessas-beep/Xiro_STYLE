@@ -132,6 +132,10 @@ export const bookingSettingsInputSchema = z.object({
   reviewRequestsEnabled: z.boolean().default(false),
   /** Ofrecer al cliente recordar sus datos en SU dispositivo (con su consentimiento) para reservar más rápido. */
   rememberCustomerEnabled: z.boolean().default(false),
+  /** Distintivo "Reserva fácil · Sin pago anticipado" en la cabecera pública (el negocio afirma que no cobra por adelantado). */
+  noPrepayBadgeEnabled: z.boolean().default(false),
+  /** Mostrar el campo de comentarios al reservar (encendido por defecto). */
+  customerNotesEnabled: z.boolean().default(true),
 });
 export type BookingSettingsInput = z.input<typeof bookingSettingsInputSchema>;
 export type BookingSettings = z.infer<typeof bookingSettingsInputSchema>;
@@ -498,7 +502,11 @@ export interface PublicServiceDto {
   id: string;
   name: string;
   category: string;
+  /** Texto corto para la lista (la descripción breve, o la completa si no hay breve). */
   description: string;
+  /** Para la ficha de detalle: la descripción completa y el detalle ("Lo que ve tu cliente" en el panel). */
+  fullDescription?: string;
+  detail?: string;
   price: number;
   durationMinutes: number;
   /** La primera (o única) foto, para la miniatura de la lista — igual a `images[0]`. */
@@ -524,6 +532,9 @@ export interface PublicProductDto {
   id: string;
   name: string;
   description: string;
+  /** Para la ficha de detalle: la descripción completa y el detalle. */
+  fullDescription?: string;
+  detail?: string;
   price: number;
   /** La primera (o única) foto, para la miniatura de la lista — igual a `images[0]`. */
   image: string | null;
@@ -605,7 +616,9 @@ export interface PublicBookingProfile {
   bookingTitle: string;
   trustBadges: string[];
   /** Funciones de la Fase 4 que este negocio activó (la página solo muestra las suyas). */
-  features: { waitlist: boolean; discountCodes: boolean; rememberCustomer: boolean };
+  features: { waitlist: boolean; discountCodes: boolean; rememberCustomer: boolean; noPrepayBadge: boolean; customerNotes: boolean };
+  /** Tipo de establecimiento (barbería, spa…), para la cabecera. */
+  businessType: string;
 }
 
 /** Los cuatro requisitos para reservar en línea; `ready` = todos cumplidos. Es la única fuente de esta regla (servidor). */

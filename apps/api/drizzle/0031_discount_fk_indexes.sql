@@ -1,0 +1,2 @@
+CREATE INDEX IF NOT EXISTS "appointments_discount_code_idx" ON "appointments" USING btree ("discount_code_id") WHERE "appointments"."discount_code_id" is not null;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "product_orders_discount_code_idx" ON "product_orders" USING btree ("discount_code_id") WHERE "product_orders"."discount_code_id" is not null;

@@ -49,30 +49,55 @@ export function utf8Length(text: string): number {
   return total;
 }
 
-/** Cada línea mide como máximo 75 octetos; el resto continúa en la siguiente, que empieza con un espacio (§3.1). */
+/**
+ * Cada línea mide como máximo 75 octetos; el resto continúa en la siguiente, que empieza con un espacio (§3.1). Nunca se
+ * corta un carácter UTF-8 por la mitad ni una secuencia escapada (\\n, \\, …): partirla es válido según la norma, pero
+ * algunos importadores (Outlook de escritorio, sobre todo) la leen mal.
+ */
 export function icsFold(line: string): string {
   if (utf8Length(line) <= 75) return line;
+  // Unidades indivisibles: una secuencia escapada "\\x" o un carácter (los pares sustitutos van juntos con for…of).
+  const units: string[] = [];
+  const chars = [...line];
+  for (let i = 0; i < chars.length; i += 1) {
+    if (chars[i] === '\\' && i + 1 < chars.length) {
+      units.push(chars[i]! + chars[i + 1]!);
+      i += 1;
+    } else units.push(chars[i]!);
+  }
   const parts: string[] = [];
   let current = '';
   let size = 0;
   let limit = 75;
-  for (const char of line) {
-    const bytes = utf8Length(char);
+  for (const unit of units) {
+    const bytes = utf8Length(unit);
     if (size + bytes > limit) {
       parts.push(current);
       current = '';
       size = 0;
       limit = 74; // el espacio inicial de las continuaciones cuenta
     }
-    current += char;
+    current += unit;
     size += bytes;
   }
   parts.push(current);
   return parts.join('\r\n ');
 }
 
+/** UID seguro para cualquier calendario: solo letras, números y . _ - @ (sin ":" ni espacios); estable para la misma cita. */
+export function icsUid(value: string): string {
+  const clean = value.replace(/[^A-Za-z0-9._@-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return clean.includes('@') ? clean : `${clean || 'evento'}@xirostyle`;
+}
+
 export function buildIcs(event: IcsEvent): string {
   const reminder = event.reminderMinutes ?? 60;
+  const start = new Date(event.startsAt);
+  // Un evento con fin igual o anterior al inicio lo rechazan Outlook y Google: como mínimo, 1 minuto después.
+  const end = new Date(Math.max(new Date(event.endsAt).getTime(), start.getTime() + 60_000));
+  const stamp = icsInstant(event.now ?? new Date());
+  // La URL es de tipo URI (sin espacios ni saltos de línea).
+  const url = event.url ? encodeURI(decodeURI(event.url.replace(/[\r\n]/g, '').trim())) : '';
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -80,15 +105,19 @@ export function buildIcs(event: IcsEvent): string {
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
-    `UID:${icsText(event.uid)}`,
-    `DTSTAMP:${icsInstant(event.now ?? new Date())}`,
-    `DTSTART:${icsInstant(event.startsAt)}`,
-    `DTEND:${icsInstant(event.endsAt)}`,
+    `UID:${icsUid(event.uid)}`,
+    `DTSTAMP:${stamp}`,
+    `CREATED:${stamp}`,
+    `LAST-MODIFIED:${stamp}`,
+    'SEQUENCE:0',
+    `DTSTART:${icsInstant(start)}`,
+    `DTEND:${icsInstant(end)}`,
     `SUMMARY:${icsText(event.title)}`,
     ...(event.description ? [`DESCRIPTION:${icsText(event.description)}`] : []),
     ...(event.location ? [`LOCATION:${icsText(event.location)}`] : []),
-    ...(event.url ? [`URL:${event.url.replace(/[\r\n]/g, '')}`] : []),
+    ...(url ? [`URL:${url}`] : []),
     'STATUS:CONFIRMED',
+    'TRANSP:OPAQUE',
     ...(reminder > 0 ? ['BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(event.title)}`, `TRIGGER:-PT${reminder}M`, 'END:VALARM'] : []),
     'END:VEVENT',
     'END:VCALENDAR',

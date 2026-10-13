@@ -76,6 +76,12 @@ export function buildCss(): string {
 .xw-btn:hover:not([aria-disabled='true']):not(:disabled) { opacity: .88; }
 .xw-btn--secondary:hover:not([aria-disabled='true']):not(:disabled), .xw-btn--ghost:hover:not([aria-disabled='true']):not(:disabled) { background: var(--xw-surface-alt); opacity: 1; }
 .xw-btn:active:not([aria-disabled='true']):not(:disabled) { transform: scale(.97); opacity: 1; }
+/* "Mi página web" (rediseño visual): botones sin contorno grueso — fondo suave, esquinas de 12px. Solo dentro de esa pantalla. */
+[data-xp-panel='booking'] .xw-btn { border-width: 0; border-radius: 12px; }
+[data-xp-panel='booking'] .xw-btn--secondary { background: color-mix(in srgb, var(--xw-text) 7%, transparent); }
+[data-xp-panel='booking'] .xw-btn--secondary:hover:not([aria-disabled='true']):not(:disabled) { background: color-mix(in srgb, var(--xw-text) 12%, transparent); }
+[data-xp-panel='booking'] .xw-btn--danger { background: color-mix(in srgb, var(--xw-danger) 12%, transparent); }
+[data-xp-panel='booking'] .xw-btn--danger:hover:not([aria-disabled='true']):not(:disabled) { background: color-mix(in srgb, var(--xw-danger) 18%, transparent); opacity: 1; }
 .xw-btn[aria-disabled='true'], .xw-btn:disabled { opacity: .55; cursor: not-allowed; }
 .xw-spinner { width: 1em; height: 1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: xw-spin .8s linear infinite; }
 @keyframes xw-spin { to { transform: rotate(360deg); } }

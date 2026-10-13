@@ -1,5 +1,6 @@
 import { googleMapsDirectionsUrl, googleMapsSearchUrl, phoneHref, translate, wazeSearchUrl, wazeUrl, whatsappLink, type Language, type PublicBookingProfile } from '@xiro/shared';
 import { useState } from 'react';
+import { statusText } from '../lib/hours';
 import { Icon } from './Icon';
 
 /**
@@ -31,6 +32,18 @@ export function LocationCard({ profile, language }: { profile: PublicBookingProf
       {address ? (
         <p className="xp-address">
           <Icon name="pin" size={18} /> <span>{address}</span>
+        </p>
+      ) : null}
+      {/* Estado de apertura (calculado con los horarios del negocio en su zona horaria); el detalle está en "Horarios". */}
+      {profile.hours.length > 0 ? (
+        <p className="xp-loc-status">
+          <span className={`xp-status ${profile.openStatus.open ? 'is-open' : 'is-closed'}`}>
+            <span className="xp-dot" aria-hidden="true" />
+            {statusText(profile, language)}
+          </span>
+          <a className="xp-link-btn" href="#horarios">
+            <Icon name="clock" size={16} /> {t('pub_nav_hours')}
+          </a>
         </p>
       ) : null}
       <div className="xp-btn-row">

@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { REMINDER_HOUR_OPTIONS, SLOT_INTERVALS, type BookingAdminSettings, type BookingSettingsInput, type CustomField } from '@xiro/shared';
 import { useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { blocksFromHours, blocksProblem } from '@/lib/bookingPage';
 import { addDays, formatDay, todayIn, upperFirst } from '@/lib/agenda';
 import { api } from '@/lib/api';
@@ -9,10 +9,9 @@ import { keys, useClosures } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { CalendarPicker } from '../agenda/CalendarPicker';
-import { Button } from '../Button';
 import { useDialogs } from '../Dialogs';
 import { Field } from '../Field';
-import { Card, Chip, ChipRow, SectionTitle, ToggleRow } from '../Kit';
+import { Button, Card, Chip, ChipRow, Hint, SectionTitle, SettingSection, ToggleRow } from './PanelKit';
 import { AppText } from '../Text';
 import { useAction } from './useAction';
 import { WeeklyBlocksEditor } from './WeeklyBlocksEditor';
@@ -31,7 +30,7 @@ const freeKey = (fields: CustomField[]) => {
 };
 
 const noticeLabel = (minutes: number, t: (k: string, p?: Record<string, string | number>) => string) =>
-  minutes === 0 ? t('rules_none') : minutes < 60 ? t('minutes_short', { minutes }) : minutes < 1440 ? t('rules_hours', { hours: minutes / 60 }) : t('rules_days', { days: minutes / 1440 });
+  minutes === 0 ? t('rules_none') : minutes < 60 ? t('minutes_short', { minutes }) : minutes < 1440 ? t('rules_hours', { hours: minutes / 60 }) : minutes === 1440 ? t('rules_one_day') : t('rules_days', { days: minutes / 1440 });
 
 /** Reglas de agenda y reservas: cuadrícula, anticipación, cancelación, confirmación, campos extra, horario y días cerrados. */
 export function RulesTab({ data }: { data: BookingAdminSettings }) {
@@ -88,142 +87,134 @@ export function RulesTab({ data }: { data: BookingAdminSettings }) {
 
   return (
     <View>
-      <SectionTitle>{t('rules_grid_title')}</SectionTitle>
-      <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>
-        {t('rules_grid_hint')}
-      </AppText>
-      <ChipRow label={t('rules_grid_title')}>
-        {SLOT_INTERVALS.map((minutes) => (
-          <Chip key={minutes} label={t('minutes_short', { minutes })} selected={settings.slotIntervalMinutes === minutes} onPress={() => patch({ slotIntervalMinutes: minutes })} />
-        ))}
-      </ChipRow>
+      <SectionTitle>{t('rules_agenda_group')}</SectionTitle>
+      <SettingSection title={t('rules_grid_title')} hint={t('rules_grid_hint')}>
+        <ChipRow label={t('rules_grid_title')}>
+          {SLOT_INTERVALS.map((minutes) => (
+            <Chip key={minutes} label={t('minutes_short', { minutes })} selected={settings.slotIntervalMinutes === minutes} onPress={() => patch({ slotIntervalMinutes: minutes })} />
+          ))}
+        </ChipRow>
+      </SettingSection>
 
-      <SectionTitle>{t('rules_notice_title')}</SectionTitle>
-      <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>
-        {t('rules_notice_hint')}
-      </AppText>
-      <ChipRow label={t('rules_notice_title')}>
-        {NOTICE.map((minutes) => (
-          <Chip key={minutes} label={noticeLabel(minutes, t)} selected={settings.minNoticeMinutes === minutes} onPress={() => patch({ minNoticeMinutes: minutes })} />
-        ))}
-      </ChipRow>
+      <SettingSection title={t('rules_notice_title')} hint={t('rules_notice_hint')}>
+        <ChipRow label={t('rules_notice_title')}>
+          {NOTICE.map((minutes) => (
+            <Chip key={minutes} label={noticeLabel(minutes, t)} selected={settings.minNoticeMinutes === minutes} onPress={() => patch({ minNoticeMinutes: minutes })} />
+          ))}
+        </ChipRow>
+      </SettingSection>
 
-      <SectionTitle>{t('rules_ahead_title')}</SectionTitle>
-      <ChipRow label={t('rules_ahead_title')}>
-        {AHEAD.map((days) => (
-          <Chip key={days} label={t('rules_days', { days })} selected={settings.maxDaysAhead === days} onPress={() => patch({ maxDaysAhead: days })} />
-        ))}
-      </ChipRow>
+      <SettingSection title={t('rules_ahead_title')}>
+        <ChipRow label={t('rules_ahead_title')}>
+          {AHEAD.map((days) => (
+            <Chip key={days} label={t('rules_days', { days })} selected={settings.maxDaysAhead === days} onPress={() => patch({ maxDaysAhead: days })} />
+          ))}
+        </ChipRow>
+      </SettingSection>
 
-      <SectionTitle>{t('rules_cancel_title')}</SectionTitle>
-      <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>
-        {t('rules_cancel_hint')}
-      </AppText>
-      <ChipRow label={t('rules_cancel_title')}>
-        {CANCEL.map((hours) => (
-          <Chip key={hours} label={hours === 0 ? t('rules_anytime') : t('rules_hours', { hours })} selected={settings.cancelUntilHours === hours} onPress={() => patch({ cancelUntilHours: hours })} />
-        ))}
-      </ChipRow>
+      <SectionTitle>{t('rules_changes_group')}</SectionTitle>
+      <SettingSection title={t('rules_cancel_title')} hint={t('rules_cancel_hint')}>
+        <ChipRow label={t('rules_cancel_title')}>
+          {CANCEL.map((hours) => (
+            <Chip key={hours} label={hours === 0 ? t('rules_anytime') : t('rules_hours', { hours })} selected={settings.cancelUntilHours === hours} onPress={() => patch({ cancelUntilHours: hours })} />
+          ))}
+        </ChipRow>
+      </SettingSection>
 
-      <SectionTitle>{t('rules_mods_title')}</SectionTitle>
-      <ChipRow label={t('rules_mods_title')}>
-        {MODS.map((count) => (
-          <Chip key={count} label={String(count)} selected={settings.maxModifications === count} onPress={() => patch({ maxModifications: count })} />
-        ))}
-      </ChipRow>
+      <SettingSection title={t('rules_mods_title')}>
+        <ChipRow label={t('rules_mods_title')}>
+          {MODS.map((count) => (
+            <Chip key={count} label={String(count)} selected={settings.maxModifications === count} onPress={() => patch({ maxModifications: count })} />
+          ))}
+        </ChipRow>
+      </SettingSection>
 
-      <SectionTitle>{t('rules_pending_title')}</SectionTitle>
-      <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>
-        {t('rules_pending_hint')}
-      </AppText>
-      <ChipRow label={t('rules_pending_title')}>
-        {PENDING.map((count) => (
-          <Chip key={count} label={String(count)} selected={settings.maxPendingPerPhone === count} onPress={() => patch({ maxPendingPerPhone: count })} />
-        ))}
-      </ChipRow>
+      <SettingSection title={t('rules_pending_title')} hint={t('rules_pending_hint')}>
+        <ChipRow label={t('rules_pending_title')}>
+          {PENDING.map((count) => (
+            <Chip key={count} label={String(count)} selected={settings.maxPendingPerPhone === count} onPress={() => patch({ maxPendingPerPhone: count })} />
+          ))}
+        </ChipRow>
+      </SettingSection>
 
-      <SectionTitle>{t('rules_confirm_title')}</SectionTitle>
-      <Card>
-        <ToggleRow label={t('rules_auto_confirm')} value={settings.autoConfirm ?? true} onChange={(v) => patch({ autoConfirm: v })} />
-        <AppText variant="small" tone="muted">
-          {settings.autoConfirm ? t('rules_auto_confirm_on') : t('rules_auto_confirm_off')}
-        </AppText>
-      </Card>
+      <SettingSection title={t('rules_confirm_title')}>
+        <View>
+          <ToggleRow label={t('rules_auto_confirm')} value={settings.autoConfirm ?? true} onChange={(v) => patch({ autoConfirm: v })} />
+          <Hint>{settings.autoConfirm ? t('rules_auto_confirm_on') : t('rules_auto_confirm_off')}</Hint>
+        </View>
+      </SettingSection>
 
       <SectionTitle>{t('rules_catalog_title')}</SectionTitle>
-      <Card>
+      <Card style={styles.stacked}>
         <ToggleRow label={t('rules_hide_out_of_stock')} value={settings.hideOutOfStockInCatalog ?? false} onChange={(v) => patch({ hideOutOfStockInCatalog: v })} />
-        <AppText variant="small" tone="muted">
-          {settings.hideOutOfStockInCatalog ? t('rules_hide_out_of_stock_on') : t('rules_hide_out_of_stock_off')}
-        </AppText>
+        <Hint>{settings.hideOutOfStockInCatalog ? t('rules_hide_out_of_stock_on') : t('rules_hide_out_of_stock_off')}</Hint>
       </Card>
-      <Card>
+      <Card style={styles.stacked}>
         {/* Pedidos de solo productos desde la página pública (recoger y pagar en el local). Apagado por defecto. */}
         <ToggleRow label={t('rules_product_orders')} value={settings.productOrdersEnabled ?? false} onChange={(v) => patch({ productOrdersEnabled: v })} />
-        <AppText variant="small" tone="muted">
-          {settings.productOrdersEnabled ? t('rules_product_orders_on') : t('rules_product_orders_off')}
-        </AppText>
+        <Hint>{settings.productOrdersEnabled ? t('rules_product_orders_on') : t('rules_product_orders_off')}</Hint>
       </Card>
 
       {/* Fase 4: recordatorios a la medida (hasta 3 por cita) y funciones para ganar clientes, cada una apagada por defecto. */}
       <SectionTitle>{t('rules_reminders_title')}</SectionTitle>
-      <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>
-        {t('rules_reminders_hint')}
-      </AppText>
-      <ChipRow label={t('rules_reminders_title')}>
-        {REMINDER_HOUR_OPTIONS.map((hours) => {
-          const current = settings.reminderHours ?? [3];
-          const selected = current.includes(hours);
-          return (
-            <Chip
-              key={hours}
-              label={t('rules_hours', { hours })}
-              selected={selected}
-              onPress={() => {
-                if (selected) patch({ reminderHours: current.filter((h) => h !== hours) });
-                else if (current.length < 3) patch({ reminderHours: [...current, hours].sort((a, b) => b - a) });
-                else toast(t('rules_reminders_max'));
-              }}
-            />
-          );
-        })}
-      </ChipRow>
-      <AppText variant="small" tone="muted">
-        {(settings.reminderHours ?? [3]).length === 0 ? t('rules_reminders_none') : t('rules_reminders_summary', { list: (settings.reminderHours ?? [3]).map((h) => t('rules_hours', { hours: h })).join(', ') })}
-      </AppText>
+      <SettingSection
+        title={t('rules_reminders_pick')}
+        hint={t('rules_reminders_hint')}
+        footer={<Hint>{(settings.reminderHours ?? [3]).length === 0 ? t('rules_reminders_none') : t('rules_reminders_summary', { list: (settings.reminderHours ?? [3]).map((h) => t('rules_hours', { hours: h })).join(', ') })}</Hint>}>
+        <ChipRow label={t('rules_reminders_title')}>
+          {REMINDER_HOUR_OPTIONS.map((hours) => {
+            const current = settings.reminderHours ?? [3];
+            const selected = current.includes(hours);
+            return (
+              <Chip
+                key={hours}
+                label={t('rules_hours', { hours })}
+                selected={selected}
+                onPress={() => {
+                  if (selected) patch({ reminderHours: current.filter((h) => h !== hours) });
+                  else if (current.length < 3) patch({ reminderHours: [...current, hours].sort((a, b) => b - a) });
+                  else toast(t('rules_reminders_max'));
+                }}
+              />
+            );
+          })}
+        </ChipRow>
+      </SettingSection>
 
       <SectionTitle>{t('rules_growth_title')}</SectionTitle>
-      <Card>
+      <Card style={styles.stacked}>
         <ToggleRow label={t('rules_waitlist')} value={settings.waitlistEnabled ?? false} onChange={(v) => patch({ waitlistEnabled: v })} />
-        <AppText variant="small" tone="muted">
-          {settings.waitlistEnabled ? t('rules_waitlist_on') : t('rules_waitlist_off')}
-        </AppText>
+        <Hint>{settings.waitlistEnabled ? t('rules_waitlist_on') : t('rules_waitlist_off')}</Hint>
       </Card>
-      <Card>
+      <Card style={styles.stacked}>
         <ToggleRow label={t('rules_discount_codes')} value={settings.discountCodesEnabled ?? false} onChange={(v) => patch({ discountCodesEnabled: v })} />
-        <AppText variant="small" tone="muted">
-          {settings.discountCodesEnabled ? t('rules_discount_codes_on') : t('rules_discount_codes_off')}
-        </AppText>
+        <Hint>{settings.discountCodesEnabled ? t('rules_discount_codes_on') : t('rules_discount_codes_off')}</Hint>
       </Card>
-      <Card>
+      <Card style={styles.stacked}>
         <ToggleRow label={t('rules_review_requests')} value={settings.reviewRequestsEnabled ?? false} onChange={(v) => patch({ reviewRequestsEnabled: v })} />
-        <AppText variant="small" tone="muted">
-          {settings.reviewRequestsEnabled ? t('rules_review_requests_on') : t('rules_review_requests_off')}
-        </AppText>
+        <Hint>{settings.reviewRequestsEnabled ? t('rules_review_requests_on') : t('rules_review_requests_off')}</Hint>
       </Card>
-      <Card>
+      <Card style={styles.stacked}>
         <ToggleRow label={t('rules_remember_customer')} value={settings.rememberCustomerEnabled ?? false} onChange={(v) => patch({ rememberCustomerEnabled: v })} />
-        <AppText variant="small" tone="muted">
-          {settings.rememberCustomerEnabled ? t('rules_remember_customer_on') : t('rules_remember_customer_off')}
-        </AppText>
+        <Hint>{settings.rememberCustomerEnabled ? t('rules_remember_customer_on') : t('rules_remember_customer_off')}</Hint>
+      </Card>
+
+      <SectionTitle>{t('rules_public_page_title')}</SectionTitle>
+      <Card style={styles.stacked}>
+        <ToggleRow label={t('rules_customer_notes')} value={settings.customerNotesEnabled ?? true} onChange={(v) => patch({ customerNotesEnabled: v })} />
+        <Hint>{settings.customerNotesEnabled ?? true ? t('rules_customer_notes_on') : t('rules_customer_notes_off')}</Hint>
+      </Card>
+      <Card style={styles.stacked}>
+        <ToggleRow label={t('rules_no_prepay')} value={settings.noPrepayBadgeEnabled ?? false} onChange={(v) => patch({ noPrepayBadgeEnabled: v })} />
+        <Hint>{settings.noPrepayBadgeEnabled ? t('rules_no_prepay_on') : t('rules_no_prepay_off')}</Hint>
       </Card>
 
       <SectionTitle>{t('rules_custom_title')}</SectionTitle>
-      <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>
+      <AppText variant="small" tone="muted" style={styles.lead}>
         {t('rules_custom_hint')}
       </AppText>
       {fields.map((field, index) => (
-        <Card key={index} style={{ marginBottom: 8 }}>
+        <Card key={index} style={styles.stacked}>
           <Field label={t('rules_custom_label')} value={field.label} onChangeText={(label) => patch({ customFields: fields.map((f, i) => (i === index ? { ...f, label, key: f.key } : f)) })} maxLength={60} />
           <ChipRow label={t('rules_custom_type')}>
             <Chip label={t('rules_custom_text')} selected={field.type === 'text'} onPress={() => patch({ customFields: fields.map((f, i) => (i === index ? { ...f, type: 'text' } : f)) })} />
@@ -244,11 +235,9 @@ export function RulesTab({ data }: { data: BookingAdminSettings }) {
       />
 
       <SectionTitle>{t('rules_hours_title')}</SectionTitle>
-      <Card>
+      <Card style={styles.stacked}>
         <ToggleRow label={t('rules_hours_custom')} value={custom} onChange={setCustomHours} />
-        <AppText variant="small" tone="muted">
-          {custom ? t('rules_hours_custom_on') : t('rules_hours_custom_off')}
-        </AppText>
+        <Hint>{custom ? t('rules_hours_custom_on') : t('rules_hours_custom_off')}</Hint>
       </Card>
       {custom ? (
         <View style={{ marginTop: 10 }}>
@@ -264,7 +253,7 @@ export function RulesTab({ data }: { data: BookingAdminSettings }) {
       <Button label={t('save_changes')} loading={save.busy} onPress={() => void submit()} style={{ marginTop: 16 }} />
 
       <SectionTitle>{t('rules_closures_title')}</SectionTitle>
-      <AppText variant="small" tone="muted" style={{ marginBottom: 8 }}>
+      <AppText variant="small" tone="muted" style={styles.lead}>
         {t('rules_closures_hint')}
       </AppText>
       <Card>
@@ -310,3 +299,8 @@ export function RulesTab({ data }: { data: BookingAdminSettings }) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  stacked: { marginBottom: 12 },
+  lead: { marginBottom: 12, lineHeight: 18 },
+});

@@ -3439,3 +3439,670 @@ img {
   background: var(--accent-tint);
   color: var(--accent-text);
 }
+
+/* ---------- Detalle a pantalla completa (vista inmersiva, siempre oscura) ---------- */
+.xp-modal-backdrop--full {
+  padding: 0 !important;
+  align-items: stretch !important;
+  background: #121316;
+}
+.xp-modal.xp-modal--full {
+  /* Paleta oscura de la plataforma (con el acento oscuro del negocio si tiene marca), sea cual sea el tema de la página. */
+  --bg: #121316;
+  --bg-rgb: 18, 19, 22;
+  --surface: #1a1c20;
+  --surface-2: #1f2126;
+  --surface-alt: #24272c;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --text: #f4f1ec;
+  --text-soft: #e2ddd4;
+  --text-muted: #b3ada3;
+  --accent: var(--bd-accent, #c5a059);
+  --on-accent: var(--bd-on-accent, #1a1510);
+  --accent-text: var(--bd-accent-text, #c5a059);
+  --accent-border: var(--bd-accent-border, #c5a059);
+  --accent-tint: var(--bd-accent-tint, rgba(197, 160, 89, 0.18));
+  --gold: var(--accent);
+  color-scheme: dark;
+  color: var(--text);
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: var(--bg);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.xp-modal--full > .xp-stack {
+  min-height: 100%;
+}
+.xp-modal--full .xp-modal-close {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 5;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(18, 19, 22, 0.72);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+.xp-modal--full .xp-modal-close:hover {
+  background: rgba(40, 42, 48, 0.9);
+}
+.xp-modal--full .xp-modal-close:active {
+  transform: scale(0.94);
+}
+
+.xp-detail--immersive {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-height: 100dvh;
+  align-items: stretch;
+}
+.xp-detail--immersive .xp-detail-info {
+  padding: var(--space-5) var(--space-4) calc(var(--space-5) + env(safe-area-inset-bottom));
+  gap: var(--space-3);
+}
+.xp-detail--immersive .xp-detail-name {
+  font-size: 28px;
+}
+.xp-detail--immersive .xp-detail-foot {
+  position: sticky;
+  bottom: 0;
+  margin: var(--space-2) calc(-1 * var(--space-4)) 0;
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--bg) 70%, rgba(18, 19, 22, 0));
+  border-top: 1px solid var(--border);
+}
+@media (min-width: 900px) {
+  .xp-detail--immersive {
+    grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+    height: 100dvh;
+    min-height: 0;
+  }
+  .xp-detail--immersive .xp-detail-info {
+    overflow-y: auto;
+    padding: calc(var(--space-6, 32px) + 40px) var(--space-6, 32px) var(--space-6, 32px);
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .xp-detail--immersive .xp-detail-foot {
+    position: static;
+    margin: var(--space-3) 0 0;
+    padding: var(--space-4) 0 0;
+    background: none;
+  }
+}
+
+.xp-carousel {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 62vh;
+  min-height: 320px;
+  background: #0c0d0f;
+}
+@media (min-width: 900px) {
+  .xp-carousel {
+    height: 100dvh;
+  }
+}
+.xp-carousel--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.xp-carousel-track {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  outline: none;
+}
+.xp-carousel-track::-webkit-scrollbar {
+  display: none;
+}
+.xp-carousel-slide {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.xp-carousel-slide img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 6px;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.xp-carousel-nav {
+  position: absolute;
+  top: calc(50% - 40px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(18, 19, 22, 0.6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.xp-carousel-nav:hover {
+  background: rgba(40, 42, 48, 0.85);
+}
+.xp-carousel-prev {
+  left: 16px;
+}
+.xp-carousel-next {
+  right: 16px;
+}
+@media (hover: none) {
+  /* En el teléfono se desliza con el dedo; las flechas solo estorbarían la foto. */
+  .xp-carousel-nav {
+    display: none;
+  }
+}
+.xp-carousel-count {
+  position: absolute;
+  left: 16px;
+  top: max(16px, env(safe-area-inset-top));
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(18, 19, 22, 0.72);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.xp-carousel-thumbs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.xp-carousel-thumb {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1a1c20;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+.xp-carousel-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.xp-carousel-thumb[aria-selected='true'] {
+  border-color: var(--bd-accent, #c5a059);
+  opacity: 1;
+}
+.xp-carousel-thumb:focus-visible,
+.xp-carousel-nav:focus-visible,
+.xp-modal--full .xp-modal-close:focus-visible {
+  outline: 3px solid var(--bd-accent, #c5a059);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .xp-carousel-track {
+    scroll-behavior: auto;
+  }
+}
+
+/* ---------- Foto del artículo elegido en el resumen "Tu cita" (cambia con la selección) ---------- */
+.xp-sum-photo {
+  animation: xp-sum-photo-in 0.25s ease both;
+}
+@keyframes xp-sum-photo-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xp-sum-photo {
+    animation: none;
+  }
+}
+
+/* ---------- Aviso de carga lenta (la página nunca se queda solo con rectángulos) ---------- */
+.xp-slow-notice {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  width: min(560px, calc(100% - 32px));
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  transform: translateX(-50%);
+  text-align: center;
+}
+.xp-slow-notice p {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+/* ---------- Foto del resumen: completa (sin recortes) y ampliable ---------- */
+.xp-sum-photo-btn {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  /* Fondo neutro elegante para los bordes cuando la proporción de la foto no es 16:9. */
+  background: radial-gradient(120% 120% at 50% 40%, var(--surface-2), var(--surface-alt));
+  cursor: zoom-in;
+}
+.xp-sum-cover.xp-sum-cover--contain {
+  object-fit: contain;
+  background: transparent;
+  border-radius: 0;
+}
+.xp-sum-photo-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background-color 0.15s ease;
+}
+.xp-sum-photo-btn:hover .xp-sum-photo-zoom {
+  background: rgba(0, 0, 0, 0.8);
+}
+.xp-sum-photo-btn:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+/* Visor de fotos: la foto entera con aire alrededor (no pegada a los bordes ni bajo los botones). */
+.xp-lightbox-img {
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 120px);
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  touch-action: pan-y;
+  user-select: none;
+}
+@media (min-width: 900px) {
+  .xp-lightbox-img {
+    max-width: calc(100vw - 200px);
+  }
+}
+
+/* ======================================================================
+   Cabecera "dúo": fotografía del negocio y logo circular LADO A LADO
+   ====================================================================== */
+.xp-hero--duo {
+  padding-top: var(--space-4);
+}
+.xp-hero--duo .xp-container {
+  display: grid;
+  gap: var(--space-4);
+}
+.xp-duo {
+  display: grid;
+  /* La foto se lleva el espacio; el logo, una columna propia a su lado (nunca encima ni debajo). */
+  grid-template-columns: minmax(0, 1fr) clamp(84px, 26vw, 176px);
+  align-items: center;
+  gap: clamp(12px, 3vw, 28px);
+}
+.xp-duo-photo {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: clamp(14px, 2.4vw, 22px);
+  overflow: hidden;
+  background: var(--surface-alt);
+  cursor: zoom-in;
+  box-shadow: var(--shadow-card);
+}
+.xp-duo-photo-backdrop {
+  position: absolute;
+  inset: -20px;
+  background-size: cover;
+  background-position: center;
+  filter: blur(22px) brightness(0.55) saturate(1.1);
+  transform: scale(1.1);
+}
+.xp-duo-photo img {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.xp-duo-photo--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: default;
+  background: radial-gradient(120% 120% at 30% 20%, var(--surface-2), var(--surface-alt));
+}
+.xp-duo-logo {
+  justify-self: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  padding: clamp(3px, 0.6vw, 5px);
+  background: var(--bg);
+  box-shadow: 0 0 0 2px var(--accent-border), 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+.xp-duo-logo img,
+.xp-duo-logo-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface);
+}
+.xp-duo-logo-fallback {
+  color: var(--accent-text);
+  font-family: var(--font-display);
+  font-size: clamp(30px, 8vw, 60px);
+  font-weight: 700;
+}
+.xp-identity--duo {
+  /* Debajo del dúo, sin el panel flotante de la cabecera anterior. */
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  gap: var(--space-2);
+}
+.xp-identity--duo .xp-name {
+  margin-top: 0;
+}
+.xp-hero-rating {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 15px;
+}
+.xp-hero-rating strong {
+  font-size: 16px;
+}
+.xp-hero-rating:hover strong,
+.xp-hero-rating:hover .xp-muted {
+  text-decoration: underline;
+}
+.xp-hero-type {
+  margin: 0;
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.xp-hero-address {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 14.5px;
+}
+.xp-hero-address svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent-text);
+}
+.xp-trust-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--success-tint);
+  color: var(--success-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+@media (min-width: 720px) {
+  .xp-hero--duo {
+    padding-top: var(--space-6);
+  }
+}
+
+/* Estrellas: media estrella para promedios. */
+.xp-stars .is-half {
+  color: var(--accent-text);
+  opacity: 0.55;
+}
+
+/* ---------- Reseñas: resumen ---------- */
+.xp-review-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.xp-review-avg {
+  font-family: var(--font-display);
+  font-size: 44px;
+  line-height: 1;
+  color: var(--text);
+}
+.xp-review-summary-text {
+  display: grid;
+  gap: 4px;
+}
+.xp-review-how {
+  margin-top: var(--space-3);
+}
+.xp-review-mine {
+  margin-top: var(--space-4);
+}
+
+/* ---------- Ubicación: estado de apertura ---------- */
+.xp-loc-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+/* ---------- Pie de página ---------- */
+.xp-footer {
+  margin-top: var(--space-6);
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+.xp-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 18px;
+  margin-bottom: 8px;
+}
+.xp-footer-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.xp-footer-link:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+.xp-footer p {
+  margin: 0;
+}
+.xp-legal-text {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+@media (min-width: 900px) {
+  /* En escritorio la cabecera no se apodera de la pantalla: el dúo tiene un ancho máximo y la foto es panorámica. */
+  .xp-duo {
+    max-width: 860px;
+  }
+  .xp-duo-photo {
+    aspect-ratio: 16 / 9;
+  }
+}
+.xp-footer a.xp-footer-link {
+  color: var(--text-soft);
+  text-decoration: none;
+}
+.xp-footer a.xp-footer-link:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+
+/* ======================================================================
+   Cabecera en dos lados (v2): logo + datos a un lado, foto del local al otro
+   ====================================================================== */
+.xp-duo {
+  max-width: none;
+  grid-template-columns: clamp(84px, 26vw, 140px) minmax(0, 1fr);
+  grid-template-areas:
+    'logo photo'
+    'info info';
+  align-items: center;
+  row-gap: var(--space-4);
+}
+.xp-duo-logo {
+  grid-area: logo;
+}
+.xp-duo-photo {
+  grid-area: photo;
+}
+.xp-identity--duo {
+  grid-area: info;
+}
+.xp-hero-contact {
+  color: var(--text-soft);
+  text-decoration: none;
+}
+.xp-hero-contact:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+@media (min-width: 900px) {
+  .xp-duo {
+    /* Izquierda: logo y datos del negocio. Derecha: la foto del local, a toda la altura del bloque. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    grid-template-areas:
+      'logo photo'
+      'info photo';
+    grid-template-rows: auto 1fr;
+    align-items: start;
+    column-gap: clamp(32px, 4vw, 56px);
+    row-gap: var(--space-4);
+  }
+  .xp-duo-logo {
+    justify-self: start;
+    width: 128px;
+  }
+  .xp-duo-photo {
+    align-self: center;
+    aspect-ratio: 4 / 3;
+  }
+}
+
+/* Ficha de detalle: la descripción completa y el detalle, enteros y legibles (sin recortes). */
+.xp-detail-extra {
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.xp-detail--immersive .xp-detail-desc {
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+/* Pie: Privacidad · Términos · Ayuda siempre en UNA fila, con su propio espacio sobre los créditos. */
+.xp-footer-links {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px clamp(16px, 4vw, 28px);
+  margin-bottom: var(--space-2);
+}
+.xp-footer-link {
+  white-space: nowrap;
+}

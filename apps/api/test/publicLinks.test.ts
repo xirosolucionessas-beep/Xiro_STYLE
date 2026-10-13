@@ -144,6 +144,9 @@ describe('vista previa y buscadores (Fase 4)', () => {
       expect(page.statusCode, url).toBe(200);
       expect(page.body, url).toContain('<meta name="robots" content="noindex, nofollow">');
       expect(page.body, url).not.toContain('application/ld+json');
+      // El token de la URL nunca viaja a terceros (fuentes, captcha): solo el origen.
+      expect(page.headers['referrer-policy'], url).toMatch(/^(no-referrer|strict-origin-when-cross-origin|same-origin)$/);
+      expect(page.headers['x-frame-options'] ?? page.headers['content-security-policy'], url).toBeTruthy();
     }
   });
 });

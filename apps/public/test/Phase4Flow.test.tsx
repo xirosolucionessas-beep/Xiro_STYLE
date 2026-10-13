@@ -54,7 +54,7 @@ const profile: PublicBookingProfile = {
   accentColor: null,
   bookingTitle: '',
   trustBadges: [],
-  features: { waitlist: false, discountCodes: false, rememberCustomer: false },
+  features: { waitlist: false, discountCodes: false, rememberCustomer: false, noPrepayBadge: false, customerNotes: true }, businessType: 'barbershop',
 };
 const catalog: PublicBookingCatalog = {
   services: [{ id: SERVICE, name: 'Corte', category: 'Servicios', description: '', price: 30000, durationMinutes: 60, image: null, images: [], variants: [] }],
@@ -192,6 +192,24 @@ describe('lista de espera', () => {
     expect(vi.mocked(publicApi.joinWaitlist).mock.calls[0]![1]).toMatchObject({ services: [SERVICE], professionalId: 'any', customer: { firstName: 'Laura', phone: '573001234567' }, acceptTerms: true });
     expect(await screen.findByRole('link', { name: 'Ver mi lugar en la lista' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Ver mi lugar en la lista' }).getAttribute('href')).toBe(waitlistPath('mi-barberia', 't'.repeat(43)));
+  });
+
+  it('Esc en el modal cierra SOLO el modal: el flujo de reserva sigue abierto con lo elegido', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    vi.mocked(publicApi.days).mockResolvedValue([]);
+    vi.mocked(publicApi.availability).mockResolvedValue({ date: '2026-10-06', timezone: 'America/Bogota', intervalMinutes: 30, totalMinutes: 60, slots: [booked] });
+    render(<BookingFlow slug="mi-barberia" profile={{ ...profile, features: { ...profile.features, waitlist: true } }} catalog={catalog} team={[]} language="es" onClose={onClose} />);
+    await user.click(screen.getByRole('checkbox', { name: /Corte/ }));
+    await next(user);
+    await user.click(await screen.findByRole('button', { name: 'Avisarme si se libera' }));
+    expect(screen.getByRole('dialog', { name: 'Lista de espera' })).toBeTruthy();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Lista de espera' })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    // Sin modal, Esc sí cierra el flujo (como siempre).
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('sin lista activada: el día lleno no la ofrece', async () => {

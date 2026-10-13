@@ -16,7 +16,9 @@ import { AppText } from '@/ui/Text';
 
 export default function More() {
   const router = useRouter();
-  const { t, language, setLanguage, theme, setTheme, aiFab, setAiFab } = useSettings();
+  const { t, language, setLanguage, theme, setTheme, aiFab, setAiFab, colors } = useSettings();
+  // Borde dorado fino (el dorado de la app con ~45% de opacidad) en los grupos de esta pantalla.
+  const goldBorder = { borderColor: `${colors.gold}73` };
   const { user, business, signOut } = useSession();
   const { confirm } = useDialogs();
   const { data: subscription } = useSubscription();
@@ -47,7 +49,7 @@ export default function More() {
 
   return (
     <Screen header={<Header root title={t('more')} />}>
-      <Card>
+      <Card style={goldBorder}>
         <Row icon="person-outline" label={user?.name ?? ''} value={`${t('account')} · ${business?.name ?? ''}`} onPress={() => router.push('/profile')} />
         {isOwner ? <Row icon="storefront-outline" label={t('business_settings')} onPress={() => router.push('/business')} /> : null}
         {meets(actor, ['catalog_manage']) ? <Row icon="pricetags-outline" label={t('manage_categories')} onPress={() => router.push('/categories')} /> : null}
@@ -57,7 +59,7 @@ export default function More() {
       </Card>
 
       <SectionTitle>{t('preferences')}</SectionTitle>
-      <Card>
+      <Card style={goldBorder}>
         <View style={{ paddingVertical: 6 }}>
           <AppText variant="bodyStrong" style={{ marginBottom: 10 }}>
             {t('language')}
@@ -75,7 +77,7 @@ export default function More() {
       {isOwner ? <NotificationsSection /> : null}
 
       <SectionTitle>{t('account')}</SectionTitle>
-      <Card>
+      <Card style={goldBorder}>
         {/* Mismo contacto oficial que la web y el menú lateral (lib/contact), con el mensaje en el idioma de la persona. */}
         <Row icon="logo-whatsapp" label={t('support_whatsapp')} onPress={() => void Linking.openURL(supportWhatsappUrl(supportMessage(language, business?.name))).catch(() => undefined)} />
         <Row icon="log-out-outline" label={t('logout')} value={t('logout_sub')} tone="danger" onPress={logout} />

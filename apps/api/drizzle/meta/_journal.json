@@ -218,6 +218,20 @@
       "when": 1791855209496,
       "tag": "0030_waitlist",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791858730653,
+      "tag": "0031_discount_fk_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791875480690,
+      "tag": "0032_public_page_options",
+      "breakpoints": true
     }
   ]
 }

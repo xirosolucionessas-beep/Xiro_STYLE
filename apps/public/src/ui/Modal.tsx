@@ -10,8 +10,9 @@ export interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
-  /** 'lg': diálogo ancho (~960px) de dos columnas en escritorio, para contenido con galería. Por defecto, el formulario angosto de siempre. */
-  size?: 'md' | 'lg';
+  /** 'lg': diálogo ancho (~960px) de dos columnas en escritorio. 'full': vista inmersiva a pantalla completa (detalle de un
+   * servicio o producto, siempre en tema oscuro). Por defecto, el formulario angosto de siempre. */
+  size?: 'md' | 'lg' | 'full';
   /** El título sigue anunciándose (aria-labelledby) pero no se dibuja — para cuando el nombre ya aparece en el contenido. */
   hideTitle?: boolean;
 }
@@ -74,10 +75,11 @@ export function Modal({ title, closeLabel, onClose, children, footer, size = 'md
         first.focus();
       }
     };
-    document.addEventListener('keydown', onKeyDown);
+    // En captura: el modal atiende Esc ANTES que quien lo contiene (el flujo de reserva también cierra con Esc) y lo detiene ahí.
+    document.addEventListener('keydown', onKeyDown, true);
     return () => {
       aliveRef.current = false;
-      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('popstate', onPopState);
       document.body.style.overflow = previousOverflow;
       opener?.focus();
@@ -95,10 +97,10 @@ export function Modal({ title, closeLabel, onClose, children, footer, size = 'md
   }, []);
 
   return (
-    <div className="xp-modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className={`xp-modal${size === 'lg' ? ' xp-modal--lg' : ''}`}>
+    <div className={`xp-modal-backdrop${size === 'full' ? ' xp-modal-backdrop--full' : ''}`} role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className={`xp-modal${size === 'lg' ? ' xp-modal--lg' : size === 'full' ? ' xp-modal--full' : ''}`}>
         <button type="button" className="xp-modal-close xp-icon-btn" aria-label={closeLabel} onClick={onClose}>
-          <Icon name="close" size={20} />
+          <Icon name="close" size={size === 'full' ? 22 : 20} />
         </button>
         <h2 id={titleId} className={hideTitle ? 'xp-sr' : undefined}>
           {title}

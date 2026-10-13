@@ -55,7 +55,7 @@ const profile: PublicBookingProfile = {
   accentColor: null,
   bookingTitle: '',
   trustBadges: [],
-  features: { waitlist: false, discountCodes: false, rememberCustomer: false },
+  features: { waitlist: false, discountCodes: false, rememberCustomer: false, noPrepayBadge: false, customerNotes: true }, businessType: 'barbershop',
 };
 const catalog: PublicBookingCatalog = {
   services: [{ id: SERVICE, name: 'Corte', category: 'Cabello', description: 'Con lavado', price: 30000, durationMinutes: 60, image: null, images: [], variants: [] }],

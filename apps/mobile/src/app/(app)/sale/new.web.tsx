@@ -18,6 +18,7 @@ import { useAuthed } from '@/lib/session';
 import { Screen } from '@/ui/Screen';
 import { SaleFormView, type SaleAppointmentHint, type SaleCatalogRow, type SaleClientResult, type SaleEmployeeOption } from '@/web/screens/SaleForm';
 import { businessAddressLine, downloadInvoicePdf, downloadPosTicketPdf, toDataUrl, type InvoiceItem } from '@/web/services/invoicePdf';
+import { printTicket } from '@/web/services/print';
 import { useWebText } from '@/web/services/useWebText';
 import { parseAmountInput } from '@/web/money';
 
@@ -326,6 +327,32 @@ export default function SaleNewWeb() {
     });
   }
 
+  /** Imprimir: un ticket vertical propio (ver web/services/print.ts), no la pantalla de la app (salía en blanco o recortada). */
+  function printReceipt() {
+    if (!result) return;
+    printTicket({
+      title: `${t('sale_print_receipt')} ${receiptNumber}`,
+      lang: language,
+      header: [business.name, businessAddressLine(business.address, business.city, business.country), business.whatsapp || ''],
+      meta: [
+        { label: t('sale_print_number'), value: receiptNumber },
+        { label: t('sale_print_date'), value: dateLabel },
+        { label: t('sale_print_client'), value: result.clientName },
+        ...(result.createdByName ? [{ label: t('sale_print_attended'), value: result.createdByName }] : []),
+      ],
+      lines: result.items.map((i) => ({ name: i.name, detail: i.quantity > 1 ? `${i.quantity} × ${formatMoney(i.unitPrice, currency)}` : undefined, amount: formatMoney(i.total, currency) })),
+      totals: [
+        { label: t('sale_print_subtotal'), value: formatMoney(result.subtotal, currency) },
+        ...(result.discount > 0 ? [{ label: t('sale_discount'), value: `-${formatMoney(result.discount, currency)}` }] : []),
+        ...(result.tip > 0 ? [{ label: t('sale_tip'), value: formatMoney(result.tip, currency) }] : []),
+        { label: t('sale_print_total'), value: formatMoney(result.total, currency), strong: true },
+        ...result.payments.map((p) => ({ label: t(`sale_pay_${p.method}`), value: formatMoney(p.amount, currency) })),
+        ...(result.changeGiven > 0 ? [{ label: t('sale_done_change'), value: formatMoney(result.changeGiven, currency) }] : []),
+      ],
+      footer: t('sale_receipt_thanks'),
+    });
+  }
+
   function downloadPosTicket() {
     if (!result) return;
     downloadPosTicketPdf({
@@ -448,7 +475,7 @@ export default function SaleNewWeb() {
       onWhatsapp={sendWhatsapp}
       onDownloadPdf={downloadPdf}
       onPosTicket={downloadPosTicket}
-      onPrint={() => window.print()}
+      onPrint={printReceipt}
       onNewSale={resetAll}
     />
     </Screen>

@@ -1,0 +1,2 @@
+ALTER TABLE "business_settings" ADD COLUMN "no_prepay_badge_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "business_settings" ADD COLUMN "customer_notes_enabled" boolean DEFAULT true NOT NULL;

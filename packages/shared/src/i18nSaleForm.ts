@@ -52,6 +52,13 @@ export const saleFormEs = {
 
   // Descuento, propina y pago
   sale_discount: 'Descuento',
+  sale_print_receipt: 'Comprobante de venta',
+  sale_print_number: 'N.º',
+  sale_print_date: 'Fecha',
+  sale_print_client: 'Cliente',
+  sale_print_attended: 'Atendió',
+  sale_print_subtotal: 'Subtotal',
+  sale_print_total: 'Total',
   sale_tip: 'Propina',
   sale_pay_title: 'Pago',
   sale_pay_add: 'Agregar otro pago',
@@ -143,6 +150,13 @@ export const saleFormEn: Record<SaleFormStringKey, string> = {
   sale_cart_qty: 'Quantity',
 
   sale_discount: 'Discount',
+  sale_print_receipt: 'Sale receipt',
+  sale_print_number: 'No.',
+  sale_print_date: 'Date',
+  sale_print_client: 'Client',
+  sale_print_attended: 'Served by',
+  sale_print_subtotal: 'Subtotal',
+  sale_print_total: 'Total',
   sale_tip: 'Tip',
   sale_pay_title: 'Payment',
   sale_pay_add: 'Add another payment',

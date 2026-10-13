@@ -1,15 +1,17 @@
 import { translate } from '@xiro/shared';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useLanguage } from './lib/lang';
 import { accountPath, navigate, parseRoute } from './lib/route';
 import { useClientSession } from './lib/session';
 import { useTheme } from './lib/theme';
-import { AccountPage } from './pages/AccountPage';
-import { ManagePage } from './pages/ManagePage';
-import { MyAccountPage } from './pages/MyAccountPage';
 import { ProfilePage } from './pages/ProfilePage';
-import { ReviewLinkPage } from './pages/ReviewLinkPage';
-import { WaitlistPage } from './pages/WaitlistPage';
+
+// Fase 5 (carga diferida): la página del negocio va en el paquete principal; las demás vistas se descargan solo si se abren.
+const AccountPage = lazy(() => import('./pages/AccountPage').then((m) => ({ default: m.AccountPage })));
+const ManagePage = lazy(() => import('./pages/ManagePage').then((m) => ({ default: m.ManagePage })));
+const MyAccountPage = lazy(() => import('./pages/MyAccountPage').then((m) => ({ default: m.MyAccountPage })));
+const ReviewLinkPage = lazy(() => import('./pages/ReviewLinkPage').then((m) => ({ default: m.ReviewLinkPage })));
+const WaitlistPage = lazy(() => import('./pages/WaitlistPage').then((m) => ({ default: m.WaitlistPage })));
 import { TopBar } from './ui/TopBar';
 
 function usePathname(): string {
@@ -56,12 +58,19 @@ export function App() {
   return (
     <>
       {topBar}
+      <Suspense
+        fallback={
+          <div className="xp-empty" role="status">
+            <span className="xp-spinner" aria-hidden="true" />
+          </div>
+        }>
       {route.name === 'manage' ? <ManagePage slug={route.slug} token={route.token} language={language} /> : null}
       {route.name === 'waitlist' ? <WaitlistPage slug={route.slug} token={route.token} language={language} /> : null}
       {route.name === 'review' ? <ReviewLinkPage slug={route.slug} token={route.token} language={language} /> : null}
       {route.name === 'profile' ? <ProfilePage slug={route.slug} itemId={route.itemId} language={language} account={session.account} /> : null}
       {route.name === 'account' && route.view !== 'cuenta' ? <AccountPage slug={route.slug} view={route.view} language={language} account={session.account} onAuthenticated={session.setAccount} /> : null}
       {route.name === 'account' && route.view === 'cuenta' ? <MyAccountPage slug={route.slug} language={language} account={session.account} onAccountChange={session.setAccount} onLogout={() => void session.logout()} /> : null}
+      </Suspense>
     </>
   );
 }

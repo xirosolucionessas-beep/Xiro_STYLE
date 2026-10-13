@@ -38,6 +38,9 @@ export function buildHomeCss(): string {
 a.xw-tile, button.xw-tile { cursor: pointer; }
 .xw-tile:hover:not([aria-disabled='true']) { background: var(--xw-surface-alt); border-color: var(--xw-border); }
 .xw-tile:active:not([aria-disabled='true']) { transform: scale(.98); }
+/* Acabado premium: borde dorado fino (el acento de la app con opacidad), un poco más intenso al pasar el cursor. */
+.xw-tile { border-color: color-mix(in srgb, var(--xw-accent) 45%, transparent); }
+.xw-tile:hover:not([aria-disabled='true']) { border-color: color-mix(in srgb, var(--xw-accent) 75%, transparent); }
 .xw-tile[aria-disabled='true'] { cursor: not-allowed; color: var(--xw-text-muted); }
 .xw-tile-ic { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; color: var(--xw-text-muted); }
 /* flex-wrap: a 200% de zoom o en columnas muy angostas, "Próximamente" baja a su propia línea en vez de desbordar la tarjeta. */
@@ -100,6 +103,14 @@ a.xw-tile, button.xw-tile { cursor: pointer; }
 .xw-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--xw-space-5); align-items: start; }
 @container (min-width: 52rem) { .xw-detail { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
 .xw-detail-media, .xw-detail-side { display: flex; flex-direction: column; gap: var(--xw-space-4); min-width: 0; }
+/* Ficha "Lo que ve tu cliente": las fotos completas (sin recorte) sobre un fondo neutro, como en la página pública. */
+.xw-detail--preview .xw-gallery-slide img { object-fit: contain; background: radial-gradient(120% 120% at 50% 40%, var(--xw-surface), var(--xw-surface-alt)); }
+.xw-detail-duration { color: var(--xw-text-muted); font-weight: 500; font-size: var(--xw-text-md); }
+.xw-detail-desc--pre { white-space: pre-line; }
+.xw-detail-variants { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--xw-space-2); }
+.xw-detail-variants li { display: flex; justify-content: space-between; gap: var(--xw-space-3); padding: var(--xw-space-2) 0; border-top: 1px solid var(--xw-border-subtle); font: var(--xw-text-md)/1.4 var(--xw-font); color: var(--xw-text); }
+.xw-detail-variants li span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.xw-detail-variants li span:last-child { flex: none; color: var(--xw-text-muted); white-space: nowrap; }
 .xw-detail-desc { margin: 0; color: var(--xw-text-muted); font: var(--xw-text-md)/${font.lineHeight.normal} var(--xw-font); overflow-wrap: anywhere; }
 .xw-detail-price { margin: 0; color: var(--xw-accent); font: ${font.weight.extrabold} var(--xw-text-3xl)/1.1 var(--xw-font); }
 .xw-detail-actions { display: flex; flex-direction: column; gap: var(--xw-space-3); margin-top: var(--xw-space-2); }

@@ -1,7 +1,8 @@
 import { translate, type ClientAccountDto, type Language } from '@xiro/shared';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { publicApi } from '../api';
-import { BookingFlow, type InitialChoice } from '../booking/BookingFlow';
+import type { InitialChoice } from '../booking/BookingFlow';
+
 import { useInView } from '../lib/useInView';
 import { errorKey, useAsync } from '../lib/useAsync';
 import { useBrand } from '../lib/brand';
@@ -16,6 +17,10 @@ import { StickyBook } from '../profile/StickyBook';
 import { TeamSection } from '../profile/TeamSection';
 import { LocationCard } from '../ui/LocationCard';
 import { ProfileSkeleton } from '../ui/Skeleton';
+import { PublicFooter } from '../profile/PublicFooter';
+
+// Fase 5 (carga diferida): el flujo de reserva se descarga al abrirlo, no con la página (que así aparece antes).
+const BookingFlow = lazy(() => import('../booking/BookingFlow').then((m) => ({ default: m.BookingFlow })));
 
 /**
  * Página pública de reservas de un negocio (/reservar/:slug). Orden: encabezado, sobre el negocio, Servicios, Profesionales,
@@ -47,7 +52,7 @@ export function ProfilePage({ slug, itemId, language, account }: { slug: string;
     if (profile) document.title = `${profile.name} · ${t('pub_book_cta')}`;
   }, [profile?.name, language]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (profileState.loading) return <ProfileSkeleton label={t('loading')} />;
+  if (profileState.loading) return <ProfileSkeleton label={t('loading')} slow={{ text: t('pub_slow_loading'), cta: t('retry'), onRetry: profileState.reload }} />;
   if (profileState.error || !profile) {
     return (
       <div className="xp-empty" role="alert">
@@ -81,7 +86,7 @@ export function ProfilePage({ slug, itemId, language, account }: { slug: string;
           {sections?.team ? <TeamSection team={teamState.data ?? []} services={catalog?.services ?? []} language={language} /> : null}
           {sections?.gallery ? <GallerySection photos={profile.gallery} language={language} /> : null}
           {sections?.products && catalog ? <ProductsSection profile={profile} products={catalog.products} language={language} onBook={openFlow} initialOpenId={itemId} onDetailClose={closeLinkedItem} /> : null}
-          {sections?.reviews ? <ReviewsSection reviews={reviewsState.data ?? []} language={language} /> : null}
+          {sections?.reviews ? <ReviewsSection reviews={reviewsState.data ?? []} language={language} profile={profile} slug={currentSlug} account={account} /> : null}
           <HoursSection profile={profile} language={language} />
 
           {hasLocation ? (
@@ -93,14 +98,15 @@ export function ProfilePage({ slug, itemId, language, account }: { slug: string;
         </div>
       </main>
 
-      <footer className="xp-footer">
-        <p>{t('pub_footer_rights', { year: new Date().getFullYear(), name: profile.name })}</p>
-        <p>{t('pub_footer_powered')}</p>
-      </footer>
+      <PublicFooter profile={profile} language={language} hasLocation={hasLocation} />
 
       {profile.acceptsBookings || profile.acceptsProductOrders ? <StickyBook visible={!heroCtaVisible && !booking} language={language} label={profile.acceptsBookings ? 'pub_book_cta' : 'pub_order_cta'} onBook={() => openFlow()} /> : null}
 
-      {booking ? <BookingFlow slug={currentSlug} profile={profile} catalog={catalog ?? { services: [], packages: [], products: [] }} catalogLoading={catalogState.loading} team={teamState.data ?? []} language={language} initial={booking} account={account} onClose={() => setBooking(null)} /> : null}
+      {booking ? (
+        <Suspense fallback={<div className="xp-overlay xp-overlay--loading" role="status"><span className="xp-spinner" aria-hidden="true" /></div>}>
+          <BookingFlow slug={currentSlug} profile={profile} catalog={catalog ?? { services: [], packages: [], products: [] }} catalogLoading={catalogState.loading} team={teamState.data ?? []} language={language} initial={booking} account={account} onClose={() => setBooking(null)} />
+        </Suspense>
+      ) : null}
       {catalogState.error ? (
         <p className="xp-sr" role="alert">
           {t(errorKey(catalogState.error))}

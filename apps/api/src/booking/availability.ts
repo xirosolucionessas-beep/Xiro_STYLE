@@ -41,6 +41,8 @@ export async function loadContext(tx: Tx, businessId: string): Promise<BookingCo
         discountCodesEnabled: row.discountCodesEnabled,
         reviewRequestsEnabled: row.reviewRequestsEnabled,
         rememberCustomerEnabled: row.rememberCustomerEnabled,
+        noPrepayBadgeEnabled: row.noPrepayBadgeEnabled,
+        customerNotesEnabled: row.customerNotesEnabled,
       }
     : bookingSettingsInputSchema.parse({});
   const parsedHours = businessHoursSchema.safeParse(business.hours);
