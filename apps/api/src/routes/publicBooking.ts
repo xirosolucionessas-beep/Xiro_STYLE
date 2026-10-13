@@ -146,7 +146,8 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     return cached(reply, business, 'team', async (tx): Promise<PublicTeamMemberDto[]> => {
       const profile = await loadProfileRow(tx, business.id);
-      return allSections(profile?.sections).team ? loadPublicTeam(tx, business.id) : [];
+      const sections = allSections(profile?.sections);
+      return sections.team ? loadPublicTeam(tx, business.id, sections.reviews) : [];
     });
   });
 

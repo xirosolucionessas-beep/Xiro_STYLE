@@ -4,6 +4,7 @@ import { initials } from '../lib/format';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
+import { MemberMeta } from '../ui/MemberMeta';
 
 /**
  * Profesionales visibles: foto, nombre y su presentación breve (la "especialidad" que el negocio escribió). Al tocar
@@ -35,6 +36,7 @@ export function TeamSection({ team, services, language }: { team: PublicTeamMemb
                 </span>
               )}
               <p className="xp-member-name">{member.name}</p>
+              <MemberMeta member={member} t={t} language={language} />
               {member.bio ? <p className="xp-member-bio">{member.bio}</p> : null}
               <span className="xp-member-cta">
                 {t('pub_team_view_profile')}

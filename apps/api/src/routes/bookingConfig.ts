@@ -79,6 +79,9 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
         coverUrl: profile?.coverFile ? mediaUrl(profile.coverFile) : null,
         gallery: (profile?.galleryFiles ?? []).map((file) => ({ file, url: mediaUrl(file) })),
         sections: allSections(profile?.sections),
+        accentColor: profile?.accentColor ?? null,
+        bookingTitle: profile?.bookingTitle ?? '',
+        trustBadges: profile?.trustBadges ?? [],
       },
     };
   }

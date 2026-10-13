@@ -30,6 +30,7 @@ import { DoneStep } from './DoneStep';
 import { OrderDoneStep } from './OrderDoneStep';
 import { SelectionBar, type SelectionSummary } from './SelectionBar';
 import { Stepper, type StepId } from './Stepper';
+import { ItemDetailModal, type DetailItem } from '../profile/ItemDetailModal';
 import { DetailsStep, ProfessionalStep, ReviewStep, ServicesStep, type CustomerForm } from './steps';
 
 export interface Chosen {
@@ -121,6 +122,10 @@ export function BookingFlow({
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<PublicBookingResult>();
   const [orderResult, setOrderResult] = useState<PublicProductOrderDto>();
+  // Celular: el resumen es una barra fija abajo; este estado la despliega para ver el detalle.
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  // Detalle de un artículo abierto desde el primer paso (fotos e información completa).
+  const [detail, setDetail] = useState<{ item: DetailItem; kind: 'service' | 'product' } | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const body = useRef<HTMLDivElement>(null);
 
@@ -130,11 +135,13 @@ export function BookingFlow({
   const choiceSignature = JSON.stringify([chosen, professionalId, slot]);
   const idempotencyKey = useMemo(() => newUuid(), [choiceSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Al cambiar de paso: foco en su título (los lectores de pantalla lo anuncian) y de vuelta arriba.
+  // Al cambiar de paso: foco en el título de la tarjeta abierta (los lectores de pantalla lo anuncian) y esa tarjeta a la vista.
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
-    body.current?.scrollTo({ top: 0 });
-  }, [step]);
+    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (stepIndex === 0) body.current?.scrollTo?.({ top: 0 });
+    else heading.current?.closest('.xp-acc')?.scrollIntoView?.({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // El fondo no se desplaza mientras el flujo está abierto; Esc cierra.
   useEffect(() => {
@@ -310,8 +317,112 @@ export function BookingFlow({
   if (result) return <DoneStep result={result} profile={profile} language={language} customerName={customer.firstName.trim()} onClose={onClose} />;
 
   const isLast = step === 'review';
-  const title = t(`pub_step_${step}`);
   const flowTitle = t(orderMode ? 'pub_order_flow_title' : 'pub_flow_title');
+  const stepTitle = (id: StepId) =>
+    id === 'schedule' ? t('pub_schedule_step_title') : id === 'professional' ? t('pub_professional_step_title') : id === 'services' ? t('pub_services_step_title') : id === 'details' ? t('pub_confirm_step_title') : t(orderMode ? 'pub_order_summary_title' : 'pub_summary_title');
+  /** Lo ya elegido en un paso hecho, en una línea (la tarjeta plegada lo muestra junto a "Cambiar"). */
+  const doneSummary = (id: StepId): string =>
+    id === 'services' ? summary.names.join(' · ') : id === 'professional' ? professionalName : id === 'schedule' ? (slotLabel ?? '') : id === 'details' ? [`${customer.firstName} ${customer.lastName}`.trim(), customer.phone].filter(Boolean).join(' · ') : '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const address = [profile.mapAddress || profile.address, profile.mapAddress ? '' : profile.city].filter(Boolean).join(', ');
+
+  const stepContent = (
+    <>
+      {stepError ? <Alert tone="danger">{stepError}</Alert> : null}
+      {alternatives.length > 0 && step === 'schedule' ? (
+        <Alert tone="info">
+          <p>{t('pub_alternatives_title')}</p>
+          <div className="xp-chips">
+            {alternatives.map((alt) => (
+              <button
+                key={alt.startsAt}
+                type="button"
+                className="xp-chip"
+                onClick={() => {
+                  setDate(localDate(alt.startsAt, profile.timezone));
+                  setSlot(alt.startsAt);
+                  setAlternatives([]);
+                }}>
+                {alt.time}
+              </button>
+            ))}
+          </div>
+        </Alert>
+      ) : null}
+
+      {step === 'services' ? (
+        <ServicesStep
+          catalog={catalog}
+          loading={catalogLoading}
+          chosen={chosen}
+          currency={profile.currency}
+          t={t}
+          acceptsProductOrders={profile.acceptsProductOrders}
+          orderMode={orderMode}
+          onToggleService={toggleService}
+          onSetVariant={setVariant}
+          onTogglePackage={togglePackage}
+          onSetProductQty={setProductQty}
+          onOpenDetail={(item, kind) => setDetail({ item, kind })}
+        />
+      ) : null}
+
+      {step === 'professional' ? (
+        <ProfessionalStep
+          team={team}
+          value={professionalId}
+          t={t}
+          language={language}
+          onChange={(id) => {
+            setProfessionalId(id);
+            setSlot(null);
+          }}
+        />
+      ) : null}
+
+      {step === 'schedule' ? (
+        <SchedulePicker
+          slug={slug}
+          timezone={profile.timezone}
+          selection={selectionOf(chosen)}
+          professionalId={professionalId}
+          date={date}
+          onDate={(d) => {
+            setDate(d);
+            setSlot(null);
+          }}
+          slot={slot}
+          onSlot={(s) => setSlot(s.startsAt)}
+          maxDaysAhead={profile.rules.maxDaysAhead}
+          language={language}
+        />
+      ) : null}
+
+      {step === 'details' ? <DetailsStep orderMode={orderMode} profile={profile} customer={customer} custom={custom} errors={errors} t={t} onCustomer={(patch) => setCustomer((c) => ({ ...c, ...patch }))} onCustom={(key, value) => setCustom((c) => ({ ...c, [key]: value }))} /> : null}
+
+      {step === 'review' && (slot || orderMode) ? (
+        <ReviewStep
+          orderMode={orderMode}
+          profile={profile}
+          catalog={catalog}
+          chosen={chosen}
+          professionalName={professionalName}
+          slot={slot}
+          customer={customer}
+          totals={totals}
+          language={language}
+          t={t}
+          consent={consent}
+          errors={errors}
+          submitError={submitError}
+          onConsent={(patch) => setConsent((c) => ({ ...c, ...patch }))}
+          website={website}
+          onWebsite={setWebsite}
+          onCaptcha={setCaptchaToken}
+        />
+      ) : null}
+    </>
+  );
 
   return (
     <div className="xp-overlay" role="dialog" aria-modal="true" aria-label={flowTitle}>
@@ -324,131 +435,120 @@ export function BookingFlow({
           <span className="xp-muted">{profile.name}</span>
         </div>
       </div>
-      <div className="xp-overlay-top">
-        <div className="xp-container">
-          <Stepper steps={steps} current={stepIndex} language={language} onGo={(index) => setStepIndex(index)} />
-        </div>
-      </div>
 
-      <div className="xp-overlay-body" ref={body}>
-        <h2 className="xp-step-title" ref={heading} tabIndex={-1}>
-          {step === 'schedule' ? t('pub_schedule_step_title') : step === 'professional' ? t('pub_professional_step_title') : step === 'services' ? t('pub_services_step_title') : step === 'details' ? t('pub_confirm_step_title') : t(orderMode ? 'pub_order_summary_title' : 'pub_summary_title')}
-          <span className="xp-sr"> — {title}</span>
-        </h2>
-        {stepError ? (
-          <Alert tone="danger">{stepError}</Alert>
-        ) : null}
-        {alternatives.length > 0 && step === 'schedule' ? (
-          <Alert tone="info">
-            <p>{t('pub_alternatives_title')}</p>
-            <div className="xp-chips">
-              {alternatives.map((alt) => (
-                <button
-                  key={alt.startsAt}
-                  type="button"
-                  className="xp-chip"
-                  onClick={() => {
-                    setDate(localDate(alt.startsAt, profile.timezone));
-                    setSlot(alt.startsAt);
-                    setAlternatives([]);
-                  }}>
-                  {alt.time}
-                </button>
-              ))}
+      <div className="xp-overlay-body xp-flow-body" ref={body}>
+        <div className="xp-flow">
+          <div className="xp-flow-main">
+            {/* Título propio del negocio, o el neutro por defecto (nunca un texto de un solo tipo de negocio). */}
+            <p className="xp-flow-title" aria-hidden="true">
+              {profile.bookingTitle || t('pub_flow_headline')}
+            </p>
+            <Stepper steps={steps} current={stepIndex} language={language} onGo={(index) => setStepIndex(index)} />
+
+            <ol className="xp-acc-list">
+              {steps.map((id, index) => {
+                const state = index === stepIndex ? 'current' : index < stepIndex ? 'done' : 'todo';
+                const done = doneSummary(id);
+                return (
+                  <li key={id} className={`xp-acc is-${state}`}>
+                    <div className="xp-acc-head">
+                      <span className="xp-acc-num" aria-hidden="true">
+                        {state === 'done' ? <Icon name="check" size={16} /> : pad(index + 1)}
+                      </span>
+                      <div className="xp-acc-titles">
+                        {state === 'current' ? (
+                          <h2 className="xp-step-title" ref={heading} tabIndex={-1}>
+                            {stepTitle(id)}
+                            <span className="xp-sr"> — {t(`pub_step_${id}`)}</span>
+                          </h2>
+                        ) : (
+                          <h3 className="xp-acc-title">{t(`pub_step_${id}`)}</h3>
+                        )}
+                        {state === 'done' && done ? <p className="xp-acc-summary">{done}</p> : null}
+                      </div>
+                      {state === 'done' ? (
+                        <button type="button" className="xp-acc-change" aria-label={`${t('pub_change')}: ${t(`pub_step_${id}`)}`} onClick={() => setStepIndex(index)}>
+                          {t('pub_change')}
+                        </button>
+                      ) : null}
+                    </div>
+                    {state === 'current' ? <div className="xp-acc-body">{stepContent}</div> : null}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+
+          {/* Resumen: columna fija en escritorio; barra inferior desplegable en celular (el mismo elemento). */}
+          <aside className={`xp-sum${summaryOpen ? ' is-open' : ''}`} aria-label={t(orderMode ? 'pub_sum_order' : 'pub_sum_appointment')}>
+            <div className="xp-sum-detail" id="xp-sum-detail">
+              <div className="xp-sum-business">
+                {profile.coverUrl ? <img className="xp-sum-cover" src={profile.coverUrl} alt="" loading="lazy" decoding="async" /> : null}
+                <div className="xp-sum-biz-text">
+                  <strong className="xp-sum-biz-name">{profile.name}</strong>
+                  {profile.rating.count > 0 && profile.rating.average !== null ? (
+                    <span className="xp-meta">
+                      <Icon name="star" size={14} /> {t('pub_rating', { rating: profile.rating.average, count: profile.rating.count })}
+                    </span>
+                  ) : null}
+                  {address ? <span className="xp-meta">{address}</span> : null}
+                </div>
+              </div>
+              <p className="xp-sum-heading">{t(orderMode ? 'pub_sum_order' : 'pub_sum_appointment')}</p>
             </div>
-          </Alert>
-        ) : null}
-
-        {step === 'services' ? (
-          <ServicesStep
-            catalog={catalog}
-            loading={catalogLoading}
-            chosen={chosen}
-            currency={profile.currency}
-            t={t}
-            acceptsProductOrders={profile.acceptsProductOrders}
-            orderMode={orderMode}
-            onToggleService={toggleService}
-            onSetVariant={setVariant}
-            onTogglePackage={togglePackage}
-            onSetProductQty={setProductQty}
-          />
-        ) : null}
-
-        {step === 'professional' ? (
-          <ProfessionalStep
-            team={team}
-            value={professionalId}
-            t={t}
-            onChange={(id) => {
-              setProfessionalId(id);
-              setSlot(null);
-            }}
-          />
-        ) : null}
-
-        {step === 'schedule' ? (
-          <SchedulePicker
-            slug={slug}
-            timezone={profile.timezone}
-            selection={selectionOf(chosen)}
-            professionalId={professionalId}
-            date={date}
-            onDate={(d) => {
-              setDate(d);
-              setSlot(null);
-            }}
-            slot={slot}
-            onSlot={(s) => setSlot(s.startsAt)}
-            maxDaysAhead={profile.rules.maxDaysAhead}
-            language={language}
-          />
-        ) : null}
-
-        {step === 'details' ? <DetailsStep profile={profile} customer={customer} custom={custom} errors={errors} t={t} onCustomer={(patch) => setCustomer((c) => ({ ...c, ...patch }))} onCustom={(key, value) => setCustom((c) => ({ ...c, [key]: value }))} /> : null}
-
-        {step === 'review' && (slot || orderMode) ? (
-          <ReviewStep
-            orderMode={orderMode}
-            profile={profile}
-            catalog={catalog}
-            chosen={chosen}
-            professionalName={professionalName}
-            slot={slot}
-            customer={customer}
-            totals={totals}
-            language={language}
-            t={t}
-            consent={consent}
-            errors={errors}
-            submitError={submitError}
-            onConsent={(patch) => setConsent((c) => ({ ...c, ...patch }))}
-            website={website}
-            onWebsite={setWebsite}
-            onCaptcha={setCaptchaToken}
-          />
-        ) : null}
-      </div>
-
-      <div className="xp-overlay-foot">
-        <div className="xp-container">
-          <SelectionBar summary={summary} language={language} />
-        </div>
-        <div className="xp-container xp-btn-row xp-foot-row">
-          <Button variant="ghost" full={false} onClick={goBack}>
-            <Icon name="back" size={18} /> {t('back')}
-          </Button>
-          {isLast ? (
-            <Button loading={submitting} loadingLabel={t('loading')} onClick={() => void submit()}>
-              {t(orderMode ? 'pub_order_submit_cta' : 'pub_submit_cta')}
-            </Button>
-          ) : (
-            <Button onClick={goNext} disabled={catalogLoading}>
-              {t('continue')}
-            </Button>
-          )}
+            <SelectionBar summary={summary} language={language} />
+            {profile.trustBadges.length > 0 ? (
+              <ul className="xp-sum-badges">
+                {profile.trustBadges.map((badge) => (
+                  <li key={badge}>
+                    <Icon name="check" size={14} /> {badge}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <button type="button" className="xp-sum-toggle" aria-expanded={summaryOpen} aria-controls="xp-sum-detail" onClick={() => setSummaryOpen((open) => !open)}>
+              {t(summaryOpen ? 'pub_sum_hide' : 'pub_sum_show')}
+            </button>
+            <div className="xp-btn-row xp-sum-actions">
+              <Button variant="ghost" full={false} onClick={goBack}>
+                <Icon name="back" size={18} /> {t('back')}
+              </Button>
+              {isLast ? (
+                <Button loading={submitting} loadingLabel={t('loading')} onClick={() => void submit()}>
+                  {t(orderMode ? 'pub_order_submit_cta' : 'pub_submit_cta')}
+                </Button>
+              ) : (
+                <Button onClick={goNext} disabled={catalogLoading}>
+                  {t('continue')}
+                </Button>
+              )}
+            </div>
+          </aside>
         </div>
       </div>
+
+      {detail
+        ? (() => {
+            const isService = detail.kind === 'service';
+            const quantity = chosen.products.find((p) => p.itemId === detail.item.id)?.quantity ?? 0;
+            const picked = isService ? chosen.services.some((s) => s.itemId === detail.item.id) : quantity > 0;
+            return (
+              <ItemDetailModal
+                item={detail.item}
+                currency={profile.currency}
+                language={language}
+                canBook
+                ctaLabel={t(isService && picked ? 'pub_remove' : 'pub_add')}
+                onClose={() => setDetail(null)}
+                onBook={() => {
+                  if (isService) toggleService(detail.item.id, !picked);
+                  else setProductQty(detail.item.id, Math.min(20, quantity + 1));
+                  setDetail(null);
+                }}
+              />
+            );
+          })()
+        : null}
     </div>
   );
 }

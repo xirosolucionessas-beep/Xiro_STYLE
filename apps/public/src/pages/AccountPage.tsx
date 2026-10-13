@@ -2,6 +2,7 @@ import { isValidPhone, translate, type ClientAccountDto, type Language } from '@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { publicApi } from '../api';
 import { accountErrorMessage as errorMessage } from '../lib/accountErrors';
+import { useBrand } from '../lib/brand';
 import { useAsync } from '../lib/useAsync';
 import { accountPath, navigate, profilePath, type AccountView } from '../lib/route';
 import { Avatar } from '../ui/Avatar';
@@ -32,6 +33,7 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
   const profileState = useAsync(() => publicApi.profile(slug), [slug]);
   const profile = profileState.data;
+  useBrand(profile?.accentColor);
 
   // Con sesión ya iniciada, no tiene sentido mostrar el formulario de ingreso/registro: directo al negocio.
   useEffect(() => {

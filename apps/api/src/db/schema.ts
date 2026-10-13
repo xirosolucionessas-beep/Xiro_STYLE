@@ -635,9 +635,18 @@ export const businessPublicProfiles = pgTable(
     coverFile: text('cover_file'),
     galleryFiles: jsonb('gallery_files').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     sections: jsonb('sections').$type<Partial<Record<PublicSection, boolean>>>().notNull().default(sql`'{}'::jsonb`),
+    /** Marca del negocio en su página (Fase 3 del plan): color de acento (#rrggbb; null = dorado por defecto). */
+    accentColor: text('accent_color'),
+    /** Título de la página de reservas ('' = el texto por defecto, "Reserva tu experiencia"). */
+    bookingTitle: text('booking_title').notNull().default(''),
+    /** Hasta 3 avisos de confianza propios del negocio (p. ej. "Sin pago anticipado"); vacío = no se muestra ninguno. */
+    trustBadges: jsonb('trust_badges').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
-  (t) => [check('bpp_coords_ck', sql`(${t.latitude} is null) = (${t.longitude} is null)`)],
+  (t) => [
+    check('bpp_coords_ck', sql`(${t.latitude} is null) = (${t.longitude} is null)`),
+    check('bpp_accent_ck', sql`${t.accentColor} is null or ${t.accentColor} ~ '^#[0-9a-f]{6}$'`),
+  ],
 );
 
 /** Reglas de agenda y reservas del negocio (una fila por negocio; sin fila se usan los valores por defecto). */
@@ -703,6 +712,8 @@ export const employeeProfiles = pgTable(
     bookable: boolean('bookable').notNull().default(false),
     publicName: text('public_name').notNull().default(''),
     bio: text('bio').notNull().default(''),
+    /** Especialidad que se muestra en la página pública (p. ej. "Colorista"); '' = no se muestra. */
+    specialty: text('specialty').notNull().default(''),
     photoFile: text('photo_file'),
     visible: boolean('visible').notNull().default(true),
     sortOrder: integer('sort_order').notNull().default(0),

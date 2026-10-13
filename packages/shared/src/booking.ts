@@ -141,6 +141,17 @@ export const publicProfileInputSchema = z
     placeId: z.string().trim().min(1).max(300).nullable(),
     sections: z.object(Object.fromEntries(PUBLIC_SECTIONS.map((s) => [s, z.boolean()])) as Record<PublicSection, z.ZodBoolean>).partial(),
     published: z.boolean(),
+    /** Marca del negocio (Fase 3): color de acento #rrggbb (null = dorado por defecto). El contraste lo garantiza `brandAccent`. */
+    accentColor: z
+      .string()
+      .trim()
+      .regex(/^#[0-9a-fA-F]{6}$/, 'validation_error')
+      .transform((value) => value.toLowerCase())
+      .nullable(),
+    /** Título de la página de reservas ('' = "Reserva tu experiencia"). */
+    bookingTitle: trimmed(60),
+    /** Hasta 3 avisos de confianza propios (p. ej. "Sin pago anticipado"). Vacío = ninguno. */
+    trustBadges: z.array(trimmed(60).min(1, 'required')).max(3),
   })
   .partial();
 export type PublicProfileInput = z.input<typeof publicProfileInputSchema>;
@@ -186,6 +197,8 @@ export const professionalInputSchema = z
     bookable: z.boolean(),
     publicName: trimmed(60),
     bio: trimmed(400),
+    /** Especialidad visible en la página pública (p. ej. "Colorista"). */
+    specialty: trimmed(60),
     visible: z.boolean(),
     sortOrder: z.number().int().min(0).max(10_000),
   })
@@ -371,6 +384,7 @@ export interface ProfessionalDto {
   name: string;
   publicName: string;
   bio: string;
+  specialty: string;
   photoUrl: string | null;
   bookable: boolean;
   visible: boolean;
@@ -497,6 +511,10 @@ export interface PublicTeamMemberDto {
   id: string;
   name: string;
   bio: string;
+  /** Especialidad ('' = no se muestra). */
+  specialty: string;
+  /** Calificación de las reseñas APROBADAS de las citas que atendió; null si el negocio oculta sus reseñas. */
+  rating: { average: number | null; count: number } | null;
   photoUrl: string | null;
   /** Servicios que hace; vacío = todos los reservables. */
   serviceIds: string[];
@@ -557,6 +575,10 @@ export interface PublicBookingProfile {
   rules: { slotIntervalMinutes: number; maxDaysAhead: number; cancelUntilHours: number; maxModifications: number; requireEmail: boolean; customFields: CustomField[] };
   /** Clave pública de Cloudflare Turnstile para dibujar el widget; null = sin verificación anti-bots configurada (pendiente de credenciales). */
   captchaSiteKey: string | null;
+  /** Marca del negocio (Fase 3): acento (#rrggbb, null = dorado por defecto), título propio ('' = por defecto) y avisos de confianza. */
+  accentColor: string | null;
+  bookingTitle: string;
+  trustBadges: string[];
 }
 
 /** Los cuatro requisitos para reservar en línea; `ready` = todos cumplidos. Es la única fuente de esta regla (servidor). */
@@ -597,6 +619,9 @@ export interface BookingAdminSettings {
     coverUrl: string | null;
     gallery: Array<{ file: string; url: string }>;
     sections: Record<PublicSection, boolean>;
+    accentColor: string | null;
+    bookingTitle: string;
+    trustBadges: string[];
   };
 }
 

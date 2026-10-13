@@ -1,0 +1,1 @@
+ALTER TABLE "employee_profiles" ADD COLUMN "specialty" text DEFAULT '' NOT NULL;

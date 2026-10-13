@@ -52,6 +52,9 @@ const base: PublicBookingProfile = {
   rating: { average: null, count: 0 },
   rules: { slotIntervalMinutes: 30, maxDaysAhead: 60, cancelUntilHours: 2, maxModifications: 2, requireEmail: true, customFields: [] },
   captchaSiteKey: null,
+  accentColor: null,
+  bookingTitle: '',
+  trustBadges: [],
 };
 
 const emptyCatalog: PublicBookingCatalog = { services: [], packages: [], products: [] };

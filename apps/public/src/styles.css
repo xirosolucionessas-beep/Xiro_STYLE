@@ -4,22 +4,31 @@
  * guardado antes del primer pintado, para que no haya parpadeo. Sin librería de UI, solo CSS con variables, mobile-first.
  */
 
+/*
+ * Paleta "Atelier" (Fase 3 del plan). El acento es el de CADA negocio: la página fija --bl-* (tema claro) y --bd-* (oscuro) con
+ * `brandAccent` de @xiro/shared, que garantiza contraste AA con cualquier color; sin marca propia, el dorado por defecto
+ * (estos mismos valores, calculados con esa función). --gold* quedan como alias de los tokens de acento: el resto de la hoja
+ * los sigue usando sin cambios.
+ *   --accent        relleno de botones y del estado elegido      --on-accent     texto sobre ese relleno
+ *   --accent-text   texto, íconos y precios en color de acento  --accent-tint   fondo suave del estado elegido
+ */
 :root,
 :root[data-theme='dark'] {
-  --bg: #15130f;
-  --bg-rgb: 21, 19, 15;
-  --surface: #1c1914;
-  --surface-2: #211c16;
-  --surface-alt: #272019;
-  --border: #332d23;
-  --border-strong: #4d4531;
-  --text: #f3eee3;
-  --text-soft: #e3dcc9;
-  --text-muted: #b7ad9b;
-  --gold: #cda668;
-  --gold-soft: #e0c08f;
-  --gold-tint: rgba(205, 166, 104, 0.13);
-  --on-gold: #1a1510;
+  --bg: #121212;
+  --bg-rgb: 18, 18, 18;
+  --surface: #1c1b19;
+  --surface-2: #222120;
+  --surface-alt: #2a2825;
+  --border: #34312c;
+  --border-strong: #57524a;
+  --text: #f4f1ec;
+  --text-soft: #e2ddd4;
+  --text-muted: #b3ada3;
+  --accent: var(--bd-accent, #c5a059);
+  --on-accent: var(--bd-on-accent, #1a1510);
+  --accent-text: var(--bd-accent-text, #c5a059);
+  --accent-border: var(--bd-accent-border, #c5a059);
+  --accent-tint: var(--bd-accent-tint, rgba(197, 160, 89, 0.18));
   --danger: #e2766a;
   --danger-tint: rgba(226, 118, 106, 0.14);
   --danger-text: #ffb4b4;
@@ -29,23 +38,24 @@
   --warning: #e08a4e;
   --warning-tint: rgba(224, 138, 78, 0.14);
   --overlay: rgba(0, 0, 0, 0.66);
-  --shadow-gold: 0 3px 12px rgba(205, 166, 104, 0.18);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 :root[data-theme='light'] {
-  --bg: #f6f2e9;
-  --bg-rgb: 246, 242, 233;
+  --bg: #f9f8f6;
+  --bg-rgb: 249, 248, 246;
   --surface: #ffffff;
-  --surface-2: #faf6ee;
-  --surface-alt: #f0e9db;
-  --border: #e3dbc8;
-  --border-strong: #8a8370;
-  --text: #201b14;
-  --text-soft: #4a4233;
-  --text-muted: #685f4f;
-  --gold: #7a5c12;
-  --gold-soft: #5c4710;
-  --gold-tint: rgba(122, 92, 18, 0.12);
-  --on-gold: #ffffff;
+  --surface-2: #fbfaf7;
+  --surface-alt: #f2efe9;
+  --border: #e5e0d8;
+  --border-strong: #8a8478;
+  --text: #1d1a16;
+  --text-soft: #4a453d;
+  --text-muted: #6b655b;
+  --accent: var(--bl-accent, #a7884c);
+  --on-accent: var(--bl-on-accent, #1a1510);
+  --accent-text: var(--bl-accent-text, #856c3c);
+  --accent-border: var(--bl-accent-border, #a7884c);
+  --accent-tint: var(--bl-accent-tint, rgba(167, 136, 76, 0.12));
   --danger: #ad3527;
   --danger-tint: rgba(173, 53, 39, 0.1);
   --danger-text: #8a2a1f;
@@ -55,7 +65,15 @@
   --warning: #954b10;
   --warning-tint: rgba(149, 75, 16, 0.1);
   --overlay: rgba(0, 0, 0, 0.4);
-  --shadow-gold: 0 3px 12px rgba(122, 92, 18, 0.16);
+  --shadow-card: 0 1px 2px rgba(29, 26, 22, 0.06);
+}
+/* Alias históricos (la hoja entera los usa): relleno = acento; sin degradados genéricos (el "soft" es el mismo color). */
+:root {
+  --gold: var(--accent);
+  --gold-soft: var(--accent);
+  --gold-tint: var(--accent-tint);
+  --on-gold: var(--on-accent);
+  --shadow-gold: 0 0 0 1px var(--accent-tint);
 }
 :root {
   --radius-sm: 10px;
@@ -78,7 +96,7 @@
      en vez de quedar una columna angosta flotando en medio de una ventana de escritorio. */
   --max-width: 760px;
   --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'IBM Plex Sans Condensed', var(--font);
+  --font-display: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
 }
 @media (min-width: 900px) {
   :root {
@@ -118,7 +136,7 @@ body {
 }
 
 a {
-  color: var(--gold-soft);
+  color: var(--accent-text);
 }
 
 h1,
@@ -130,9 +148,9 @@ dd {
   margin: 0;
 }
 
+/* Serif solo en títulos grandes (h1, h2); los h3 (nombres de servicios, categorías) en la sans legible. */
 h1,
-h2,
-h3 {
+h2 {
   font-family: var(--font-display);
 }
 
@@ -208,13 +226,13 @@ textarea {
   padding: 8px 4px;
   border: none;
   background: none;
-  color: var(--gold);
+  color: var(--accent-text);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
 .xp-back-to-business:hover {
-  color: var(--gold-soft);
+  color: var(--accent-text);
   text-decoration: underline;
 }
 
@@ -357,10 +375,8 @@ textarea {
 .xp-cover-fallback {
   width: 100%;
   height: 100%;
-  background:
-    radial-gradient(120% 90% at 20% 0%, rgba(217, 182, 54, 0.28), transparent 60%),
-    radial-gradient(90% 80% at 90% 30%, rgba(217, 182, 54, 0.12), transparent 65%),
-    var(--surface-alt);
+  /* Sin portada: un tono plano del acento del negocio (sin degradados genéricos). */
+  background: linear-gradient(var(--accent-tint), var(--accent-tint)), var(--surface-alt);
 }
 
 /* Tarjeta "de vidrio" (glassmorphism ligero): vive SIEMPRE sobre el fondo sólido, nunca sobre la foto (ver nota
@@ -471,7 +487,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--gold-soft);
+  color: var(--accent-text);
   font-size: 14px;
   font-weight: 700;
 }
@@ -551,9 +567,9 @@ textarea {
   margin-bottom: var(--space-4);
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--border);
-  font-size: 21px;
-  line-height: 1.2;
-  font-weight: 700;
+  font-size: clamp(1.6rem, 1.35rem + 1vw, 2.1rem);
+  line-height: 1.15;
+  font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
 }
@@ -580,7 +596,7 @@ textarea {
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
-  border: 1px solid rgba(217, 182, 54, 0.4);
+  border: 1px solid var(--accent-border);
   border-radius: var(--radius-lg);
   background: var(--gold-tint);
 }
@@ -629,7 +645,7 @@ textarea {
 }
 
 .xp-price {
-  color: var(--gold);
+  color: var(--accent-text);
   font-weight: 800;
   white-space: nowrap;
 }
@@ -816,7 +832,7 @@ img {
   font-weight: 700;
 }
 .xp-member-name {
-  font-family: var(--font-display);
+  font-family: var(--font);
   font-size: 17px;
   font-weight: 700;
 }
@@ -1103,7 +1119,7 @@ img {
   gap: 2px;
 }
 .xp-stars .is-on {
-  color: var(--gold);
+  color: var(--accent-text);
 }
 .xp-stars .is-off {
   color: var(--border-strong);
@@ -1117,7 +1133,7 @@ img {
   height: 44px;
   border: none;
   background: transparent;
-  color: var(--gold);
+  color: var(--accent-text);
   font-size: 28px;
   line-height: 1;
   cursor: pointer;
@@ -1207,7 +1223,7 @@ img {
 }
 .xp-address .xp-icon {
   margin-top: 3px;
-  color: var(--gold);
+  color: var(--accent-text);
 }
 
 /* ---------- Carga (esqueletos) ---------- */
@@ -1436,7 +1452,7 @@ img {
   display: block;
   font-size: 12px;
   font-weight: 800;
-  color: var(--gold);
+  color: var(--accent-text);
   text-transform: uppercase;
   letter-spacing: 0.3px;
   margin-bottom: 6px;
@@ -1639,7 +1655,7 @@ img {
 }
 .xp-stepper-item.is-current .xp-stepper-dot {
   border-color: var(--gold);
-  color: var(--gold);
+  color: var(--accent-text);
 }
 .xp-stepper-item.is-current .xp-stepper-btn {
   color: var(--text);
@@ -1850,7 +1866,7 @@ img {
   border: 1.5px solid var(--border-strong);
   border-radius: 50%;
   background: transparent;
-  color: var(--gold);
+  color: var(--accent-text);
   font-size: 20px;
   font-weight: 800;
   cursor: pointer;
@@ -1907,8 +1923,8 @@ img {
   font-weight: 700;
 }
 .xp-pro-photo--any {
-  color: var(--gold);
-  border-color: rgba(217, 182, 54, 0.5);
+  color: var(--accent-text);
+  border-color: var(--accent-border);
   background: var(--gold-tint);
 }
 .xp-pro-text {
@@ -1984,7 +2000,7 @@ img {
   padding: 6px 0;
 }
 .xp-item-price {
-  color: var(--gold);
+  color: var(--accent-text);
   font-weight: 800;
   white-space: nowrap;
 }
@@ -2028,7 +2044,7 @@ img {
 }
 .xp-done-badge.is-pending {
   background: var(--gold-tint);
-  color: var(--gold);
+  color: var(--accent-text);
   box-shadow: none;
   border: 2px solid var(--gold);
 }
@@ -2118,7 +2134,7 @@ img {
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: transparent;
-  color: var(--gold);
+  color: var(--accent-text);
   cursor: pointer;
   font-size: 18px;
 }
@@ -2244,7 +2260,7 @@ img {
 }
 .xp-alert--info {
   background: var(--gold-tint);
-  color: var(--gold-soft);
+  color: var(--accent-text);
   border: 1px solid var(--gold);
 }
 
@@ -2288,7 +2304,7 @@ img {
   padding: var(--space-4);
   word-break: break-all;
   font-size: 13px;
-  color: var(--gold-soft);
+  color: var(--accent-text);
 }
 
 /* ---------- Diálogo modal (confirmar, texto legal) ---------- */
@@ -2507,7 +2523,7 @@ img {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--gold);
+  color: var(--accent-text);
   background: var(--surface-alt);
   font-size: 30px;
   font-weight: 700;
@@ -2642,7 +2658,7 @@ img {
 }
 .xp-appt-badge.is-pending {
   background: var(--gold-tint);
-  color: var(--gold);
+  color: var(--accent-text);
 }
 .xp-appt-badge.is-confirmed {
   background: var(--success-tint);
@@ -2665,7 +2681,7 @@ img {
 .xp-appt-price {
   font-size: 16px;
   font-weight: 800;
-  color: var(--gold);
+  color: var(--accent-text);
   white-space: nowrap;
 }
 
@@ -2856,4 +2872,482 @@ img {
 
 .xp-meta {
   white-space: nowrap;
+}
+
+/* ============================================================================================================================
+ * Fase 3 — Flujo de reserva "Atelier": acordeón de tarjetas numeradas + resumen (columna fija en escritorio, barra inferior en
+ * celular). Solo presentación: los pasos, validaciones y acciones son los de siempre. Colores = tokens de acento del negocio.
+ * ========================================================================================================================== */
+
+.xp-flow-body {
+  max-width: none;
+  padding: 0 0 calc(196px + env(safe-area-inset-bottom));
+}
+.xp-flow-body > * + * {
+  margin-top: 0;
+}
+.xp-flow {
+  display: grid;
+  gap: var(--space-5);
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4);
+}
+.xp-flow-main {
+  min-width: 0;
+}
+.xp-flow-title {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 1.5rem + 2.2vw, 2.85rem);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+/* --- Acordeón --- */
+.xp-acc-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.xp-acc {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+.xp-acc.is-current {
+  border-color: var(--accent-border);
+  box-shadow:
+    0 0 0 1px var(--accent-border),
+    var(--shadow-card);
+}
+.xp-acc.is-todo {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+}
+.xp-acc-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.xp-acc-num {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.xp-acc.is-current .xp-acc-num {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.xp-acc.is-done .xp-acc-num {
+  border-color: var(--accent-border);
+  background: var(--accent-tint);
+  color: var(--accent-text);
+}
+.xp-acc-titles {
+  flex: 1;
+  min-width: 0;
+}
+.xp-acc .xp-step-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.45rem, 1.25rem + 0.8vw, 1.75rem);
+  font-weight: 600;
+  line-height: 1.15;
+}
+.xp-acc-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.xp-acc.is-todo .xp-acc-title {
+  color: var(--text-muted);
+}
+.xp-acc-summary {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xp-acc-change {
+  flex: none;
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.xp-acc-change:hover {
+  text-decoration: underline;
+}
+.xp-acc-body {
+  display: grid;
+  gap: var(--space-4);
+  padding: 0 var(--space-4) var(--space-5);
+  animation: xp-acc-in 0.22s var(--ease);
+}
+@keyframes xp-acc-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- Resumen: barra inferior en celular (desplegable) --- */
+.xp-sum {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  display: grid;
+  gap: var(--space-2);
+  max-height: 85vh;
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.14);
+}
+.xp-sum .xp-selbar {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.xp-sum-detail {
+  display: none;
+}
+.xp-sum.is-open .xp-sum-detail {
+  display: grid;
+  gap: var(--space-3);
+}
+.xp-sum-badges {
+  display: none;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-soft);
+  font-size: 0.88rem;
+}
+.xp-sum.is-open .xp-sum-badges {
+  display: grid;
+}
+.xp-sum-badges li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.xp-sum-badges svg {
+  flex: none;
+  color: var(--accent-text);
+}
+.xp-sum-toggle {
+  justify-self: start;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.xp-sum-actions {
+  justify-content: space-between;
+}
+.xp-sum-business {
+  display: grid;
+  gap: var(--space-3);
+}
+.xp-sum-cover {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-lg);
+  object-fit: cover;
+  background: var(--surface-alt);
+}
+.xp-sum-biz-text {
+  display: grid;
+  gap: 4px;
+}
+.xp-sum-biz-name {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+.xp-sum-heading {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* --- Escritorio: dos columnas (≈65 / 35) con el resumen fijo a la derecha --- */
+@media (min-width: 1024px) {
+  .xp-flow-body {
+    padding-bottom: 0;
+  }
+  .xp-flow {
+    grid-template-columns: minmax(0, 65fr) minmax(320px, 35fr);
+    align-items: start;
+    gap: var(--space-6);
+    padding: var(--space-6);
+  }
+  .xp-sum {
+    position: sticky;
+    top: var(--space-5);
+    right: auto;
+    bottom: auto;
+    left: auto;
+    gap: var(--space-3);
+    max-height: calc(100dvh - 130px);
+    padding: var(--space-5);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-card);
+  }
+  .xp-sum .xp-sum-detail,
+  .xp-sum .xp-sum-badges {
+    display: grid;
+  }
+  .xp-sum-toggle {
+    display: none;
+  }
+  .xp-sum-actions {
+    display: grid;
+    grid-template-columns: auto 1fr;
+  }
+}
+
+/* --- Fecha: pastillas de días --- */
+.xp-daypills {
+  display: flex;
+  gap: var(--space-2);
+  padding: 2px 2px var(--space-2);
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+.xp-daypill {
+  display: grid;
+  flex: none;
+  place-items: center;
+  gap: 2px;
+  min-width: 58px;
+  min-height: 64px;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition:
+    border-color 0.15s var(--ease),
+    background-color 0.15s var(--ease);
+}
+.xp-daypill-wd {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.xp-daypill-d {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.xp-daypill:hover:not(:disabled) {
+  border-color: var(--accent-border);
+}
+.xp-daypill.is-picked {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.xp-daypill.is-picked .xp-daypill-wd {
+  color: inherit;
+}
+.xp-daypill.is-full:not(.is-picked) .xp-daypill-d {
+  color: var(--text-muted);
+}
+.xp-daypill:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.xp-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.xp-daypill:focus-visible,
+.xp-acc-change:focus-visible,
+.xp-sum-toggle:focus-visible,
+.xp-link-btn:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xp-acc,
+  .xp-acc-body,
+  .xp-daypill {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Celular: la columna nunca crece más que la pantalla (las pastillas y los horarios se desplazan por dentro), y la barra del
+   resumen deja "Volver" y la acción principal en una sola fila. */
+.xp-flow {
+  grid-template-columns: minmax(0, 1fr);
+}
+.xp-acc-body {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.xp-sum-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.xp-sum-actions > :last-child {
+  flex: 1;
+}
+.xp-acc-list,
+.xp-sum {
+  grid-template-columns: minmax(0, 1fr);
+}
+.xp-acc {
+  min-width: 0;
+}
+
+/* Horarios: cuadrícula de columnas iguales (sin huecos irregulares), 3 por fila en celular y más en pantallas anchas. */
+.xp-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+.xp-slot {
+  min-width: 0;
+}
+
+/* Horarios en una sola línea ("10:00 a. m." sin partirse). */
+.xp-slot {
+  padding-inline: 6px;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+/* Escritorio (va al final: gana sobre la columna única de celular declarada arriba). */
+@media (min-width: 1024px) {
+  .xp-flow {
+    grid-template-columns: minmax(0, 65fr) minmax(320px, 35fr);
+  }
+}
+
+/* Primer paso: títulos de sección ("Servicios", "Para llevar") y el enlace al detalle de cada artículo. */
+.xp-flow-subtitle {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+.xp-flow-subtitle .xp-muted {
+  font-family: var(--font);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.xp-choice-detail {
+  min-height: 36px;
+  font-size: 0.88rem;
+}
+.xp-choice > .xp-choice-detail {
+  margin: 0 var(--space-4) var(--space-2);
+}
+
+/* Títulos del acordeón (h3) con la serif del rediseño, explícita ahora que los h3 son sans por defecto. */
+.xp-acc-title,
+.xp-flow-subtitle {
+  font-family: var(--font-display);
+}
+.xp-acc-title {
+  font-size: 1.15rem;
+}
+
+/* Nombre del negocio en la portada: el título principal de la página, en la serif del rediseño. */
+.xp-name {
+  font-size: clamp(2.1rem, 1.7rem + 1.8vw, 3rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+/* Especialidad y calificación de cada profesional (paso "Profesional" y sección "Equipo"). */
+.xp-member-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+.xp-member-specialty {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.xp-member-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+.xp-member-rating svg {
+  color: var(--accent-text);
 }

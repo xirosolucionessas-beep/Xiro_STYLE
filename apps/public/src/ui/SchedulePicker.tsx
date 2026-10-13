@@ -4,6 +4,7 @@ import { publicApi } from '../api';
 import { errorKey, useAsync } from '../lib/useAsync';
 import { Button } from './Button';
 import { Calendar, type DayMark } from './Calendar';
+import { Icon } from './Icon';
 import { Skeleton } from './Skeleton';
 import { SlotGrid } from './SlotGrid';
 
@@ -49,6 +50,15 @@ export function SchedulePicker({ slug, timezone, selection, professionalId, date
   );
   const next = upcoming.data?.find((d) => d.hasAvailability && d.date <= maxDate)?.date;
 
+  // Próximos 14 días como pastillas (lo más común es reservar pronto); el calendario completo queda en "Más fechas" para ir más
+  // lejos, hasta el horizonte del negocio. Si el día elegido cae fuera de las pastillas, el calendario se abre solo.
+  const PILL_DAYS = 14;
+  const pillsState = useAsync(() => publicApi.days(slug, today, PILL_DAYS, professionalId, selection), [slug, today, professionalId, key]);
+  const pills = useMemo(() => Array.from({ length: PILL_DAYS }, (_, i) => addDays(today, i)).filter((d) => d <= maxDate), [today, maxDate]);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const showCalendar = calendarOpen || !pills.includes(date);
+  const pillInfo = useMemo(() => new Map((pillsState.data ?? []).map((d) => [d.date, d])), [pillsState.data]);
+
   const marks = useMemo(() => {
     const out: Record<string, DayMark> = {};
     for (const day of monthState.data ?? []) out[day.date] = !day.open ? 'closed' : day.hasAvailability ? 'available' : 'full';
@@ -57,7 +67,31 @@ export function SchedulePicker({ slug, timezone, selection, professionalId, date
 
   return (
     <div className="xp-stack">
-      <Calendar value={date} onChange={onDate} today={today} maxDate={maxDate} marks={marks} onMonthChange={setMonth} language={language} />
+      <div className="xp-daypills" role="radiogroup" aria-label={t('pub_schedule_step_title')}>
+        {pills.map((day) => {
+          const info = pillInfo.get(day);
+          const closed = info ? !info.open : false;
+          const full = info ? info.open && !info.hasAvailability : false;
+          return (
+            <button
+              key={day}
+              type="button"
+              role="radio"
+              aria-checked={day === date}
+              className={`xp-daypill${day === date ? ' is-picked' : ''}${full ? ' is-full' : ''}`}
+              disabled={closed}
+              aria-label={`${upperFirst(formatDay(day, language, { weekday: 'long', day: 'numeric', month: 'long' }))}${closed ? ` · ${t('pub_day_closed')}` : full ? ` · ${t('pub_day_full')}` : ''}`}
+              onClick={() => onDate(day)}>
+              <span className="xp-daypill-wd">{formatDay(day, language, { weekday: 'short' }).replace('.', '')}</span>
+              <span className="xp-daypill-d">{Number(day.slice(8))}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="xp-link-btn" aria-expanded={showCalendar} onClick={() => setCalendarOpen((open) => !open)}>
+        <Icon name="calendar" size={16} /> {t(showCalendar ? 'pub_fewer_dates' : 'pub_more_dates')}
+      </button>
+      {showCalendar ? <Calendar value={date} onChange={onDate} today={today} maxDate={maxDate} marks={marks} onMonthChange={setMonth} language={language} /> : null}
       <div className="xp-slots-wrap" aria-live="polite">
         {dayState.loading ? (
           <div className="xp-slots" aria-hidden="true">

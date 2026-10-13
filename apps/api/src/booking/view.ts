@@ -14,6 +14,7 @@ import {
 import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { DbExecutor } from '../db/client';
 import {
+  appointments,
   businessPublicProfiles,
   businessSettings,
   businessSlugHistory,
@@ -215,6 +216,10 @@ export async function loadPublicProfile(tx: Tx, ctx: BookingContext, now: Date, 
       customFields: ctx.settings.customFields,
     },
     captchaSiteKey,
+    // Marca del negocio (Fase 3): la página calcula los tonos con contraste garantizado (brandAccent).
+    accentColor: profile?.accentColor ?? null,
+    bookingTitle: profile?.bookingTitle ?? '',
+    trustBadges: profile?.trustBadges ?? [],
   };
 }
 
@@ -296,8 +301,12 @@ export async function loadPublicCatalog(tx: Tx, businessId: string, sections: Re
   return { services, packages, products };
 }
 
-/** Equipo visible en la web. Nunca correo, celular ni notas: nombre público, presentación y foto. */
-export async function loadPublicTeam(tx: Tx, businessId: string): Promise<PublicTeamMemberDto[]> {
+/**
+ * Equipo visible en la web. Nunca correo, celular ni notas: nombre público, presentación, especialidad y foto. Con
+ * `withRatings` (= el negocio muestra sus reseñas): promedio y cantidad de reseñas APROBADAS de las citas que atendió cada
+ * persona, calculados aquí (nada que guardar ni desactualizar). Nunca datos de quién reseñó.
+ */
+export async function loadPublicTeam(tx: Tx, businessId: string, withRatings = false): Promise<PublicTeamMemberDto[]> {
   const rows = await tx
     .select({ profile: employeeProfiles, name: users.name })
     .from(employeeProfiles)
@@ -305,10 +314,22 @@ export async function loadPublicTeam(tx: Tx, businessId: string): Promise<Public
     .where(and(eq(employeeProfiles.businessId, businessId), eq(employeeProfiles.bookable, true), eq(employeeProfiles.visible, true), eq(users.active, true)))
     .orderBy(asc(employeeProfiles.sortOrder), asc(users.name));
   const assignments = rows.length > 0 ? await tx.select().from(employeeServices).where(and(eq(employeeServices.businessId, businessId), inArray(employeeServices.userId, rows.map((r) => r.profile.userId)))) : [];
+  const ratings = new Map<string, { average: number | null; count: number }>();
+  if (withRatings && rows.length > 0) {
+    const grouped = await tx
+      .select({ professionalId: appointments.professionalId, average: sql<string | null>`avg(${reviews.rating})`, count: sql<number>`count(*)::int` })
+      .from(reviews)
+      .innerJoin(appointments, and(eq(appointments.id, reviews.appointmentId), eq(appointments.businessId, businessId)))
+      .where(and(eq(reviews.businessId, businessId), eq(reviews.status, 'approved'), inArray(appointments.professionalId, rows.map((r) => r.profile.userId))))
+      .groupBy(appointments.professionalId);
+    for (const g of grouped) ratings.set(g.professionalId, { average: g.average ? Math.round(Number(g.average) * 10) / 10 : null, count: g.count });
+  }
   return rows.map(({ profile, name }) => ({
     id: profile.userId,
     name: profile.publicName || name,
     bio: profile.bio,
+    specialty: profile.specialty,
+    rating: withRatings ? (ratings.get(profile.userId) ?? { average: null, count: 0 }) : null,
     photoUrl: profile.photoFile ? mediaUrl(profile.photoFile) : null,
     serviceIds: assignments.filter((a) => a.userId === profile.userId).map((a) => a.itemId),
   }));
@@ -345,6 +366,7 @@ export async function loadProfessionals(tx: Tx, businessId: string, onlyUserId?:
     name: user.name,
     publicName: profile?.publicName || user.name,
     bio: profile?.bio ?? '',
+    specialty: profile?.specialty ?? '',
     photoUrl: profile?.photoFile ? mediaUrl(profile.photoFile) : null,
     bookable: profile?.bookable ?? false,
     visible: profile?.visible ?? true,

@@ -190,7 +190,9 @@ describe('migración 0024: reversible y sin cambiar resultados', () => {
     const dataBefore = await counts();
 
     // Las reversiones van en ORDEN INVERSO: el migrador solo aplica lo posterior a la ÚLTIMA migración registrada, así que
-    // para revertir 0024 primero se revierte lo que vino después (0025, pedidos de productos; vacía en esta prueba).
+    // para revertir 0024 primero se revierte lo que vino después, de la más nueva a la más vieja (0027 especialidad, 0026 marca, 0025 pedidos).
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0027_professional_specialty.down.sql'), 'utf8'));
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0026_business_branding.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0025_product_orders.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0024_search_and_tenant_indexes.down.sql'), 'utf8'));
     expect(await existing()).toEqual([]);

@@ -1,5 +1,6 @@
 export * from './agenda';
 export * from './booking';
+export * from './brand';
 export * from './cash';
 export * from './calendar';
 export * from './geo';

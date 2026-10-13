@@ -4,6 +4,7 @@ import { publicApi } from '../api';
 import { BookingFlow, type InitialChoice } from '../booking/BookingFlow';
 import { useInView } from '../lib/useInView';
 import { errorKey, useAsync } from '../lib/useAsync';
+import { useBrand } from '../lib/brand';
 import { itemPath, replacePath, profilePath } from '../lib/route';
 import { GallerySection } from '../profile/GallerySection';
 import { Hero } from '../profile/Hero';
@@ -34,6 +35,8 @@ export function ProfilePage({ slug, itemId, language, account }: { slug: string;
   }, [profileState.data, slug, itemId]);
 
   const profile = profileState.data;
+  // La marca del negocio (su color de acento, con contraste garantizado) en toda la página.
+  useBrand(profile?.accentColor);
   const currentSlug = profile?.slug ?? slug;
   const sections = profile?.sections;
   const catalogState = useAsync(() => (sections?.services || sections?.products ? publicApi.catalog(currentSlug) : Promise.resolve(null)), [currentSlug, sections?.services, sections?.products]);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AccentTokens } from './brand';
 import { CURRENCIES } from './money';
 import { normalizePhone } from './phone';
 import { EMPLOYEE_PERMISSIONS, type EmployeePermission, type Role } from './roles';
@@ -562,7 +563,17 @@ export interface PublicItem {
 }
 
 export interface PublicCatalog {
-  business: { name: string; slug: string; whatsapp: string | null; currency: (typeof CURRENCIES)[number]; logoUrl: string | null };
+  business: {
+    name: string;
+    slug: string;
+    whatsapp: string | null;
+    currency: (typeof CURRENCIES)[number];
+    logoUrl: string | null;
+    /** Tonos de la marca del negocio (Fase 3), ya con contraste garantizado: el catálogo los aplica tal cual. */
+    brand: { light: AccentTokens; dark: AccentTokens };
+    /** Página de reservas moderna, si el negocio la publicó (botón "Reservar en línea"); null si no. */
+    bookingPath: string | null;
+  };
   items: PublicItem[];
 }
 

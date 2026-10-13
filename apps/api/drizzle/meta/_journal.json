@@ -183,6 +183,20 @@
       "when": 1791837860387,
       "tag": "0025_product_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791842862825,
+      "tag": "0026_business_branding",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791853417178,
+      "tag": "0027_professional_specialty",
+      "breakpoints": true
     }
   ]
 }

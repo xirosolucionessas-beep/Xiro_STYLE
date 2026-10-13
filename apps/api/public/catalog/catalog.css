@@ -1,73 +1,323 @@
+/*
+ * Catálogo completo (/catalog/:slug) con el estilo "Atelier" de la página de reservas (Fase 3, opción c): mismas clases y
+ * funciones de siempre (categorías, tarjetas, detalle con fotos, WhatsApp), nueva presentación. Claro u oscuro según el
+ * sistema de quien visita. El acento es el de CADA negocio: catalog.js fija --bl-* (claro) y --bd-* (oscuro) con los tonos
+ * que calcula el servidor (brandAccent, contraste AA garantizado); sin marca propia, el dorado por defecto.
+ */
 :root {
-  color-scheme: dark;
-  --bg: #12110e;
-  --card: #24221d;
-  --line: #3a362c;
-  --gold: #d9b636;
-  --muted: #bbb5aa;
-  --text: #fff;
+  color-scheme: light;
+  --bg: #f9f8f6;
+  --card: #ffffff;
+  --card-2: #f2efe9;
+  --line: #e5e0d8;
+  --text: #1d1a16;
+  --muted: #6b655b;
+  --accent: var(--bl-accent, #a7884c);
+  --on-accent: var(--bl-on-accent, #1a1510);
+  --accent-text: var(--bl-accent-text, #856c3c);
+  --accent-border: var(--bl-accent-border, #a7884c);
+  --accent-tint: var(--bl-accent-tint, rgba(167, 136, 76, 0.12));
+  --shadow: 0 1px 2px rgba(29, 26, 22, 0.06);
+  --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #121212;
+    --card: #1c1b19;
+    --card-2: #2a2825;
+    --line: #34312c;
+    --text: #f4f1ec;
+    --muted: #b3ada3;
+    --accent: var(--bd-accent, #c5a059);
+    --on-accent: var(--bd-on-accent, #1a1510);
+    --accent-text: var(--bd-accent-text, #c5a059);
+    --accent-border: var(--bd-accent-border, #c5a059);
+    --accent-tint: var(--bd-accent-tint, rgba(197, 160, 89, 0.18));
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
 }
 
-main { max-width: 980px; margin: 0 auto; padding: 24px 18px 56px; }
-a { color: inherit; }
-h1, h2, h3 { margin: 0; }
-.muted { color: var(--muted); }
-
-.brand { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
-.brand img, .brand .logo-fallback {
-  width: 52px; height: 52px; border-radius: 14px; object-fit: cover; background: var(--card); flex: none;
+main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 32px 18px 64px;
 }
-.brand .logo-fallback { display: grid; place-items: center; color: var(--gold); font-weight: 800; font-size: 1.4rem; border: 1px solid var(--line); }
-.placeholder { display: block; }
-.brand h1 { color: var(--gold); font-size: 1.5rem; }
-.tagline { margin: 0 0 20px; color: var(--muted); }
+a {
+  color: inherit;
+}
+h1,
+h2,
+h3 {
+  margin: 0;
+}
+.muted {
+  color: var(--muted);
+}
 
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+/* --- Encabezado del negocio --- */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.brand img,
+.brand .logo-fallback {
+  flex: none;
+  width: 60px;
+  height: 60px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  object-fit: cover;
+}
+.brand .logo-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--accent-text);
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+.placeholder {
+  display: block;
+}
+.brand h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 1.6rem + 2vw, 2.9rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+.tagline {
+  margin: 0 0 20px;
+  color: var(--muted);
+}
+.book-cta {
+  margin: 0 0 24px;
+}
+
+/* --- Categorías --- */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+}
 .chip {
-  border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; background: transparent;
-  color: var(--muted); text-decoration: none; font-size: .85rem; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
 }
-.chip[aria-current="true"] { border-color: var(--gold); color: var(--gold); background: rgba(217, 182, 54, .12); }
-
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
-.card { background: var(--card); border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; }
-.card .photo, .hero .photo {
-  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block;
-  background: linear-gradient(135deg, #443715, #16140f);
+.chip:hover {
+  border-color: var(--accent-border);
 }
-.card .body { padding: 14px 15px 16px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
-.category { color: var(--gold); font-weight: 700; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
-.card h2 { font-size: 1.05rem; }
-.card p { margin: 0; color: var(--muted); font-size: .9rem; }
-.price { color: var(--gold); font-weight: 800; font-size: 1.05rem; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 8px; }
+.chip[aria-current='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
 
+/* --- Tarjetas --- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 18px;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  transition: border-color 0.2s;
+}
+.card:hover {
+  border-color: var(--accent-border);
+}
+.card .photo,
+.hero .photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: var(--card-2);
+  object-fit: cover;
+}
+.card .photo.placeholder,
+.hero .photo.placeholder {
+  background: linear-gradient(var(--accent-tint), var(--accent-tint)), var(--card-2);
+}
+.card .body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+}
+.category {
+  color: var(--accent-text);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.card h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.price {
+  color: var(--accent-text);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+/* --- Botones --- */
 .button {
-  display: inline-block; background: var(--gold); color: #17130a; text-decoration: none; font-weight: 800;
-  border: 0; border-radius: 13px; padding: 11px 15px; font-size: .92rem; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
 }
-.button.secondary { background: transparent; color: var(--gold); border: 1px solid var(--gold); }
+.button.secondary {
+  border-color: var(--accent-border);
+  background: transparent;
+  color: var(--accent-text);
+}
+.button:hover {
+  filter: brightness(1.05);
+}
+.button:focus-visible,
+.chip:focus-visible,
+.back:focus-visible,
+.thumbs button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
 
-.detail { max-width: 640px; margin: 0 auto; }
-.back { color: var(--gold); text-decoration: none; display: inline-block; margin-bottom: 14px; }
-.hero { border-radius: 22px; overflow: hidden; margin-bottom: 16px; }
-.hero .photo { aspect-ratio: 16 / 10; }
-.thumbs { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 18px; }
-.thumbs button { padding: 0; border: 2px solid transparent; border-radius: 12px; background: none; cursor: pointer; flex: none; }
-.thumbs button[aria-current="true"] { border-color: var(--gold); }
-.thumbs img { display: block; width: 92px; height: 70px; object-fit: cover; border-radius: 10px; }
-.detail h2 { font-size: 1.6rem; margin: 6px 0; }
-.detail .price { font-size: 1.7rem; margin: 12px 0; }
+/* --- Detalle --- */
+.detail {
+  max-width: 680px;
+  margin: 0 auto;
+}
+.back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 10px;
+  color: var(--accent-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.hero {
+  margin-bottom: 16px;
+  overflow: hidden;
+  border-radius: 22px;
+}
+.hero .photo {
+  aspect-ratio: 16 / 10;
+}
+.thumbs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+}
+.thumbs button {
+  flex: none;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: none;
+  cursor: pointer;
+}
+.thumbs button[aria-current='true'] {
+  border-color: var(--accent);
+}
+.thumbs img {
+  display: block;
+  width: 92px;
+  height: 70px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.detail h2 {
+  margin: 6px 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.9rem, 1.6rem + 1.4vw, 2.5rem);
+  font-weight: 600;
+  line-height: 1.1;
+}
+.detail .price {
+  margin: 14px 0;
+  font-size: 1.7rem;
+}
 
-.notice { background: var(--card); border-radius: 18px; padding: 24px; }
-.notice h2 { margin-bottom: 8px; }
-.notice .button { margin-top: 14px; }
+/* --- Avisos (vacío, no encontrado, error) --- */
+.notice {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--card);
+}
+.notice h2 {
+  margin-bottom: 8px;
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 600;
+}
+.notice .button {
+  margin-top: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none;
+  }
+}

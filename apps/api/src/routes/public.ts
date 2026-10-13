@@ -1,4 +1,4 @@
-import type { PublicCatalog, PublicItem } from '@xiro/shared';
+import { brandAccent, type PublicCatalog, type PublicItem } from '@xiro/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -6,7 +6,7 @@ import type { Ctx } from '../context';
 import { businessSettings } from '../db/schema';
 import { isUuid, notFound, parse } from '../errors';
 import { mediaUrl } from '../media';
-import { resolveSlug } from '../booking/view';
+import { loadProfileRow, resolveSlug } from '../booking/view';
 import { loadItems, toPublicItem, type BusinessRow } from '../serializers';
 
 const slugParams = z.object({ slug: z.string().min(1).max(60) });
@@ -27,13 +27,19 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
     return resolved.business;
   };
 
-  const describe = (business: BusinessRow): PublicCatalog['business'] => ({
-    name: business.name,
-    slug: business.slug,
-    whatsapp: business.whatsapp,
-    currency: business.currency as PublicCatalog['business']['currency'],
-    logoUrl: business.logoFile ? mediaUrl(business.logoFile) : null,
-  });
+  const describe = async (business: BusinessRow): Promise<PublicCatalog['business']> => {
+    // Marca y página de reservas del negocio (Fase 3): mismo color y estilo que su página moderna.
+    const profile = await loadProfileRow(db, business.id);
+    return {
+      name: business.name,
+      slug: business.slug,
+      whatsapp: business.whatsapp,
+      currency: business.currency as PublicCatalog['business']['currency'],
+      logoUrl: business.logoFile ? mediaUrl(business.logoFile) : null,
+      brand: brandAccent(profile?.accentColor),
+      bookingPath: profile?.published ? `/reservar/${encodeURIComponent(business.slug)}` : null,
+    };
+  };
 
   /** El negocio puede pedir que un producto agotado desaparezca del catálogo público en vez de quedar marcado "Agotado". */
   const hidesOutOfStock = async (businessId: string): Promise<boolean> => {
@@ -55,7 +61,7 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
         (await loadItems(db, business.id, { publishedOnly: true })).filter((item) => !category || item.categoryName.toLowerCase() === category.toLowerCase()).map(toPublicItem),
         await hidesOutOfStock(business.id),
       );
-      return { business: describe(business), items };
+      return { business: await describe(business), items };
     });
   });
 
@@ -70,7 +76,7 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx): void {
       const publicItem = toPublicItem(item);
       // Oculto = oculto también por enlace directo (mismo trato que un artículo sin publicar): no hay una segunda puerta.
       if (publicItem.soldOut && (await hidesOutOfStock(business.id))) throw notFound();
-      return { business: describe(business), item: publicItem };
+      return { business: await describe(business), item: publicItem };
     });
   });
 }

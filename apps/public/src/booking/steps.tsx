@@ -3,9 +3,16 @@ import type { ReactNode } from 'react';
 import { initials, money } from '../lib/format';
 import { Alert } from '../ui/Alert';
 import { Icon } from '../ui/Icon';
+import { MemberMeta } from '../ui/MemberMeta';
 import { ListSkeleton } from '../ui/Skeleton';
 import { Turnstile } from '../ui/Turnstile';
+import type { DetailItem } from '../profile/ItemDetailModal';
 import type { Chosen } from './BookingFlow';
+
+/** Lo que el flujo necesita para abrir el detalle (fotos e información completa) de un servicio o producto. */
+export type OpenDetail = (item: DetailItem, kind: 'service' | 'product') => void;
+
+const usefulDescription = (description: string, name: string) => (description && description !== name && !/^[\d\s.,-]+$/.test(description) ? description : '');
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 
@@ -23,6 +30,7 @@ export function ServicesStep({
   onSetVariant,
   onTogglePackage,
   onSetProductQty,
+  onOpenDetail,
 }: {
   catalog: PublicBookingCatalog;
   loading: boolean;
@@ -37,6 +45,8 @@ export function ServicesStep({
   onSetVariant: (id: string, variantId: string | null) => void;
   onTogglePackage: (id: string, on: boolean) => void;
   onSetProductQty: (id: string, quantity: number) => void;
+  /** Abre el detalle de un artículo (fotos e información completa) sin salir del flujo. */
+  onOpenDetail?: OpenDetail;
 }) {
   if (loading) return <ListSkeleton rows={4} />;
   const products = catalog.products.filter((p) => p.inStock);
@@ -49,6 +59,8 @@ export function ServicesStep({
           <Icon name="bag" size={14} /> {t('pub_order_mode_note')}
         </p>
       ) : null}
+      {/* Servicios y "Para llevar" bien separados cuando el negocio ofrece ambos. */}
+      {products.length > 0 && catalog.services.length + catalog.packages.length > 0 ? <h3 className="xp-subtitle xp-flow-subtitle">{t('pub_services_heading')}</h3> : null}
       {catalog.services.map((service) => {
         const picked = chosen.services.find((s) => s.itemId === service.id);
         const description = service.description && service.description !== service.name ? service.description : '';
@@ -68,6 +80,15 @@ export function ServicesStep({
               </span>
               <span className="xp-price">{money(service.price, currency)}</span>
             </label>
+            {onOpenDetail ? (
+              <button
+                type="button"
+                className="xp-link-btn xp-choice-detail"
+                aria-label={t('pub_detail_open', { name: service.name })}
+                onClick={() => onOpenDetail({ id: service.id, name: service.name, category: service.category, description: usefulDescription(description, service.name), images: service.images, durationMinutes: service.durationMinutes, price: service.price, fromPrice: service.variants.some((v) => v.price !== service.price) }, 'service')}>
+                <Icon name="image" size={16} /> {t('pub_detail_short')}
+              </button>
+            ) : null}
             {picked && service.variants.length > 0 ? (
               <div className="xp-chips xp-choice-variants" role="radiogroup" aria-label={t('pub_style_label')}>
                 <button type="button" role="radio" className="xp-chip" aria-checked={!picked.variantId} onClick={() => onSetVariant(service.id, null)}>
@@ -108,7 +129,9 @@ export function ServicesStep({
       })}
       {products.length > 0 ? (
         <>
-          <h3 className="xp-subtitle">{t('pub_nav_products')}</h3>
+          <h3 className="xp-subtitle xp-flow-subtitle">
+            {t('pub_takeaway_heading')} <span className="xp-muted">· {t('pub_nav_products')}</span>
+          </h3>
           {products.map((product) => {
             const qty = chosen.products.find((p) => p.itemId === product.id)?.quantity ?? 0;
             return (
@@ -116,6 +139,15 @@ export function ServicesStep({
                 <span className="xp-choice-text">
                   <span className="xp-choice-name">{product.name}</span>
                   <span className="xp-price">{money(product.price, currency)}</span>
+                  {onOpenDetail ? (
+                    <button
+                      type="button"
+                      className="xp-link-btn xp-choice-detail"
+                      aria-label={t('pub_detail_open', { name: product.name })}
+                      onClick={() => onOpenDetail({ id: product.id, name: product.name, description: usefulDescription(product.description, product.name), images: product.images, price: product.price }, 'product')}>
+                      <Icon name="image" size={16} /> {t('pub_detail_short')}
+                    </button>
+                  ) : null}
                 </span>
                 <span className="xp-qty">
                   <button type="button" className="xp-qty-btn" aria-label={`− ${product.name}`} disabled={qty === 0} onClick={() => onSetProductQty(product.id, qty - 1)}>
@@ -137,7 +169,7 @@ export function ServicesStep({
 
 /* ---------- 2. Profesional ---------- */
 
-export function ProfessionalStep({ team, value, t, onChange }: { team: PublicTeamMemberDto[]; value: string; t: T; onChange: (id: string) => void }) {
+export function ProfessionalStep({ team, value, t, language = 'es', onChange }: { team: PublicTeamMemberDto[]; value: string; t: T; language?: string; onChange: (id: string) => void }) {
   return (
     <div className="xp-stack" role="radiogroup" aria-label={t('pub_professional_step_title')}>
       <button type="button" role="radio" aria-checked={value === 'any'} className={`xp-pro${value === 'any' ? ' is-picked' : ''}`} onClick={() => onChange('any')}>
@@ -163,6 +195,7 @@ export function ProfessionalStep({ team, value, t, onChange }: { team: PublicTea
           )}
           <span className="xp-pro-text">
             <span className="xp-choice-name">{member.name}</span>
+            <MemberMeta member={member} t={t} language={language} />
             {member.bio ? <span className="xp-choice-desc">{member.bio}</span> : null}
           </span>
           <span className="xp-choice-check" aria-hidden="true">
@@ -192,6 +225,7 @@ export function DetailsStep({
   t,
   onCustomer,
   onCustom,
+  orderMode = false,
 }: {
   profile: PublicBookingProfile;
   customer: CustomerForm;
@@ -200,6 +234,8 @@ export function DetailsStep({
   t: T;
   onCustomer: (patch: Partial<CustomerForm>) => void;
   onCustom: (key: string, value: string) => void;
+  /** Pedido de solo productos: el texto habla de "pedido", no de "cita". */
+  orderMode?: boolean;
 }) {
   const field = (id: string, label: ReactNode, control: ReactNode, error?: string, hint?: string) => (
     <label className="xp-field" htmlFor={id}>
@@ -216,7 +252,7 @@ export function DetailsStep({
   const cls = (key: string) => `xp-input${errors[key] ? ' has-error' : ''}`;
   return (
     <div className="xp-stack">
-      <p className="xp-hint">{t('pub_details_hint')}</p>
+      <p className="xp-hint">{t(orderMode ? 'pub_order_details_hint' : 'pub_details_hint')}</p>
       <div className="xp-grid xp-grid--2">
         {field('xp-first', `${t('pub_first_name')} *`, <input id="xp-first" className={cls('firstName')} value={customer.firstName} onChange={(e) => onCustomer({ firstName: e.target.value })} maxLength={50} autoComplete="given-name" aria-invalid={Boolean(errors.firstName)} />, errors.firstName)}
         {field('xp-last', `${t('pub_last_name')} *`, <input id="xp-last" className={cls('lastName')} value={customer.lastName} onChange={(e) => onCustomer({ lastName: e.target.value })} maxLength={50} autoComplete="family-name" aria-invalid={Boolean(errors.lastName)} />, errors.lastName)}

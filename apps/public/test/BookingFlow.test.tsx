@@ -54,6 +54,9 @@ const profile: PublicBookingProfile = {
   rating: { average: null, count: 0 },
   rules: { slotIntervalMinutes: 30, maxDaysAhead: 60, cancelUntilHours: 2, maxModifications: 2, requireEmail: true, customFields: [] },
   captchaSiteKey: null,
+  accentColor: null,
+  bookingTitle: '',
+  trustBadges: [],
 };
 
 const catalog: PublicBookingCatalog = {
@@ -85,7 +88,7 @@ const download = vi.mocked(downloadTextFile);
 
 const nine = { time: '09:00', startsAt: '2026-10-06T14:00:00.000Z', state: 'available' as const };
 const ten = { time: '10:00', startsAt: '2026-10-06T15:00:00.000Z', state: 'available' as const };
-const team = [{ id: '22222222-2222-4222-8222-222222222222', name: 'Ana', bio: 'Colorista', photoUrl: null, serviceIds: [] }];
+const team = [{ id: '22222222-2222-4222-8222-222222222222', name: 'Ana', bio: 'Colorista', specialty: '', rating: null, photoUrl: null, serviceIds: [] }];
 
 function renderFlow(over: Partial<PublicBookingProfile> = {}, options: { team?: typeof team; initial?: InitialChoice } = {}) {
   vi.resetAllMocks();

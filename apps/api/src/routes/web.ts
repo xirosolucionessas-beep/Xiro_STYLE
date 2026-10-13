@@ -17,8 +17,9 @@ const catalogDir = fileURLToPath(new URL('../../public/catalog/', import.meta.ur
 const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
+// fonts.googleapis.com / fonts.gstatic.com: la tipografía del rediseño (Fase 3), igual que la página de reservas.
 const CATALOG_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  "default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 // challenges.cloudflare.com: solo entra en juego si se configura TURNSTILE_SITE_KEY (si no, la página nunca lo carga).
 // style-src 'unsafe-inline': la portada del negocio se pinta con un estilo en línea (imagen subida por el propio negocio,
