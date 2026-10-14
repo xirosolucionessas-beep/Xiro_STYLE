@@ -2,6 +2,7 @@ import type { PgBoss } from 'pg-boss';
 import type { GoogleMaps } from './booking/google';
 import type { Config } from './config';
 import type { Database } from './db/client';
+import type { ExportPool } from './exports/pool';
 import type { Notifier } from './notifier';
 import type { RealtimeBus } from './realtime';
 import type { Redis } from 'ioredis';
@@ -33,4 +34,6 @@ export interface Ctx {
   realtime: RealtimeBus | null;
   /** Google Maps Platform (Places, Geocoding, Static Maps) — ver booking/google.ts. `null` sin clave configurada. */
   maps: GoogleMaps | null;
+  /** Descargas PDF/Excel generadas en hilos de trabajo, con cola acotada (exports/pool.ts). */
+  exports: ExportPool;
 }

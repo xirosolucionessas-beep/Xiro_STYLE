@@ -58,6 +58,12 @@ admite `LISTEN` ni candados de sesión. Configuración:
 5. Pool de PgBouncer: `pool_mode = transaction`, `default_pool_size` ≈ 2–4 × núcleos de la base de datos. Con el pooler
    delante, `DB_POOL_MAX` por instancia puede subir (p. ej. 20) sin agotar `max_connections`.
 
+### Candados de la caja (concurrencia del cierre)
+
+El cierre de caja y las ventas y gastos se coordinan con `pg_advisory_xact_lock`, un candado de **transacción**
+(`docs/cash-concurrency.md`): se libera al confirmar o revertir y no depende de la sesión. Por eso **funciona igual** detrás
+de PgBouncer en modo transacción, a diferencia del candado de sesión de las migraciones.
+
 ## Comprobación rápida
 
 ```sql

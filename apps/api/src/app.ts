@@ -16,6 +16,7 @@ import { assertPolicyCovers, authorize } from './authz';
 import { recordAudit } from './audit';
 import { GoogleMapsClient, type GoogleMaps } from './booking/google';
 import type { Ctx } from './context';
+import { ExportPool } from './exports/pool';
 import type { Database } from './db/client';
 import { users } from './db/schema';
 import { AppError, containsNul, installErrorHandler, isUuid } from './errors';
@@ -167,6 +168,7 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     boss: options.boss ?? null,
     realtime: options.realtime ?? null,
     maps: options.maps !== undefined ? options.maps : config.booking.googleServerKey ? new GoogleMapsClient(config.booking.googleServerKey) : null,
+    exports: new ExportPool(config.exports),
   };
 
   configurePasswordHashing({ concurrency: config.security.hashConcurrency, maxQueue: config.security.hashQueueMax });
@@ -177,6 +179,8 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     metrics.observe(request.method, request.routeOptions.url ?? 'sin_ruta', reply.statusCode, reply.elapsedTime / 1000);
   });
   app.addHook('onClose', async () => metrics.close());
+  app.addHook('onClose', async () => ctx.exports.close());
+  metrics.exportStats = () => ctx.exports.stats();
   const isHealthCheck = (url: string | undefined) => url?.startsWith('/api/health') ?? false;
   // Bajo sobrecarga (event loop atascado o memoria al tope) se responde 503 + Retry-After en vez de hacer esperar a todos.
   // Las rutas de salud siguen respondiendo: el orquestador decide con /api/health/ready, no por un 503 de sobrecarga.

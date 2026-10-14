@@ -9,6 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { addDays, formatClock, formatDay, localTime, todayIn } from '@/lib/agenda';
 import { api } from '@/lib/api';
+import { afterCloseNote, unbilledNote } from '@/lib/cashFlow';
 import { apiErrors } from '@/lib/forms';
 import { useCashClosingDetail, useCashClosings, useCashCloseSummary, useInvalidateCash } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
@@ -182,6 +183,7 @@ export default function CashCloseWeb() {
         navigate={(href) => router.push(href as never)}
         state={loading ? 'loading' : isError ? 'error' : 'ready'}
         onRetry={() => void (closedForDay ? closingDetailQuery.refetch() : liveSummaryQuery.refetch())}
+        unbilledNote={unbilledNote(summary?.unbilledRecords, money, t)}
         kpis={[
           { id: 'sales', icon: 'coins', label: t('cash_close_kpi_sales'), value: summary ? money(summary.totalSales) : '—', loading },
           { id: 'expenses', icon: 'receipt', label: t('cash_close_kpi_expenses'), value: summary ? money(summary.totalExpenses) : '—', loading },
@@ -207,6 +209,7 @@ export default function CashCloseWeb() {
                 closedByName: closedForDay.closedByName,
                 status: closedForDay.status,
                 voidReason: closedForDay.voidReason,
+                afterClose: afterCloseNote(summary?.afterClose ?? null, money, t),
               }
             : null
         }

@@ -13,6 +13,7 @@ import { createTestDatabase, testAppConfig, type TestDatabase } from './helpers/
 import { PublicCache } from '../src/publicCache';
 import { MemoryRateStore, RateLimits } from '../src/rateStore';
 import { LocalMediaStore } from '../src/storage';
+import { ExportPool } from '../src/exports/pool';
 
 const rates = new RateLimits(new MemoryRateStore());
 
@@ -124,7 +125,7 @@ describe('sendReminder (el trabajo real, contra la base de pruebas)', () => {
       sendAppointmentReminder: async (message) => void reminders.push(message),
     };
     app = await buildApp({ db: testDb.db, config, notifier });
-    ctx = { db: testDb.db, config: mergeConfig(loadConfig(), config), notifier, accountLimiter: rates.limiter('account', 60_000), bookingLimiter: rates.limiter('booking-business', 60_000), rates, redis: null, publicCache: new PublicCache(null, 0), media: new LocalMediaStore(config.mediaDir ?? 'data/media'), boss: null, realtime: null, maps: null };
+    ctx = { db: testDb.db, config: mergeConfig(loadConfig(), config), notifier, accountLimiter: rates.limiter('account', 60_000), bookingLimiter: rates.limiter('booking-business', 60_000), rates, redis: null, publicCache: new PublicCache(null, 0), media: new LocalMediaStore(config.mediaDir ?? 'data/media'), boss: null, realtime: null, maps: null, exports: new ExportPool({ workers: 0, queueMax: 20, timeoutMs: 60_000 }) };
   });
 
   afterAll(async () => {

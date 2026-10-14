@@ -1,28 +1,34 @@
 import {
+  EXPORT_MAX_ROWS,
   expenseInputSchema,
   expensesExportQuerySchema,
+  expensesPageQuerySchema,
   expensesQuerySchema,
   expenseUpdateSchema,
   expenseVoidSchema,
   type Currency,
   type ExpenseDto,
   type ExpensePayeeDto,
+  type ExpensesPage,
   type ExpensesQuery,
+  type ExpensesSummary,
 } from '@xiro/shared';
-import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { assertEmployeeOfBusiness, cashOpeningOf, expenseSnapshot, isCashDayClosed, loadAdjustments, loadExpenseDtos, recordAdjustment, type ExpenseRow } from '../booking/expenses';
+import { lockCashDays } from '../booking/cashLock';
 import { withBusiness, type Tx } from '../booking/scope';
 import { localDate } from '../booking/time';
-import { buildExpensesXlsx, exportFileName } from '../booking/balanceExport';
+import { exportFileName } from '../booking/balanceExport';
 import type { Ctx } from '../context';
 import { businesses, expenses, users } from '../db/schema';
 import { AppError, notFound, parse, uuid } from '../errors';
+import { decodeCursor, toPage } from '../pagination';
 
 /** Tope de filas por consulta del listado (un rango de un año de un negocio real queda muy por debajo). */
 const MAX_ROWS = 1000;
-/** Tope de la descarga en Excel (máximo 12 meses). */
-const MAX_EXPORT_ROWS = 5000;
+/** Filtros comunes del listado, de la página, de los totales y de la descarga. */
+type ExpenseFilters = Required<Pick<ExpensesQuery, 'from' | 'to' | 'status'>> & ExpensesQuery;
 
 /** La caja de ese día está cerrada: cambiar el gasto exige un ajuste explícito (la respuesta lo indica a la interfaz). */
 const dayClosed = (day: string) => new AppError(409, 'expense_day_closed', undefined, undefined, { adjustable: true, cashDay: day });
@@ -47,6 +53,14 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx): void {
     return row.timezone;
   }
 
+  /**
+   * La fecha de un gasto no puede ser posterior a HOY en la zona del negocio (decisión del producto, 2026-10-13: igual que
+   * la pantalla; un gasto con fecha futura no se vería en el balance hasta esa fecha). Los retroactivos se permiten.
+   */
+  async function assertNotFuture(tx: Tx, businessId: string, day: string): Promise<void> {
+    if (day > localDate(new Date(), await timezoneOf(tx, businessId))) throw new AppError(400, 'expense_date_future', undefined, undefined, { field: 'expenseDate' });
+  }
+
   async function lockOwn(tx: Tx, businessId: string, id: string): Promise<ExpenseRow> {
     const [row] = await tx.select().from(expenses).where(and(eq(expenses.id, id), eq(expenses.businessId, businessId))).limit(1).for('update');
     if (!row) throw notFound();
@@ -63,34 +77,70 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx): void {
     return opening;
   }
 
+  /** Filtros del listado: el negocio de la sesión SIEMPRE, más rango, tipo, categoría, beneficiario y estado. */
+  const filtersOf = (businessId: string, query: ExpenseFilters) =>
+    and(
+      eq(expenses.businessId, businessId),
+      gte(expenses.expenseDate, query.from),
+      lte(expenses.expenseDate, query.to),
+      query.type ? eq(expenses.type, query.type) : undefined,
+      query.category ? eq(expenses.category, query.category) : undefined,
+      query.employeeId ? eq(expenses.employeeId, query.employeeId) : undefined,
+      query.status === 'all' ? undefined : eq(expenses.status, query.status),
+    );
+
   /** Gastos del negocio con los filtros del listado (la pantalla y la descarga en Excel usan la misma consulta). */
-  async function findExpenses(tx: Tx, businessId: string, query: Required<Pick<ExpensesQuery, 'from' | 'to' | 'status'>> & ExpensesQuery, limit: number): Promise<ExpenseDto[]> {
-    const rows = await tx
-      .select()
-      .from(expenses)
-      .where(
-        and(
-          eq(expenses.businessId, businessId),
-          gte(expenses.expenseDate, query.from),
-          lte(expenses.expenseDate, query.to),
-          query.type ? eq(expenses.type, query.type) : undefined,
-          query.category ? eq(expenses.category, query.category) : undefined,
-          query.employeeId ? eq(expenses.employeeId, query.employeeId) : undefined,
-          query.status === 'all' ? undefined : eq(expenses.status, query.status),
-        ),
-      )
-      .orderBy(desc(expenses.expenseDate), desc(expenses.createdAt))
-      .limit(limit);
+  async function findExpenses(tx: Tx, businessId: string, query: ExpenseFilters, limit: number): Promise<ExpenseDto[]> {
+    const rows = await tx.select().from(expenses).where(filtersOf(businessId, query)).orderBy(desc(expenses.expenseDate), desc(expenses.createdAt)).limit(limit);
     return loadExpenseDtos(tx, businessId, rows);
   }
 
+  /** Cantidad y total de TODO lo que cumple los filtros (no de una página): lo que muestra la pantalla. */
+  async function summaryOf(tx: Tx, businessId: string, query: ExpenseFilters): Promise<ExpensesSummary> {
+    const [row] = await tx
+      .select({
+        count: sql<number>`count(*)::int`,
+        activeCount: sql<number>`(count(*) filter (where ${expenses.status} = 'active'))::int`,
+        activeTotal: sql<number>`coalesce(sum(${expenses.amount}) filter (where ${expenses.status} = 'active'), 0)::bigint`,
+      })
+      .from(expenses)
+      .where(filtersOf(businessId, query));
+    return { count: Number(row?.count ?? 0), activeCount: Number(row?.activeCount ?? 0), activeTotal: Number(row?.activeTotal ?? 0) };
+  }
+
+  /** Versión anterior (hasta 1.000 filas, sin paginar): se conserva tal cual para las versiones de la app ya instaladas. */
   app.get('/expenses', async (request): Promise<ExpenseDto[]> => {
     const query = parse(expensesQuerySchema, request.query);
     const businessId = request.user.bid;
     return scoped(businessId, async (tx) => findExpenses(tx, businessId, query, MAX_ROWS));
   });
 
-  /** Lista de gastos en Excel, con los mismos filtros que la pantalla (máximo 12 meses). */
+  /**
+   * Listado paginado: orden estable (fecha del gasto, alta, id; lo más reciente primero) con cursor por clave, así que
+   * ninguna fila se repite ni se salta aunque se registren gastos mientras se navega. La primera página trae los totales
+   * de TODO el rango y filtros (la pantalla no suma lo cargado).
+   */
+  app.get('/expenses/page', async (request): Promise<ExpensesPage> => {
+    const { cursor, limit, ...query } = parse(expensesPageQuerySchema, request.query);
+    const businessId = request.user.bid;
+    const after = decodeCursor(cursor, ['string', 'string', 'string']);
+    return scoped(businessId, async (tx) => {
+      const createdText = sql<string>`${expenses.createdAt}::text`;
+      const rows = await tx
+        .select({ expense: expenses, createdText })
+        .from(expenses)
+        .where(and(filtersOf(businessId, query), after ? sql`(${expenses.expenseDate}, ${expenses.createdAt}, ${expenses.id}) < (${after[0]}::date, ${after[1]}::timestamptz, ${after[2]}::uuid)` : undefined))
+        .orderBy(desc(expenses.expenseDate), desc(expenses.createdAt), desc(expenses.id))
+        .limit(limit + 1);
+      const page = toPage(rows, limit, (r) => [r.expense.expenseDate, r.createdText, r.expense.id], (r) => r.expense);
+      return { data: await loadExpenseDtos(tx, businessId, page.data), nextCursor: page.nextCursor, summary: after ? null : await summaryOf(tx, businessId, query) };
+    });
+  });
+
+  /**
+   * Lista de gastos en Excel, con los mismos filtros que la pantalla (máximo 12 meses). Trae TODAS las filas; si el rango
+   * pasa de EXPORT_MAX_ROWS responde 400 `export_too_many_rows` (con la cantidad) en vez de un archivo cortado.
+   */
   app.get('/expenses/export.xlsx', async (request, reply) => {
     const { lang, ...query } = parse(expensesExportQuerySchema, request.query);
     const businessId = request.user.bid;
@@ -101,9 +151,12 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx): void {
         .where(eq(businesses.id, businessId))
         .limit(1);
       if (!business) throw notFound();
-      return { rows: await findExpenses(tx, businessId, query, MAX_EXPORT_ROWS), business };
+      const { count } = await summaryOf(tx, businessId, query);
+      if (count > EXPORT_MAX_ROWS) throw new AppError(400, 'export_too_many_rows', undefined, undefined, { count, max: EXPORT_MAX_ROWS });
+      return { rows: await findExpenses(tx, businessId, query, EXPORT_MAX_ROWS), business };
     });
-    const file = await buildExpensesXlsx(rows, { ...business, currency: business.currency as Currency }, query, lang);
+    // El archivo se arma en un hilo de trabajo (exports/pool.ts): no bloquea a las demás peticiones de la instancia.
+    const file = await ctx.exports.run({ kind: 'expenses-xlsx', rows, business: { ...business, currency: business.currency as Currency }, range: { from: query.from, to: query.to }, lang });
     return reply
       .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       .header('Content-Disposition', `attachment; filename="${exportFileName('gastos', business.slug, query.from, query.to, 'xlsx')}"`)
@@ -146,6 +199,9 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx): void {
     const userId = request.user.sub;
     const dto = await scoped(businessId, async (tx) => {
       const expenseDate = input.expenseDate ?? localDate(new Date(), await timezoneOf(tx, businessId));
+      await assertNotFuture(tx, businessId, expenseDate);
+      // Antes de mirar si la caja de ese día está cerrada: un cierre en curso termina primero (booking/cashLock.ts).
+      await lockCashDays(tx, businessId, [expenseDate], 'shared');
       await assertEmployeeOfBusiness(tx, businessId, input.employeeId);
       const paidFromCash = input.paidFromCash ?? input.method === 'cash';
       // A una caja ya cerrada no se le agregan salidas (no hay ajuste para un gasto nuevo: se registra "no pagado desde caja").
@@ -187,7 +243,10 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx): void {
       if (current.status === 'voided') throw new AppError(409, 'expense_already_voided');
       await assertEmployeeOfBusiness(tx, businessId, input.employeeId);
       const expenseDate = input.expenseDate ?? current.expenseDate;
+      if (input.expenseDate) await assertNotFuture(tx, businessId, expenseDate);
       const paidFromCash = input.paidFromCash ?? input.method === 'cash';
+      // La caja de antes y la de ahora (si cambia la fecha), en orden: un cierre en curso de cualquiera termina primero.
+      await lockCashDays(tx, businessId, [current.expenseDate, expenseDate], 'shared');
 
       // Cajas cerradas afectadas: la de antes (si el gasto salía de ella) y la de ahora (si saldrá de ella).
       const closedBefore = current.paidFromCash && (await isCashDayClosed(tx, businessId, current.expenseDate));
@@ -243,6 +302,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx): void {
     return scoped(businessId, async (tx) => {
       const current = await lockOwn(tx, businessId, id);
       if (current.status === 'voided') throw new AppError(409, 'expense_already_voided');
+      await lockCashDays(tx, businessId, [current.expenseDate], 'shared');
       const closed = current.paidFromCash && (await isCashDayClosed(tx, businessId, current.expenseDate));
       if (closed && !adjustmentReason) throw dayClosed(current.expenseDate);
       const [row] = await tx

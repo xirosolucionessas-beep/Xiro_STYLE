@@ -18,6 +18,10 @@ export interface DailyCashFlow {
   /** Cobrado por método, de mayor a menor (solo los que tuvieron cobros). */
   methods: Array<{ method: SalePaymentMethod; total: number }>;
   cash: { state: 'not_opened' } | { state: 'open'; opening: number; current: number } | { state: 'closed'; opening: number };
+  /** Lo que cambió después del cierre firmado de hoy (ver afterCloseNote). */
+  afterClose: CashDaySummary['afterClose'];
+  /** Cobros del día sin venta registrada (ver unbilledNote): no suman a las entradas de la caja. */
+  unbilled: CashDaySummary['unbilledRecords'];
 }
 
 export function dailyCashFlow(summary: CashDaySummary, closings: CashClosingDto[] = []): DailyCashFlow {
@@ -35,6 +39,8 @@ export function dailyCashFlow(summary: CashDaySummary, closings: CashClosingDto[
     net: summary.totalSales - summary.totalExpenses,
     methods: summary.salesByMethod.filter((m) => m.total > 0).map((m) => ({ method: m.method, total: m.total })),
     cash,
+    afterClose: closed ? summary.afterClose : null,
+    unbilled: summary.unbilledRecords ?? { count: 0, total: 0 },
   };
 }
 
@@ -43,4 +49,24 @@ export function flowShares(flow: Pick<DailyCashFlow, 'income' | 'expenses'>): { 
   const total = flow.income + flow.expenses;
   if (total <= 0) return { income: 0, expenses: 0 };
   return { income: flow.income / total, expenses: flow.expenses / total };
+}
+
+/**
+ * "Después del cierre: ventas +$30.000 · efectivo esperado +$30.000. El cierre firmado no cambia." — explica la diferencia
+ * entre lo firmado y el resumen de ahora (ventas registradas o anuladas, y ajustes de gastos, hechos después de cerrar).
+ * null si el día no está cerrado o nada cambió después.
+ */
+export function afterCloseNote(afterClose: CashDaySummary['afterClose'], money: (amount: number) => string, t: (key: string, params?: Record<string, string | number>) => string): string | null {
+  if (!afterClose || (afterClose.salesDelta === 0 && afterClose.expectedCashDelta === 0)) return null;
+  const signed = (n: number) => `${n > 0 ? '+' : ''}${money(n)}`;
+  return t('cash_after_close', { sales: signed(afterClose.salesDelta), cash: signed(afterClose.expectedCashDelta) });
+}
+
+/**
+ * "Cobros sin venta registrada (citas completadas o servicios registrados a mano): $X. No suman a las ventas ni al efectivo
+ * de la caja." — explica por qué el Balance muestra más ingresos que la caja. null si no hubo.
+ */
+export function unbilledNote(unbilled: CashDaySummary['unbilledRecords'] | undefined, money: (amount: number) => string, t: (key: string, params?: Record<string, string | number>) => string): string | null {
+  if (!unbilled || unbilled.count === 0) return null;
+  return t(unbilled.count === 1 ? 'cash_unbilled_one' : 'cash_unbilled', { amount: money(unbilled.total), count: unbilled.count });
 }

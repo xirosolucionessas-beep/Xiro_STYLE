@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { formatMoney, type Currency } from '@xiro/shared';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { flowShares, type DailyCashFlow } from '@/lib/cashFlow';
+import { afterCloseNote, flowShares, unbilledNote, type DailyCashFlow } from '@/lib/cashFlow';
 import { useSettings } from '@/lib/settings';
 import { AppText } from '../Text';
 import { radius } from '../theme';
@@ -106,6 +106,11 @@ export function CashFlowCard({
               {t('home_cf_tips', { amount: money(flow.tips) })}
             </AppText>
           ) : null}
+          {unbilledNote(flow.unbilled, money, t) ? (
+            <AppText variant="small" tone="muted">
+              {unbilledNote(flow.unbilled, money, t)}
+            </AppText>
+          ) : null}
           {flow.methods.length > 0 ? (
             <View style={styles.methods} accessibilityLabel={t('home_cf_by_method')}>
               {flow.methods.map((m) => (
@@ -145,9 +150,16 @@ export function CashFlowCard({
             ) : flow.cash.state === 'closed' ? (
               <View style={styles.row}>
                 <Ionicons name="checkmark-circle-outline" size={20} color={colors.success} />
-                <AppText variant="bodyStrong" tone="muted">
-                  {t('home_cf_closed')}
-                </AppText>
+                <View style={styles.flex}>
+                  <AppText variant="bodyStrong" tone="muted">
+                    {t('home_cf_closed')}
+                  </AppText>
+                  {afterCloseNote(flow.afterClose, money, t) ? (
+                    <AppText variant="small" tone="muted">
+                      {afterCloseNote(flow.afterClose, money, t)}
+                    </AppText>
+                  ) : null}
+                </View>
               </View>
             ) : (
               <View style={styles.row}>

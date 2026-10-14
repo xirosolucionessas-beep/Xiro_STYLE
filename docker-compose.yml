@@ -51,7 +51,9 @@ services:
       JWT_SECRET: solo-desarrollo-cambia-esto-en-produccion-0123456789
       AUTO_MIGRATE: 'true'
       CORS_ORIGINS: http://localhost:8081
-      NODE_OPTIONS: --max-old-space-size=384
+      NODE_OPTIONS: --max-old-space-size=320
+      # Con 512 MB: un solo hilo de descargas PDF/Excel (cada hilo tiene su propio heap; ver docs/deploy.md §3).
+      EXPORT_WORKERS: '1'
     ports:
       - '127.0.0.1:3000:3000'
     # Igual que en producción: memoria acotada y el heap de Node explícitamente por debajo del límite (~75 %).

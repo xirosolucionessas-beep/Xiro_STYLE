@@ -70,3 +70,27 @@ describe('textos de Gastos', () => {
     expect(missing).toEqual([]);
   });
 });
+
+describe('listado completo (paginado)', () => {
+  const screen = () => readFileSync(path.resolve(__dirname, '../src/app/(app)/expenses.tsx'), 'utf8');
+  it('usa el listado por páginas y los totales del servidor (nunca suma solo lo cargado)', () => {
+    const source = screen();
+    expect(source).toContain('useExpensePages(query)');
+    expect(source).toContain('const totals = list.data?.pages[0]?.summary ?? null;');
+    expect(source).not.toMatch(/rows\.filter\(\(e\) => e\.status === 'active'\)\.reduce/);
+  });
+
+  it('"Cargar más" y "Mostrando X de Y" existen en ambos idiomas', () => {
+    expect(screen()).toContain("t('exp_load_more')");
+    for (const key of ['exp_load_more', 'exp_showing', 'export_too_many_rows']) for (const lang of ['es', 'en'] as const) expect(translate(lang, key), `${lang}:${key}`).not.toBe(key);
+  });
+});
+
+describe('monto en el formulario', () => {
+  it('valida con la misma regla que la API antes de enviar y muestra el rango mientras está vacío', () => {
+    const source = readFileSync(path.resolve(__dirname, '../src/app/(app)/expenses.tsx'), 'utf8');
+    expect(source).toContain("error={fields.amount ?? (amount && expenseAmountIssue(amount) ? t(expenseAmountIssue(amount)!) : undefined)}");
+    expect(source).toContain("hint={amount ? formatMoney(Number(amount), business.currency as Currency) : t('exp_amount_hint')}");
+    expect(source).toContain('expenseAmountIssue(amount) !== null');
+  });
+});

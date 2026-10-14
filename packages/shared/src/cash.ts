@@ -64,6 +64,18 @@ export interface CashDaySummary {
   totalExpenses: number;
   /** Ajustes a gastos de este día hechos DESPUÉS del cierre (el cierre firmado no cambia; quedan a la vista). */
   adjustmentsAfterClose: ExpenseAdjustmentDto[];
+  /**
+   * Si el día ya tiene un cierre firmado: cuánto cambiaron las ventas y el efectivo esperado DESPUÉS de firmarlo (ventas
+   * nuevas suman, anuladas restan; los ajustes de gastos desde caja también mueven el efectivo). El cierre firmado no
+   * cambia: esto es lo que explica la diferencia entre lo firmado y el resumen de ahora. null = el día no está cerrado.
+   */
+  afterClose: { closedAt: string; closedSales: number; closedExpectedCash: number; salesDelta: number; expectedCashDelta: number } | null;
+  /**
+   * Cobros del día SIN venta registrada: citas completadas y servicios registrados a mano. Cuentan como ingreso en el Balance
+   * e Inicio, pero no tienen método de pago, así que NO entran en las ventas ni en el efectivo esperado de la caja (decisión
+   * del producto: se muestran aparte para explicar la diferencia con el Balance).
+   */
+  unbilledRecords: { count: number; total: number };
   /** opening + ventas en efectivo − gastos en efectivo. null si `opening` es null (no se puede cerrar sin abrir). */
   expectedCash: number | null;
   hourly: CashHourlyBucket[];

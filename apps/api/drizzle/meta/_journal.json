@@ -246,6 +246,20 @@
       "when": 1791881844172,
       "tag": "0034_expense_adjustments",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791948698171,
+      "tag": "0035_service_records_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791999234151,
+      "tag": "0036_finance_covering_indexes",
+      "breakpoints": true
     }
   ]
 }

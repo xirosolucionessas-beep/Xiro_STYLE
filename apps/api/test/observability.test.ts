@@ -87,6 +87,9 @@ describe('métricas Prometheus', () => {
     expect(body).toMatch(/xiro_process_resident_memory_bytes \d+/);
     expect(body).toMatch(/xiro_db_pool_connections\{state="total"\} \d+/);
     expect(body).toMatch(/xiro_password_hash_waiting \d+/);
+    // Cola de descargas PDF/Excel (exports/pool.ts).
+    expect(body).toMatch(/xiro_export_running \d+/);
+    expect(body).toMatch(/xiro_export_waiting \d+/);
   });
 });
 

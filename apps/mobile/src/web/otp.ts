@@ -14,8 +14,6 @@ export function pasteInto(digits: string[], index: number, pasted: string): { di
   return { digits: next, focus: Math.min(start + clean.length, OTP_LENGTH - 1) };
 }
 
-export const otpValue = (digits: string[]) => digits.join('');
-
 /** 58 → "00:58". */
 export function formatCountdown(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));

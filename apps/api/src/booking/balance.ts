@@ -31,20 +31,17 @@ const n = (value: unknown) => Number(value ?? 0);
 export async function balanceTotals(tx: Tx, businessId: string, from: string, to: string, timezone: string): Promise<BalanceTotals> {
   const start = zonedInstant(from, 0, timezone);
   const end = zonedInstant(addDays(to, 1), 0, timezone);
+  // UNA pasada por tabla (antes: dos por tabla, una por cada suma). Mismas sumas y filtros; medido en
+  // docs/finance-capacity.md (12 meses de un negocio grande: de ~980 ms a la mitad en esta consulta).
   const result = await tx.execute<Row>(sql`
-    select
-      (select coalesce(sum(amount) filter (where kind = 'service'), 0) from service_records
-        where business_id = ${businessId} and voided = false and created_at >= ${start} and created_at < ${end}) as services,
-      (select coalesce(sum(amount) filter (where kind = 'product'), 0) from service_records
-        where business_id = ${businessId} and voided = false and created_at >= ${start} and created_at < ${end}) as products,
-      (select coalesce(sum(discount), 0) from sales
-        where business_id = ${businessId} and status = 'completed' and created_at >= ${start} and created_at < ${end}) as discounts,
-      (select coalesce(sum(tip), 0) from sales
-        where business_id = ${businessId} and status = 'completed' and created_at >= ${start} and created_at < ${end}) as tips,
-      (select coalesce(sum(amount) filter (where type = 'operating'), 0) from expenses
-        where business_id = ${businessId} and status = 'active' and expense_date >= ${from} and expense_date <= ${to}) as operating,
-      (select coalesce(sum(amount) filter (where type = 'payroll'), 0) from expenses
-        where business_id = ${businessId} and status = 'active' and expense_date >= ${from} and expense_date <= ${to}) as payroll
+    select r.services, r.products, s.discounts, s.tips, e.operating, e.payroll
+    from
+      (select coalesce(sum(amount) filter (where kind = 'service'), 0) as services, coalesce(sum(amount) filter (where kind = 'product'), 0) as products
+         from service_records where business_id = ${businessId} and voided = false and created_at >= ${start} and created_at < ${end}) r,
+      (select coalesce(sum(discount), 0) as discounts, coalesce(sum(tip), 0) as tips
+         from sales where business_id = ${businessId} and status = 'completed' and created_at >= ${start} and created_at < ${end}) s,
+      (select coalesce(sum(amount) filter (where type = 'operating'), 0) as operating, coalesce(sum(amount) filter (where type = 'payroll'), 0) as payroll
+         from expenses where business_id = ${businessId} and status = 'active' and expense_date >= ${from} and expense_date <= ${to}) e
   `);
   const row = result.rows[0] ?? {};
   const services = n(row.services);
@@ -116,12 +113,10 @@ export async function expenseBreakdown(tx: Tx, businessId: string, from: string,
  * (servicio o producto) y, como salida de ingreso, el descuento de cada venta completada. Egresos: cada gasto vigente, al
  * inicio de su día local.
  */
-export async function balanceMovements(
-  tx: Tx,
-  businessId: string,
-  q: { from: string; to: string; kind: 'all' | 'income' | 'expense'; sort: 'date' | 'amount'; dir: 'asc' | 'desc'; page: number; pageSize: number },
-  timezone: string,
-): Promise<BalanceMovementsPage> {
+type MovementsRange = { from: string; to: string; kind: 'all' | 'income' | 'expense' };
+
+/** La unión de movimientos del rango: la MISMA para la página y para el conteo. */
+function movementsUnion(businessId: string, q: MovementsRange, timezone: string) {
   const start = zonedInstant(q.from, 0, timezone);
   const end = zonedInstant(addDays(q.to, 1), 0, timezone);
   const incomeRows = sql`
@@ -133,7 +128,22 @@ export async function balanceMovements(
   const expenseRows = sql`
     select id, (expense_date::timestamp at time zone ${timezone}) as at, 'out' as direction, type as kind, category, description, amount
       from expenses where business_id = ${businessId} and status = 'active' and expense_date >= ${q.from} and expense_date <= ${q.to}`;
-  const union = q.kind === 'income' ? incomeRows : q.kind === 'expense' ? expenseRows : sql`${incomeRows} union all ${expenseRows}`;
+  return q.kind === 'income' ? incomeRows : q.kind === 'expense' ? expenseRows : sql`${incomeRows} union all ${expenseRows}`;
+}
+
+/** Cuántos movimientos tiene el rango (sin cargarlos): la descarga en Excel la usa para rechazar ANTES de leer todo. */
+export async function balanceMovementsCount(tx: Tx, businessId: string, q: MovementsRange, timezone: string): Promise<number> {
+  const count = await tx.execute<Row>(sql`select count(*)::int as total from (${movementsUnion(businessId, q, timezone)}) m`);
+  return n(count.rows[0]?.total);
+}
+
+export async function balanceMovements(
+  tx: Tx,
+  businessId: string,
+  q: MovementsRange & { sort: 'date' | 'amount'; dir: 'asc' | 'desc'; page: number; pageSize: number },
+  timezone: string,
+): Promise<BalanceMovementsPage> {
+  const union = movementsUnion(businessId, q, timezone);
   // `sort` y `dir` solo pueden ser los valores del enum validado (balanceMovementsQuerySchema): nunca texto del cliente.
   const order = q.sort === 'amount' ? sql.raw(`amount ${q.dir}, at desc, id`) : sql.raw(`at ${q.dir}, id`);
   const offset = (q.page - 1) * q.pageSize;

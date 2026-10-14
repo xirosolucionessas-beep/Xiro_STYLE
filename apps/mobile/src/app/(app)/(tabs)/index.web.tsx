@@ -10,7 +10,7 @@ import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { relativeTime } from '@/lib/alerts';
 import { useCookieConsent } from '@/lib/useCookieConsent';
-import { dailyCashFlow, flowShares } from '@/lib/cashFlow';
+import { afterCloseNote, dailyCashFlow, flowShares, unbilledNote } from '@/lib/cashFlow';
 import { buildActivity, variation, type Trend } from '@/lib/dashboard';
 import { supportMessage, supportWhatsappUrl } from '@/lib/contact';
 import { api, errorKey } from '@/lib/api';
@@ -248,12 +248,13 @@ export default function HomeWeb() {
           expenseShare: shares.expenses,
           empty: flow.income === 0 && flow.expenses === 0,
           tipsNote: flow.tips > 0 ? t('home_cf_tips', { amount: money(flow.tips) }) : undefined,
+          unbilledNote: unbilledNote(flow.unbilled, money, t),
           methods: flow.methods.map((m) => ({ id: m.method, label: t(`sale_pay_${m.method}`), value: money(m.total) })),
           cash:
             flow.cash.state === 'open'
               ? { kind: 'open', current: money(flow.cash.current), base: money(flow.cash.opening), delta: t('home_cf_since_open', { amount: `${delta > 0 ? '+' : ''}${money(delta)}` }), deltaTone: delta > 0 ? 'success' : delta < 0 ? 'danger' : 'neutral' }
               : flow.cash.state === 'closed'
-                ? { kind: 'closed' }
+                ? { kind: 'closed', afterClose: afterCloseNote(flow.afterClose, money, t) }
                 : { kind: 'not_opened', onOpen: () => setManualCashOpen(true) },
         };
       })()

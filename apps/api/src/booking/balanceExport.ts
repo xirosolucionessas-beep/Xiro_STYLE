@@ -1,4 +1,5 @@
-import { formatMoney, translate, type BalanceDto, type BalanceMovementDto, type Currency, type ExpenseDto, type Language } from '@xiro/shared';
+import { PassThrough } from 'node:stream';
+import { EXPORT_MAX_ROWS, formatMoney, translate, type BalanceDto, type BalanceMovementDto, type Currency, type ExpenseDto, type Language } from '@xiro/shared';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import { balanceMovements, computeBalance } from './balance';
@@ -11,8 +12,12 @@ import { localDate } from './time';
  * los que se ven. Montos en pesos enteros; fechas en días locales del negocio.
  */
 
-/** Tope de movimientos por archivo (12 meses de un negocio pequeño caben de sobra; si no, se avisa en el archivo). */
-export const EXPORT_MAX_MOVEMENTS = 5000;
+/**
+ * Movimientos por archivo. Excel: TODOS hasta EXPORT_MAX_ROWS (por encima, la ruta responde 400 `export_too_many_rows`).
+ * PDF: los primeros PDF_MAX_MOVEMENTS y el archivo lo dice (un PDF de cientos de páginas no se lee y consume mucha memoria
+ * del servidor); los totales, la gráfica y las tablas por periodo y categoría del PDF siempre son del periodo COMPLETO.
+ */
+export const PDF_MAX_MOVEMENTS = 2000;
 
 export interface ExportBusiness {
   name: string;
@@ -26,14 +31,14 @@ export interface BalanceExportData {
   business: ExportBusiness;
   balance: BalanceDto;
   movements: BalanceMovementDto[];
-  /** Movimientos del periodo en total (si pasa de EXPORT_MAX_MOVEMENTS, el archivo lo dice). */
+  /** Movimientos del periodo en total (si pasa de los incluidos, el archivo lo dice). */
   movementsTotal: number;
   generatedAt: Date;
 }
 
-export async function loadBalanceExport(tx: Tx, businessId: string, business: ExportBusiness, from: string, to: string): Promise<BalanceExportData> {
+export async function loadBalanceExport(tx: Tx, businessId: string, business: ExportBusiness, from: string, to: string, maxMovements: number = EXPORT_MAX_ROWS): Promise<BalanceExportData> {
   const balance = await computeBalance(tx, businessId, from, to, business.timezone);
-  const page = await balanceMovements(tx, businessId, { from, to, kind: 'all', sort: 'date', dir: 'asc', page: 1, pageSize: EXPORT_MAX_MOVEMENTS }, business.timezone);
+  const page = await balanceMovements(tx, businessId, { from, to, kind: 'all', sort: 'date', dir: 'asc', page: 1, pageSize: maxMovements }, business.timezone);
   return { business, balance, movements: page.rows, movementsTotal: page.total, generatedAt: new Date() };
 }
 
@@ -100,132 +105,159 @@ function summaryRows(balance: BalanceDto, t: ReturnType<typeof texts>, lang: Lan
 /* ---------- Excel ---------- */
 
 const MONEY_FMT = '#,##0;[Red]-#,##0';
+const DATE_FMT = 'yyyy-mm-dd';
+const PERCENT_FMT = '0.0%';
 
-function styleHeader(row: ExcelJS.Row) {
-  row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-  row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A6A35' } };
-  row.alignment = { vertical: 'middle' };
-}
+type Sheet = ExcelJS.Worksheet;
+type RowStyle = { font?: Partial<ExcelJS.Font>; header?: boolean; formats?: Record<number, string> };
 
 /** Fecha local "AAAA-MM-DD" como celda de fecha real de Excel (medianoche UTC: Excel no guarda zona horaria). */
 const excelDate = (day: string) => new Date(`${day}T00:00:00Z`);
 
+/**
+ * Libro escrito POR FLUJO (WorkbookWriter): cada fila se escribe, se comprime y se suelta, así que la memoria no crece con el
+ * tamaño del archivo. Medido (docs/finance-capacity.md): un Excel de 50.000 filas armado en memoria pedía ~450 MB de heap
+ * (y tumbaba un proceso de 384 MB); por flujo, ~35 MB y en la mitad del tiempo.
+ */
+async function streamedWorkbook(meta: { created?: Date }, build: (wb: ExcelJS.stream.xlsx.WorkbookWriter) => Promise<void>): Promise<Buffer> {
+  const out = new PassThrough();
+  const chunks: Buffer[] = [];
+  out.on('data', (chunk: Buffer) => chunks.push(chunk));
+  const ended = new Promise<void>((resolve, reject) => {
+    out.once('end', resolve);
+    out.once('error', reject);
+  });
+  const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: out, useStyles: true, useSharedStrings: false });
+  wb.creator = 'XIRO';
+  if (meta.created) wb.created = meta.created;
+  await build(wb);
+  await wb.commit();
+  await ended;
+  return Buffer.concat(chunks);
+}
+
+/** Agrega una fila con su estilo y la suelta (commit). Cada 2.000 filas cede el turno al resto del hilo. */
+let written = 0;
+async function put(sheet: Sheet, values: unknown[], style: RowStyle = {}): Promise<void> {
+  const row = sheet.addRow(values);
+  if (style.header) {
+    row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A6A35' } };
+    row.alignment = { vertical: 'middle' };
+  } else if (style.font) row.font = style.font;
+  for (const [col, numFmt] of Object.entries(style.formats ?? {})) row.getCell(Number(col)).numFmt = numFmt;
+  row.commit();
+  if (++written % 2000 === 0) await new Promise((resolve) => setImmediate(resolve));
+}
+
 export async function buildBalanceXlsx(data: BalanceExportData, lang: Language): Promise<Buffer> {
   const t = texts(lang);
   const { balance, business } = data;
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'XIRO';
-  wb.created = data.generatedAt;
+  return streamedWorkbook({ created: data.generatedAt }, async (wb) => {
+    // Resumen
+    const summary = wb.addWorksheet(t('bal_x_sheet_summary'));
+    summary.columns = [{ width: 44 }, { width: 18 }, { width: 18 }, { width: 18 }];
+    const money = { 2: MONEY_FMT, 3: MONEY_FMT };
+    await put(summary, [business.name], { font: { bold: true, size: 14 } });
+    await put(summary, [t('bal_title')], { font: { bold: true, size: 12 } });
+    await put(summary, [`${t('bal_period')}: ${rangeLabel(balance.from, balance.to, lang)}`]);
+    await put(summary, [`${t('bal_x_previous')}: ${rangeLabel(balance.previous.from, balance.previous.to, lang)}`]);
+    await put(summary, [t('bal_x_generated', { date: generatedLabel(data.generatedAt, business.timezone, lang) })], { font: { italic: true, color: { argb: 'FF777777' } } });
+    await put(summary, []);
+    await put(summary, [t('bal_x_concept'), t('bal_period'), t('bal_x_previous'), t('bal_x_change')], { header: true });
+    for (const r of summaryRows(balance, t, lang)) await put(summary, [r.label, r.value, r.previous, r.change], { font: r.strong ? { bold: true } : undefined, formats: money });
+    // El margen va en porcentaje.
+    await put(summary, [t('bal_x_margin'), balance.totals.margin === null ? t('bal_no_margin') : balance.totals.margin / 100, balance.previous.totals.margin === null ? '' : balance.previous.totals.margin / 100], { formats: { 2: PERCENT_FMT, 3: PERCENT_FMT } });
+    await put(summary, [t('bal_x_tips'), balance.totals.tips, balance.previous.totals.tips], { formats: money });
+    summary.commit();
 
-  // Resumen
-  const summary = wb.addWorksheet(t('bal_x_sheet_summary'));
-  summary.columns = [{ width: 44 }, { width: 18 }, { width: 18 }, { width: 18 }];
-  summary.addRow([business.name]).font = { bold: true, size: 14 };
-  summary.addRow([t('bal_title')]).font = { bold: true, size: 12 };
-  summary.addRow([`${t('bal_period')}: ${rangeLabel(balance.from, balance.to, lang)}`]);
-  summary.addRow([`${t('bal_x_previous')}: ${rangeLabel(balance.previous.from, balance.previous.to, lang)}`]);
-  summary.addRow([t('bal_x_generated', { date: generatedLabel(data.generatedAt, business.timezone, lang) })]).font = { italic: true, color: { argb: 'FF777777' } };
-  summary.addRow([]);
-  styleHeader(summary.addRow([t('bal_x_concept'), t('bal_period'), t('bal_x_previous'), t('bal_x_change')]));
-  for (const r of summaryRows(balance, t, lang)) {
-    const row = summary.addRow([r.label, r.value, r.previous, r.change]);
-    if (r.strong) row.font = { bold: true };
-  }
-  const marginRow = summary.addRow([t('bal_x_margin'), balance.totals.margin === null ? t('bal_no_margin') : balance.totals.margin / 100, balance.previous.totals.margin === null ? '' : balance.previous.totals.margin / 100]);
-  summary.addRow([t('bal_x_tips'), balance.totals.tips, balance.previous.totals.tips]);
-  summary.getColumn(2).numFmt = MONEY_FMT;
-  summary.getColumn(3).numFmt = MONEY_FMT;
-  // El margen va en porcentaje (después del formato de moneda de la columna, que lo pisaría).
-  marginRow.getCell(2).numFmt = '0.0%';
-  marginRow.getCell(3).numFmt = '0.0%';
+    // Por periodo (lo mismo que los gráficos)
+    const periods = wb.addWorksheet(t('bal_x_sheet_periods'), { views: [{ state: 'frozen', ySplit: 1 }] });
+    periods.columns = [{ width: 14 }, { width: 14 }, { width: 18 }, { width: 18 }, { width: 18 }];
+    const periodFormats = { 1: DATE_FMT, 2: DATE_FMT, 3: MONEY_FMT, 4: MONEY_FMT, 5: MONEY_FMT };
+    await put(periods, [t('bal_from'), t('bal_to'), t('bal_income'), t('bal_chart_expenses'), t('bal_net')], { header: true });
+    for (const b of balance.series.buckets) await put(periods, [excelDate(b.from), excelDate(b.to), b.income, b.expenses, b.net], { formats: periodFormats });
+    await put(periods, [t('bal_x_total'), '', balance.totals.income, balance.totals.operating + balance.totals.payroll, balance.totals.net], { font: { bold: true }, formats: periodFormats });
+    periods.commit();
 
-  // Por periodo (lo mismo que los gráficos)
-  const periods = wb.addWorksheet(t('bal_x_sheet_periods'));
-  periods.columns = [{ width: 14 }, { width: 14 }, { width: 18 }, { width: 18 }, { width: 18 }];
-  styleHeader(periods.addRow([t('bal_from'), t('bal_to'), t('bal_income'), t('bal_chart_expenses'), t('bal_net')]));
-  for (const b of balance.series.buckets) periods.addRow([excelDate(b.from), excelDate(b.to), b.income, b.expenses, b.net]);
-  const periodTotal = periods.addRow([t('bal_x_total'), '', balance.totals.income, balance.totals.operating + balance.totals.payroll, balance.totals.net]);
-  periodTotal.font = { bold: true };
-  periods.getColumn(1).numFmt = 'yyyy-mm-dd';
-  periods.getColumn(2).numFmt = 'yyyy-mm-dd';
-  for (const col of [3, 4, 5]) periods.getColumn(col).numFmt = MONEY_FMT;
-  periods.views = [{ state: 'frozen', ySplit: 1 }];
+    // Gastos por categoría (la dona)
+    const categories = wb.addWorksheet(t('bal_x_sheet_categories'));
+    categories.columns = [{ width: 28 }, { width: 18 }, { width: 18 }, { width: 14 }];
+    const categoryFormats = { 3: MONEY_FMT, 4: PERCENT_FMT };
+    await put(categories, [t('bal_x_category'), t('bal_x_type'), t('bal_x_amount'), t('bal_x_share')], { header: true });
+    const spent = balance.expenseBreakdown.reduce((sum, s) => sum + s.amount, 0);
+    for (const s of balance.expenseBreakdown) await put(categories, [t(`exp_cat_${s.category}`), t(`exp_type_${s.type}`), s.amount, spent > 0 ? s.amount / spent : 0], { formats: categoryFormats });
+    await put(categories, [t('bal_x_total'), '', spent, spent > 0 ? 1 : 0], { font: { bold: true }, formats: categoryFormats });
+    categories.commit();
 
-  // Gastos por categoría (la dona)
-  const categories = wb.addWorksheet(t('bal_x_sheet_categories'));
-  categories.columns = [{ width: 28 }, { width: 18 }, { width: 18 }, { width: 14 }];
-  styleHeader(categories.addRow([t('bal_x_category'), t('bal_x_type'), t('bal_x_amount'), t('bal_x_share')]));
-  const spent = balance.expenseBreakdown.reduce((sum, s) => sum + s.amount, 0);
-  for (const s of balance.expenseBreakdown) categories.addRow([t(`exp_cat_${s.category}`), t(`exp_type_${s.type}`), s.amount, spent > 0 ? s.amount / spent : 0]);
-  categories.addRow([t('bal_x_total'), '', spent, spent > 0 ? 1 : 0]).font = { bold: true };
-  categories.getColumn(3).numFmt = MONEY_FMT;
-  categories.getColumn(4).numFmt = '0.0%';
-
-  // Movimientos
-  const moves = wb.addWorksheet(t('bal_x_sheet_movements'));
-  moves.columns = [{ width: 12 }, { width: 18 }, { width: 22 }, { width: 44 }, { width: 16 }, { width: 16 }];
-  styleHeader(moves.addRow([t('bal_x_date'), t('bal_x_type'), t('bal_x_category'), t('bal_x_description'), t('bal_x_in'), t('bal_x_out')]));
-  for (const m of data.movements) {
-    const day = localDate(new Date(m.at), business.timezone);
-    moves.addRow([excelDate(day), movementKind(m, t), movementCategory(m, t), m.description, m.direction === 'in' ? m.amount : null, m.direction === 'out' ? m.amount : null]);
-  }
-  const totalIn = data.movements.filter((m) => m.direction === 'in').reduce((sum, m) => sum + m.amount, 0);
-  const totalOut = data.movements.filter((m) => m.direction === 'out').reduce((sum, m) => sum + m.amount, 0);
-  moves.addRow([t('bal_x_total'), '', '', '', totalIn, totalOut]).font = { bold: true };
-  if (data.movementsTotal > data.movements.length) moves.addRow([t('bal_x_truncated', { count: data.movements.length })]).font = { italic: true };
-  moves.getColumn(1).numFmt = 'yyyy-mm-dd';
-  moves.getColumn(5).numFmt = MONEY_FMT;
-  moves.getColumn(6).numFmt = MONEY_FMT;
-  moves.views = [{ state: 'frozen', ySplit: 1 }];
-
-  return Buffer.from(await wb.xlsx.writeBuffer());
+    // Movimientos
+    const moves = wb.addWorksheet(t('bal_x_sheet_movements'), { views: [{ state: 'frozen', ySplit: 1 }] });
+    moves.columns = [{ width: 12 }, { width: 18 }, { width: 22 }, { width: 44 }, { width: 16 }, { width: 16 }];
+    const moveFormats = { 1: DATE_FMT, 5: MONEY_FMT, 6: MONEY_FMT };
+    await put(moves, [t('bal_x_date'), t('bal_x_type'), t('bal_x_category'), t('bal_x_description'), t('bal_x_in'), t('bal_x_out')], { header: true });
+    let totalIn = 0;
+    let totalOut = 0;
+    for (const m of data.movements) {
+      if (m.direction === 'in') totalIn += m.amount;
+      else totalOut += m.amount;
+      const day = localDate(new Date(m.at), business.timezone);
+      await put(moves, [excelDate(day), movementKind(m, t), movementCategory(m, t), m.description, m.direction === 'in' ? m.amount : null, m.direction === 'out' ? m.amount : null], { formats: moveFormats });
+    }
+    await put(moves, [t(data.movementsTotal > data.movements.length ? 'bal_x_total_shown' : 'bal_x_total'), '', '', '', totalIn, totalOut], { font: { bold: true }, formats: { 5: MONEY_FMT, 6: MONEY_FMT } });
+    if (data.movementsTotal > data.movements.length) await put(moves, [t('bal_x_truncated', { count: data.movements.length })], { font: { italic: true } });
+    moves.commit();
+  });
 }
 
 export async function buildExpensesXlsx(rows: ExpenseDto[], business: ExportBusiness, range: { from: string; to: string }, lang: Language): Promise<Buffer> {
   const t = texts(lang);
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'XIRO';
-  const sheet = wb.addWorksheet(t('exp_x_title'));
-  sheet.columns = [{ width: 12 }, { width: 14 }, { width: 22 }, { width: 40 }, { width: 22 }, { width: 18 }, { width: 12 }, { width: 12 }, { width: 16 }, { width: 22 }, { width: 30 }];
-  sheet.addRow([`${business.name} · ${t('exp_x_title')} · ${rangeLabel(range.from, range.to, lang)}`]).font = { bold: true, size: 13 };
-  sheet.addRow([]);
-  styleHeader(
-    sheet.addRow([
-      t('bal_x_date'),
-      t('bal_x_type'),
-      t('bal_x_category'),
-      t('bal_x_description'),
-      t('exp_x_employee'),
-      t('exp_x_method'),
-      t('exp_x_from_cash'),
-      t('exp_x_status'),
-      t('bal_x_amount'),
-      t('exp_x_recorded_by'),
-      t('exp_x_void_reason'),
-    ]),
-  );
-  for (const e of rows) {
-    sheet.addRow([
-      excelDate(e.expenseDate),
-      t(`exp_type_${e.type}`),
-      t(`exp_cat_${e.category}`),
-      e.description,
-      e.employeeName ?? '',
-      t(`sale_pay_${e.method}`),
-      e.paidFromCash ? t('exp_x_yes') : t('exp_x_no'),
-      e.status === 'voided' ? t('exp_badge_voided') : t('exp_x_active'),
-      e.amount,
-      e.createdByName,
-      e.voidReason ?? '',
-    ]);
-  }
-  const active = rows.filter((e) => e.status === 'active').reduce((sum, e) => sum + e.amount, 0);
-  const total = sheet.addRow([t('exp_x_total_active'), '', '', '', '', '', '', '', active]);
-  total.font = { bold: true };
-  sheet.getColumn(1).numFmt = 'yyyy-mm-dd';
-  sheet.getColumn(9).numFmt = MONEY_FMT;
-  sheet.views = [{ state: 'frozen', ySplit: 3 }];
-  return Buffer.from(await wb.xlsx.writeBuffer());
+  return streamedWorkbook({}, async (wb) => {
+    const sheet = wb.addWorksheet(t('exp_x_title'), { views: [{ state: 'frozen', ySplit: 3 }] });
+    sheet.columns = [{ width: 12 }, { width: 14 }, { width: 22 }, { width: 40 }, { width: 22 }, { width: 18 }, { width: 12 }, { width: 12 }, { width: 16 }, { width: 22 }, { width: 30 }];
+    await put(sheet, [`${business.name} · ${t('exp_x_title')} · ${rangeLabel(range.from, range.to, lang)}`], { font: { bold: true, size: 13 } });
+    await put(sheet, []);
+    await put(
+      sheet,
+      [
+        t('bal_x_date'),
+        t('bal_x_type'),
+        t('bal_x_category'),
+        t('bal_x_description'),
+        t('exp_x_employee'),
+        t('exp_x_method'),
+        t('exp_x_from_cash'),
+        t('exp_x_status'),
+        t('bal_x_amount'),
+        t('exp_x_recorded_by'),
+        t('exp_x_void_reason'),
+      ],
+      { header: true },
+    );
+    const formats = { 1: DATE_FMT, 9: MONEY_FMT };
+    let active = 0;
+    for (const e of rows) {
+      if (e.status === 'active') active += e.amount;
+      await put(
+        sheet,
+        [
+          excelDate(e.expenseDate),
+          t(`exp_type_${e.type}`),
+          t(`exp_cat_${e.category}`),
+          e.description,
+          e.employeeName ?? '',
+          t(`sale_pay_${e.method}`),
+          e.paidFromCash ? t('exp_x_yes') : t('exp_x_no'),
+          e.status === 'voided' ? t('exp_badge_voided') : t('exp_x_active'),
+          e.amount,
+          e.createdByName,
+          e.voidReason ?? '',
+        ],
+        { formats },
+      );
+    }
+    await put(sheet, [t('exp_x_total_active'), '', '', '', '', '', '', '', active], { font: { bold: true }, formats: { 9: MONEY_FMT } });
+    sheet.commit();
+  });
 }
 
 /* ---------- PDF ---------- */
@@ -431,11 +463,12 @@ export function buildBalancePdf(data: BalanceExportData, lang: Language, options
         colors: [undefined, undefined, undefined, undefined, GREEN, RED],
       })),
       {
+        // Recortado: 'Total de lo incluido' va en la columna ancha (descripción); completo: 'Total' en la primera, como siempre.
         cells: [
-          t('bal_x_total'),
+          data.movementsTotal > data.movements.length ? '' : t('bal_x_total'),
           '',
           '',
-          '',
+          data.movementsTotal > data.movements.length ? t('bal_x_total_shown') : '',
           money(data.movements.filter((m) => m.direction === 'in').reduce((s, m) => s + m.amount, 0)),
           money(data.movements.filter((m) => m.direction === 'out').reduce((s, m) => s + m.amount, 0)),
         ],

@@ -7,6 +7,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
   EXPENSE_CATEGORIES,
+  expenseAmountIssue,
   formatMoney,
   SALE_PAYMENT_METHODS,
   type Currency,
@@ -23,7 +24,7 @@ import { addDays, formatDay, todayIn, upperFirst } from '@/lib/agenda';
 import { EXPENSE_PERIODS as PERIODS, periodRange, type ExpensePeriod as Period } from '@/lib/expenses';
 import { api, ApiError, errorKey } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
-import { useExpenseList, useExpensePayees, useInvalidateCash } from '@/lib/queries';
+import { useExpensePages, useExpensePayees, useInvalidateCash } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { CalendarPicker } from '@/ui/agenda/CalendarPicker';
@@ -61,7 +62,8 @@ export default function Expenses() {
     ...(employeeId !== 'all' ? { employeeId } : {}),
     status: showVoided ? ('all' as const) : ('active' as const),
   };
-  const list = useExpenseList(query);
+  // Por páginas: el total y la cantidad salen del servidor sobre TODO el rango (antes se sumaba lo cargado, hasta 1.000).
+  const list = useExpensePages(query);
   const payees = useExpensePayees();
 
   // Acceso rápido "Registrar gasto" del Inicio: abre el formulario directamente (y limpia el parámetro).
@@ -72,9 +74,10 @@ export default function Expenses() {
     }
   }, [params.new, router]);
 
-  const rows = list.data ?? [];
-  const total = useMemo(() => rows.filter((e) => e.status === 'active').reduce((sum, e) => sum + e.amount, 0), [rows]);
-  const activeCount = rows.filter((e) => e.status === 'active').length;
+  const rows = useMemo(() => list.data?.pages.flatMap((p) => p.data) ?? [], [list.data]);
+  const totals = list.data?.pages[0]?.summary ?? null;
+  const total = totals?.activeTotal ?? 0;
+  const activeCount = totals?.activeCount ?? 0;
   const categories: ExpenseCategory[] = type === 'all' ? [...EXPENSE_CATEGORIES.operating, ...EXPENSE_CATEGORIES.payroll] : [...EXPENSE_CATEGORIES[type]];
 
   const renderExpense = ({ item: expense }: { item: ExpenseDto }) => {
@@ -157,7 +160,7 @@ export default function Expenses() {
               <ChipRow label={t('exp_employee')}>
                 <Chip label={t('exp_type_all')} selected={employeeId === 'all'} onPress={() => setEmployeeId('all')} />
                 {(payees.data ?? []).map((p) => (
-                  <Chip key={p.id} label={p.name} selected={employeeId === p.id} onPress={() => setEmployeeId(p.id)} />
+                  <Chip key={p.id} label={p.active ? p.name : `${p.name} (${t('exp_employee_inactive')})`} selected={employeeId === p.id} onPress={() => setEmployeeId(p.id)} />
                 ))}
               </ChipRow>
             ) : null}
@@ -192,6 +195,16 @@ export default function Expenses() {
           </View>
         }
         ListEmptyComponent={!list.isLoading && !list.isError ? <EmptyState icon="wallet-outline" message={t('exp_empty')} /> : null}
+        ListFooterComponent={
+          rows.length > 0 && totals && (list.hasNextPage || totals.count > rows.length) ? (
+            <View style={styles.more}>
+              <AppText variant="small" tone="muted">
+                {t('exp_showing', { shown: rows.length, count: totals.count })}
+              </AppText>
+              {list.hasNextPage ? <Button label={t('exp_load_more')} icon="chevron-down" variant="secondary" compact loading={list.isFetchingNextPage} onPress={() => void list.fetchNextPage()} /> : null}
+            </View>
+          ) : null
+        }
       />
       {editing ? <ExpenseForm expense={editing === 'new' ? null : editing} today={today} onClose={() => setEditing(null)} /> : null}
       {voiding ? <VoidForm expense={voiding} onClose={() => setVoiding(null)} /> : null}
@@ -277,7 +290,7 @@ function ExpenseForm({ expense, today, onClose }: { expense: ExpenseDto | null; 
     <FormModal
       title={expense ? t('exp_edit') : t('exp_new')}
       onClose={onClose}
-      footer={<Button label={t('exp_save')} loading={busy} disabled={!amount || !description.trim() || (needsAdjustment && adjustmentReason.trim().length < 3)} onPress={() => void save()} />}>
+      footer={<Button label={t('exp_save')} loading={busy} disabled={!amount || expenseAmountIssue(amount) !== null || !description.trim() || (needsAdjustment && adjustmentReason.trim().length < 3)} onPress={() => void save()} />}>
       <AppText variant="label" tone="muted" style={styles.label}>
         {t('exp_type')}
       </AppText>
@@ -308,14 +321,23 @@ function ExpenseForm({ expense, today, onClose }: { expense: ExpenseDto | null; 
             {t('exp_employee')}
           </AppText>
           <ChipRow label={t('exp_employee')}>
-            {(payees.data ?? []).filter((p) => p.active || p.id === employeeId).map((p) => (
+            {/* Inactivos también (liquidaciones, pagos pendientes: decisión del producto), después de los activos y marcados. */}
+            {[...(payees.data ?? [])].sort((x, y) => Number(y.active) - Number(x.active)).map((p) => (
               <Chip key={p.id} label={p.active ? p.name : `${p.name} (${t('exp_employee_inactive')})`} selected={employeeId === p.id} onPress={() => setEmployeeId(p.id)} />
             ))}
           </ChipRow>
           {fields.employeeId ? <AppText tone="danger">{fields.employeeId}</AppText> : null}
         </>
       ) : null}
-      <Field label={t('exp_amount')} value={amount} onChangeText={(v) => setAmount(digits(v))} keyboardType="number-pad" prefix="$" error={fields.amount} hint={amount ? formatMoney(Number(amount), business.currency as Currency) : undefined} />
+      <Field
+        label={t('exp_amount')}
+        value={amount}
+        onChangeText={(v) => setAmount(digits(v))}
+        keyboardType="number-pad"
+        prefix="$"
+        error={fields.amount ?? (amount && expenseAmountIssue(amount) ? t(expenseAmountIssue(amount)!) : undefined)}
+        hint={amount ? formatMoney(Number(amount), business.currency as Currency) : t('exp_amount_hint')}
+      />
       <Field label={t('exp_concept')} value={description} onChangeText={setDescription} maxLength={200} placeholder={t('exp_concept_placeholder')} error={fields.description} />
       <AppText variant="label" tone="muted" style={styles.label}>
         {t('exp_method')}
@@ -439,6 +461,7 @@ const styles = StyleSheet.create({
   filters: { gap: space.sm, marginBottom: space.sm },
   summary: { gap: 2, marginTop: space.sm },
   download: { alignItems: 'flex-start', marginTop: space.sm },
+  more: { alignItems: 'center', gap: space.sm, paddingVertical: space.lg },
   card: { gap: 6 },
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
   flex: { flex: 1, minWidth: 0, gap: 2 },

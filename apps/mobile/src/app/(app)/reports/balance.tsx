@@ -28,6 +28,8 @@ import { space } from '@/ui/theme';
 type Kind = 'all' | 'income' | 'expense';
 type Sort = 'date' | 'amount';
 const PAGE_SIZE = 20;
+/** Lo mismo que la API (booking/balanceExport.ts): el PDF incluye los primeros 2.000 movimientos; el Excel, todos. */
+const PDF_MAX_MOVEMENTS = 2000;
 
 export default function BalanceReport() {
   const { t, colors, language } = useSettings();
@@ -163,6 +165,11 @@ export default function BalanceReport() {
           ))}
         </View>
       </View>
+      {valid && exportAllowed && (movements.data?.total ?? 0) > PDF_MAX_MOVEMENTS ? (
+        <AppText variant="small" tone="muted">
+          {t('bal_pdf_limit')}
+        </AppText>
+      ) : null}
       {valid && !exportAllowed ? (
         <AppText variant="small" tone="muted">
           {t('bal_download_limit')}

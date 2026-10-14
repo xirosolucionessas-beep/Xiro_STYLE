@@ -13,6 +13,7 @@ import { PublicCache, RedisCacheBackend } from './publicCache';
 import { FallbackRateStore, MemoryRateStore, RateLimits, RedisRateStore } from './rateStore';
 import { createRedis } from './redis';
 import { LocalMediaStore, S3MediaStore } from './storage';
+import { ExportPool } from './exports/pool';
 
 const config = loadConfig();
 assertStartupReady(config);
@@ -78,6 +79,8 @@ const workerCtx: Ctx = {
   redis,
   // Mismo Redis que la API: si algún trabajo cambiara datos públicos, su invalidación llega a todas las instancias.
   publicCache: new PublicCache(redis ? new RedisCacheBackend(redis) : null, config.publicCacheTtlSeconds),
+  // El trabajador de la cola no genera descargas: sin hilos propios.
+  exports: new ExportPool({ ...config.exports, workers: 0 }),
   boss,
   realtime,
   maps: null, // el trabajador de recordatorios no usa mapas

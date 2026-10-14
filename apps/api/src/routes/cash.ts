@@ -13,9 +13,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { addDays, localMinutes, zonedInstant } from '../booking/time';
 import { loadAdjustments, toExpenseDto } from '../booking/expenses';
+import { lockCashDays } from '../booking/cashLock';
 import { withBusinessTrusted, type Tx } from '../booking/scope';
 import type { Ctx } from '../context';
-import { appointments, businesses, cashClosings, cashOpenings, clients, expenses, saleItems, salePayments, sales, users } from '../db/schema';
+import { appointments, businesses, cashClosings, cashOpenings, clients, expenses, saleItems, salePayments, sales, serviceRecords, users } from '../db/schema';
 import { isUniqueViolation } from '../db/errors';
 import { AppError, notFound, parse, uuid } from '../errors';
 
@@ -116,6 +117,34 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     // Solo lo que salió del efectivo de la caja (antes: todo gasto en efectivo, que es exactamente lo mismo para los existentes).
     const cashOut = expenseRows.filter((e) => e.paidFromCash).reduce((sum, e) => sum + e.amount, 0);
 
+    // Cobros del día sin venta (citas completadas, servicios registrados a mano): los registros de servicio vigentes del día
+    // que no salieron de una línea de venta de ese día (una venta y sus registros se guardan en la misma transacción, con la
+    // misma hora). Informativo: no tocan ventas ni efectivo esperado.
+    const fromSales = new Set(itemRows.map((i) => i.serviceRecordId).filter((id): id is string => id !== null));
+    const recordRows = await tx
+      .select({ id: serviceRecords.id, amount: serviceRecords.amount })
+      .from(serviceRecords)
+      .where(and(eq(serviceRecords.businessId, businessId), eq(serviceRecords.voided, false), gte(serviceRecords.createdAt, rangeFrom), lt(serviceRecords.createdAt, rangeTo)));
+    const unbilled = recordRows.filter((r) => !fromSales.has(r.id));
+    const unbilledRecords = { count: unbilled.length, total: unbilled.reduce((sum, r) => sum + r.amount, 0) };
+
+    // Cierre firmado del día (si lo hay): lo de ahora menos lo firmado = lo que cambió DESPUÉS del cierre.
+    const expectedCash = opening ? opening.amount + cashIn - cashOut : null;
+    const [closing] = await tx
+      .select({ createdAt: cashClosings.createdAt, totalSales: cashClosings.totalSales, expectedAmount: cashClosings.expectedAmount })
+      .from(cashClosings)
+      .where(and(eq(cashClosings.businessId, businessId), eq(cashClosings.day, day), eq(cashClosings.status, 'completed')))
+      .limit(1);
+    const afterClose = closing
+      ? {
+          closedAt: closing.createdAt.toISOString(),
+          closedSales: closing.totalSales,
+          closedExpectedCash: closing.expectedAmount,
+          salesDelta: totalSales - closing.totalSales,
+          expectedCashDelta: (expectedCash ?? 0) - closing.expectedAmount,
+        }
+      : null;
+
     return {
       day,
       opening: opening?.amount ?? null,
@@ -131,7 +160,9 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
       totalExpenses,
       // Correcciones hechas DESPUÉS del cierre de este día (el cierre firmado no cambia; quedan a la vista).
       adjustmentsAfterClose: await loadAdjustments(tx as Tx, businessId, { cashDay: day }),
-      expectedCash: opening ? opening.amount + cashIn - cashOut : null,
+      expectedCash,
+      afterClose,
+      unbilledRecords,
       hourly,
       clientsServed: clientIds.size,
       newClients: newClientRows.length,
@@ -207,6 +238,9 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     // Dos cierres simultáneos del mismo día: el índice único (cash_closings_business_day_active_uq) deja pasar uno; el
     // otro es el mismo 409 "ya cerrada" que si hubiera llegado después (antes era un error 500).
     const result = await withBusinessTrusted(db, businessId, async (tx) => {
+      // Candado EXCLUSIVO de la caja del día: espera a las ventas y gastos en curso y frena los nuevos hasta firmar (ver
+      // booking/cashLock.ts). Así lo firmado es exactamente lo registrado.
+      await lockCashDays(tx, businessId, [input.day], 'exclusive');
       const [already] = await tx.select({ id: cashClosings.id }).from(cashClosings).where(and(eq(cashClosings.businessId, businessId), eq(cashClosings.day, input.day), eq(cashClosings.status, 'completed'))).limit(1);
       if (already) throw new AppError(409, 'already_closed');
 

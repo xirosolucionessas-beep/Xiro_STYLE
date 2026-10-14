@@ -64,7 +64,8 @@ async function workbook(body: Buffer): Promise<ExcelJS.Workbook> {
 /** Valores de una hoja como filas de celdas (sin estilos). */
 function rowsOf(sheet: ExcelJS.Worksheet): unknown[][] {
   const out: unknown[][] = [];
-  sheet.eachRow({ includeEmpty: false }, (row) => out.push((row.values as unknown[]).slice(1)));
+  // Celda vacía y celda con texto vacío se ven igual en Excel (el libro escrito por flujo no guarda las segundas).
+  sheet.eachRow({ includeEmpty: false }, (row) => out.push(Array.from(row.values as unknown[]).slice(1).map((v) => v ?? '')));
   return out;
 }
 

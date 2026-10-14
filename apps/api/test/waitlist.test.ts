@@ -13,6 +13,7 @@ import { MemoryRateStore, RateLimits } from '../src/rateStore';
 import { LocalMediaStore } from '../src/storage';
 import { auth, book, createEmployee, nextPhone, setupBiz, workday, type Biz } from './helpers/booking';
 import { createTestDatabase, testAppConfig, type TestDatabase } from './helpers/db';
+import { ExportPool } from '../src/exports/pool';
 
 /** Fase 4 del plan: lista de espera — por negocio, apagada por defecto, avisa una sola vez cuando se libera un horario. */
 let app: FastifyInstance;
@@ -32,7 +33,7 @@ beforeAll(async () => {
   };
   app = await buildApp({ db: testDb.db, config, notifier });
   const rates = new RateLimits(new MemoryRateStore());
-  ctx = { db: testDb.db, config: mergeConfig(loadConfig(), config), notifier, accountLimiter: rates.limiter('account', 60_000), bookingLimiter: rates.limiter('booking-business', 60_000), rates, redis: null, publicCache: new PublicCache(null, 0), media: new LocalMediaStore(config.mediaDir ?? 'data/media'), boss: null, realtime: null, maps: null };
+  ctx = { db: testDb.db, config: mergeConfig(loadConfig(), config), notifier, accountLimiter: rates.limiter('account', 60_000), bookingLimiter: rates.limiter('booking-business', 60_000), rates, redis: null, publicCache: new PublicCache(null, 0), media: new LocalMediaStore(config.mediaDir ?? 'data/media'), boss: null, realtime: null, maps: null, exports: new ExportPool({ workers: 0, queueMax: 20, timeoutMs: 60_000 }) };
 });
 
 afterAll(async () => {

@@ -53,9 +53,11 @@ export interface CashFlowView {
   incomeShare: number;
   expenseShare: number;
   tipsNote?: string;
+  /** Cobros sin venta registrada (citas, servicios a mano): informativo. */
+  unbilledNote?: string | null;
   empty: boolean;
   methods: Array<{ id: string; label: string; value: string }>;
-  cash: { kind: 'open'; current: string; base: string; delta: string; deltaTone: 'success' | 'danger' | 'neutral' } | { kind: 'closed' } | { kind: 'not_opened'; onOpen: () => void };
+  cash: { kind: 'open'; current: string; base: string; delta: string; deltaTone: 'success' | 'danger' | 'neutral' } | { kind: 'closed'; afterClose?: string | null } | { kind: 'not_opened'; onOpen: () => void };
   closeHref: string;
 }
 
@@ -346,6 +348,7 @@ function CashFlowCard({ flow, t, navigate }: { flow: CashFlowView; t: HeaderT; n
             </div>
             {flow.empty ? <p className="xw-cf-note">{t('home_cf_empty')}</p> : null}
             {flow.tipsNote ? <p className="xw-cf-note">{flow.tipsNote}</p> : null}
+            {flow.unbilledNote ? <p className="xw-cf-note">{flow.unbilledNote}</p> : null}
             {flow.methods.length > 0 ? (
               <ul className="xw-cf-methods" aria-label={t('home_cf_by_method')}>
                 {flow.methods.map((m) => (
@@ -375,6 +378,7 @@ function CashFlowCard({ flow, t, navigate }: { flow: CashFlowView; t: HeaderT; n
                   <Ico name="circle-check" size={22} />
                 </span>
                 <span className="xw-cf-cash-text">{t('home_cf_closed')}</span>
+                {flow.cash.afterClose ? <span className="xw-cf-note">{flow.cash.afterClose}</span> : null}
               </>
             ) : (
               <>

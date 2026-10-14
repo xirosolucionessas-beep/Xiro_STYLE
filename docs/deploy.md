@@ -59,13 +59,26 @@ Los secretos van **solo** en el gestor de secretos del proveedor (nunca en el re
 ```bash
 docker build -t xiro-api:$(git rev-parse --short HEAD) .
 docker run --env-file .env.production -e RELEASE=$(git rev-parse --short HEAD) -p 3000:3000 --memory 512m \
-  -e NODE_OPTIONS=--max-old-space-size=384 -e MAX_HEAP_USED_MB=320 xiro-api:<tag>
+  -e NODE_OPTIONS=--max-old-space-size=320 -e MAX_HEAP_USED_MB=256 -e EXPORT_WORKERS=1 xiro-api:<tag>
 ```
 
 - Multi-etapa, base `node:24-bookworm-slim`, solo dependencias de producción, usuario sin privilegios (`node`, uid 1000).
   En producción conviene fijar la base por digest (`node:24-bookworm-slim@sha256:…`).
-- **Memoria**: `NODE_OPTIONS=--max-old-space-size` ≈ 75 % del límite del contenedor; `MAX_HEAP_USED_MB` ≈ 80 % de
+- **Memoria**: `NODE_OPTIONS=--max-old-space-size` ≈ 75 % del límite del contenedor, o ≈ 62 % si hay hilos de descarga (ver la tabla siguiente); `MAX_HEAP_USED_MB` ≈ 80 % de
   ese valor (pasado el tope la API responde 503 + `Retry-After` en vez de morir por falta de memoria).
+- **Descargas PDF/Excel** (`EXPORT_WORKERS`, por defecto 2): cada hilo tiene su PROPIO heap, de como mucho
+  `EXPORT_WORKER_MEMORY_MB` (256). El presupuesto del contenedor es: heap de la API + `EXPORT_WORKERS` × uso real del
+  hilo + ~100 MB nativos. El uso medido por hilo es ~130 MB en total, y el Excel por flujo usa ~35 MB de heap aun con
+  50.000 filas (`docs/finance-capacity.md`). Guía:
+
+  | Límite del contenedor | `--max-old-space-size` | `EXPORT_WORKERS` |
+  |---|---|---|
+  | 512 MB | 320 | **1** |
+  | 1 GB | 640 | 2 |
+  | 2 GB o más | 1.280 | 2–4 |
+
+  Vigila `xiro_export_waiting` en `/api/metrics`: si se acerca a `EXPORT_QUEUE_MAX`, las descargas siguientes reciben
+  503 y conviene más memoria o más instancias.
 - **Salud** (configúralas en el balanceador/orquestador):
   - Liveness: `GET /api/health` → 200 si el proceso atiende (no depende de la base de datos).
   - Readiness: `GET /api/health/ready` → 200 si PostgreSQL (y Redis) responden; 503 = sacar la instancia del balanceo.
@@ -83,6 +96,11 @@ docker run --env-file .env.production -e RELEASE=$(git rev-parse --short HEAD) -
    docker run --rm --env-file .env.production xiro-api:<tag> node --import tsx src/db/migrate-cli.ts
    ```
    Cada migración tiene su reversión manual en `apps/api/drizzle/rollback/` cuando aplica.
+   - **0036** (índices del balance) usa `CREATE INDEX`, que bloquea las escrituras de `service_records` y `sales` mientras
+     se construye (segundos en tablas grandes). Aplícala en un horario de poco uso, o crea antes los índices con
+     `CREATE INDEX CONCURRENTLY` (mismos nombres; el `IF NOT EXISTS` de la migración los deja tal cual).
+   - Las migraciones solo pueden usar caracteres de Windows-1252 (`test/migrationFiles.test.ts`): un "→" en un comentario
+     hizo fallar una.
 4. Desplegar la nueva imagen (rolling: el balanceador solo manda tráfico a instancias con readiness en 200).
 5. Verificar: `/api/health/ready`, Sentry sin errores nuevos, `xiro_http_requests_total{status="5xx"}` sin subir.
 6. Reversión: volver a la imagen anterior (las migraciones son aditivas; si una no lo es, su `rollback/` lo indica).
@@ -117,6 +135,10 @@ BACKUP_PASSPHRASE=… ops/backup/restore.sh xiro-<fecha>.dump.gpg "postgres://�
 ```
 
 Recomendado: ensayar una restauración manual cada trimestre y anotar cuánto tardó (tiempo real de recuperación).
+
+| Fecha | Qué | Resultado |
+|---|---|---|
+| 2026-10-14 | Respaldo de la base de **desarrollo** (`pg_dump` formato custom, 847 KB) restaurado en una base nueva y aparte | **8 s**. 55 tablas y 9.161 filas, sin diferencias tabla por tabla. RLS (28 tablas), 28 políticas y 103 permisos de `xiro_app` idénticos. Base del simulacro borrada. Falta medirlo con el volumen real de producción. |
 
 ## 6. Monitoreo
 

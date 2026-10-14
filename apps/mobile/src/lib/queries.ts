@@ -1,5 +1,5 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
-import type { BalanceMovementsQuery, BalanceQuery, ClientsQuery, ExpensesQuery, ItemsQuery, Page, ProductOrdersQuery } from '@xiro/shared';
+import type { BalanceMovementsQuery, BalanceQuery, ClientsQuery, ExpensesPageQuery, ExpensesQuery, ItemsQuery, Page, ProductOrdersQuery } from '@xiro/shared';
 import { api, fetchAllPages } from './api';
 
 export const keys = {
@@ -160,7 +160,6 @@ export const useOrdersPages = (status: ProductOrdersQuery['status'], enabled = t
   useInfiniteQuery({ queryKey: ordersPagesKey(status), queryFn: ({ pageParam }) => api.orders({ status, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
 /** Cuántos faltan por atender (insignia del menú). Se refresca cada minuto mientras algo lo muestre. */
 export const useOrdersSummary = (enabled = true) => useQuery({ queryKey: [...keys.orders, 'summary'], queryFn: api.ordersSummary, enabled, refetchInterval: 60_000 });
-export const useOrder = (id: string | undefined) => useQuery({ queryKey: [...keys.orders, 'one', id], queryFn: () => api.order(id!), enabled: Boolean(id) });
 export function useInvalidateOrders() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: keys.orders });
@@ -168,7 +167,6 @@ export function useInvalidateOrders() {
 
 /* ---------- Gastos y cierre de caja ---------- */
 
-export const useExpenses = (range: { from: string; to: string } | null, enabled = true) => useQuery({ queryKey: [...keys.expenses, range?.from, range?.to], queryFn: () => api.expenses(range!.from, range!.to), enabled: enabled && range !== null });
 export const useCashCloseSummary = (day: string | null, enabled = true) => useQuery({ queryKey: [...keys.cashCloseSummary, day], queryFn: () => api.cashCloseSummary(day!), enabled: enabled && day !== null });
 export const useCashClosings = (range: { from: string; to: string } | null, enabled = true) => useQuery({ queryKey: [...keys.cashClosings, range?.from, range?.to], queryFn: () => api.cashClosings(range!.from, range!.to), enabled: enabled && range !== null });
 /** Un cierre puntual, con el resumen del día ya recalculado (`summary`) — para verlo cerrado, no para la lista. */
@@ -228,7 +226,15 @@ export const useBookingSettings = (enabled = true) => useQuery({ queryKey: keys.
 export const useClosures = (enabled = true) => useQuery({ queryKey: keys.closures, queryFn: api.closures, enabled });
 export const useBookingReviews = (enabled = true) =>
   useInfiniteQuery({ queryKey: keys.bookingReviews, queryFn: ({ pageParam }) => api.bookingReviews({ cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
-export const useExpenseList = (params: ExpensesQuery, enabled = true) => useQuery({ queryKey: [...keys.expenses, 'list', params], queryFn: () => api.expensesList(params), enabled });
+/** Gastos por páginas (cursor del servidor); la primera página trae los totales de TODO el rango y filtros. */
+export const useExpensePages = (params: Omit<ExpensesPageQuery, 'cursor'>, enabled = true) =>
+  useInfiniteQuery({
+    queryKey: [...keys.expenses, 'pages', params],
+    queryFn: ({ pageParam }) => api.expensesPage({ ...params, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled,
+  });
 export const useExpensePayees = (enabled = true) => useQuery({ queryKey: keys.expensePayees, queryFn: api.expensePayees, enabled, staleTime: 5 * 60_000 });
 /** Balance general: bajo la clave de gastos, así registrar, editar o anular un gasto lo actualiza. */
 export const useBalance = (params: BalanceQuery, enabled = true) => useQuery({ queryKey: [...keys.expenses, 'balance', params], queryFn: () => api.balance(params), enabled, placeholderData: keepPreviousData });
@@ -252,11 +258,6 @@ export function useInvalidateAppointments() {
       queryClient.invalidateQueries({ queryKey: keys.appointments }),
       ...(alsoBusiness ? [queryClient.invalidateQueries({ queryKey: keys.items }), queryClient.invalidateQueries({ queryKey: keys.serviceRecords }), queryClient.invalidateQueries({ queryKey: keys.loyaltyClients }), queryClient.invalidateQueries({ queryKey: keys.clients })] : []),
     ]);
-}
-
-export function useInvalidateBooking() {
-  const queryClient = useQueryClient();
-  return () => Promise.all([keys.bookingSettings, keys.professionals, keys.closures, keys.bookingReviews, keys.packages, keys.variants, keys.classification].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
 }
 
 /* ---------- Mensajes (chat interno del equipo) ---------- */

@@ -16,4 +16,3 @@ export function maskPhone(input: string): string {
   return `${prefix}${masked}`;
 }
 
-export const looksLikeEmailInput = (value: string) => value.includes('@');

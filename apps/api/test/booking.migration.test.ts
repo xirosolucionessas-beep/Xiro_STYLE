@@ -83,7 +83,7 @@ describe('migración 0006_citas sobre una base con datos', () => {
     expect(rls.rows.map((r) => r.relname)).toEqual([
       'appointment_events', 'appointment_items', 'appointments', 'business_closures', 'business_public_profiles', 'business_settings', 'cash_closings', 'cash_openings', 'conversations', 'discount_codes',
       'employee_profiles', 'employee_schedules', 'employee_services', 'employee_time_off', 'expense_adjustments', 'expenses', 'messages', 'product_order_items', 'product_orders', 'reviews', 'sale_items', 'sale_payments', 'sales',
-      'service_package_entries', 'service_packages', 'service_variants', 'waitlist_entries',
+      'service_package_entries', 'service_packages', 'service_records', 'service_variants', 'waitlist_entries',
     ]);
   });
 

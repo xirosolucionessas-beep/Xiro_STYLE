@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { withinExportLimit } from './balance';
+import { pageQuerySchema, type Page } from './pagination';
 import { SALE_PAYMENT_METHODS, type SalePaymentMethod } from './sales';
 
 /**
@@ -34,9 +35,36 @@ const isRealDay = (value: string) => {
 const day = (message: string) => z.string().regex(DAY_RE, message).refine(isRealDay, 'date_invalid');
 const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'not_found');
 
+/**
+ * Monto de un gasto: pesos ENTEROS (todo el sistema maneja montos enteros: precios, ventas, caja, reportes), de 1 a
+ * 1.000.000.000. El mismo límite está en la base (restricción `expenses_amount_ck`) y el formulario lo valida antes de
+ * enviar con `expenseAmountIssue`. Decisión del producto (2026-10-13): sin centavos y con este máximo.
+ */
+export const EXPENSE_AMOUNT_MIN = 1;
+export const EXPENSE_AMOUNT_MAX = 1_000_000_000;
+const expenseAmount = z
+  .number({ error: 'expense_amount_required' })
+  .int('expense_amount_integer')
+  .min(EXPENSE_AMOUNT_MIN, 'expense_amount_min')
+  .max(EXPENSE_AMOUNT_MAX, 'expense_amount_max');
+
+/**
+ * Validación del monto en el formulario (lo que escribió la persona, sin formato): la misma regla que la API, con la clave
+ * del mensaje. null = válido.
+ */
+export function expenseAmountIssue(raw: string): 'expense_amount_required' | 'expense_amount_integer' | 'expense_amount_min' | 'expense_amount_max' | null {
+  const text = raw.trim();
+  if (!text) return 'expense_amount_required';
+  if (!/^\d+$/.test(text)) return /^\d+[.,]\d+$/.test(text) ? 'expense_amount_integer' : 'expense_amount_required';
+  const value = Number(text);
+  if (value < EXPENSE_AMOUNT_MIN) return 'expense_amount_min';
+  if (value > EXPENSE_AMOUNT_MAX) return 'expense_amount_max';
+  return null;
+}
+
 /** Campos de un gasto (alta y edición). Lo nuevo es opcional: el formato anterior sigue siendo válido tal cual. */
 const expenseFields = z.object({
-  amount: z.number().int().min(1).max(1_000_000_000),
+  amount: expenseAmount,
   /** Concepto (lo que se ve en la lista y en el cierre de caja). */
   description: z.string().trim().min(1, 'required').max(200),
   method: z.enum(SALE_PAYMENT_METHODS).default('cash'),
@@ -92,6 +120,36 @@ export const expensesExportQuerySchema = expensesQueryBase
   .refine((q) => q.from <= q.to, { message: 'range_invalid', path: ['to'] })
   .refine((q) => withinExportLimit(q.from, q.to), { message: 'export_range_too_long', path: ['from'] });
 export type ExpensesExportQuery = z.input<typeof expensesExportQuerySchema>;
+
+/**
+ * Tope de filas de una descarga en Excel (gastos y movimientos del balance). Por debajo, el archivo trae TODAS las filas
+ * del rango; por encima, la API responde 400 `export_too_many_rows` (nunca un archivo cortado en silencio).
+ */
+export const EXPORT_MAX_ROWS = 50_000;
+
+/**
+ * Listado paginado de Gastos (`GET /expenses/page`): los mismos filtros que `GET /expenses` más `cursor`/`limit`. Orden
+ * estable (fecha del gasto, alta, id; lo más reciente primero): sin filas repetidas ni saltadas aunque se registren gastos
+ * mientras se navega. `GET /expenses` (hasta 1.000 filas, sin paginar) se conserva tal cual para versiones anteriores.
+ */
+export const expensesPageQuerySchema = expensesQueryBase
+  .extend(pageQuerySchema.shape)
+  .refine((q) => q.from <= q.to, { message: 'range_invalid', path: ['to'] });
+export type ExpensesPageQuery = z.input<typeof expensesPageQuerySchema>;
+
+/** Totales del rango y filtros COMPLETOS (no solo de lo cargado): la pantalla los muestra tal cual. */
+export interface ExpensesSummary {
+  /** Filas que cumplen los filtros (incluye anuladas si se pidieron). */
+  count: number;
+  activeCount: number;
+  /** Suma de los vigentes. */
+  activeTotal: number;
+}
+
+export interface ExpensesPage extends Page<ExpenseDto> {
+  /** Solo en la primera página (sin `cursor`): no cambia al pasar de página. */
+  summary: ExpensesSummary | null;
+}
 
 export interface ExpenseDto {
   id: string;

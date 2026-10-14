@@ -1,6 +1,7 @@
 import { formatMoney, REORDER_THRESHOLD, can, saleInputSchema, salesQuerySchema, voidSaleInputSchema, type Currency, type SaleDto, type SaleItemDto, type SalePaymentDto } from '@xiro/shared';
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { lockCashDayAt } from '../booking/cashLock';
 import { withBusinessTrusted, type Tx } from '../booking/scope';
 import type { Ctx } from '../context';
 import { businesses, categories, clients, items, saleItems, salePayments, sales, serviceRecords, users } from '../db/schema';
@@ -59,8 +60,10 @@ export async function loadSaleDtos(db: Ctx['db'], businessId: string, saleRows: 
   for (const item of itemRows) if (item.employeeId) userIds.add(item.employeeId);
 
   const [userRows, clientRows] = await Promise.all([
-    userIds.size > 0 ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, [...userIds])) : Promise.resolve([]),
-    clientIds.size > 0 ? db.select({ id: clients.id, name: clients.name }).from(clients).where(inArray(clients.id, [...clientIds])) : Promise.resolve([]),
+    // Filtrados también por negocio (defensa en profundidad: las claves foráneas compuestas ya lo garantizan, y esta conexión
+    // no tiene RLS). El resultado es idéntico.
+    userIds.size > 0 ? db.select({ id: users.id, name: users.name }).from(users).where(and(eq(users.businessId, businessId), inArray(users.id, [...userIds]))) : Promise.resolve([]),
+    clientIds.size > 0 ? db.select({ id: clients.id, name: clients.name }).from(clients).where(and(eq(clients.businessId, businessId), inArray(clients.id, [...clientIds]))) : Promise.resolve([]),
   ]);
   const userName = new Map(userRows.map((u) => [u.id, u.name]));
   const clientName = new Map(clientRows.map((c) => [c.id, c.name]));
@@ -145,6 +148,9 @@ export function salesRoutes(app: FastifyInstance, ctx: Ctx): void {
     const actor = request.actor;
 
     const result = await withBusinessTrusted(db, businessId, async (tx) => {
+      // Un cierre de caja de hoy en curso termina antes de que esta venta se registre (booking/cashLock.ts): la venta entra
+      // completa en el cierre o queda, entera, "después del cierre".
+      await lockCashDayAt(tx, businessId);
       // Cliente: el elegido (validado que sea de este negocio y no sea el placeholder ocasional), o el cliente ocasional
       // compartido cuando la venta no tiene ficha.
       let clientId: string;
@@ -283,6 +289,8 @@ export function salesRoutes(app: FastifyInstance, ctx: Ctx): void {
       const [row] = await tx.select().from(sales).where(and(eq(sales.id, id), eq(sales.businessId, businessId))).limit(1).for('update');
       if (!row) throw notFound();
       if (row.status === 'voided') throw new AppError(409, 'already_voided');
+      // La caja del día en que se vendió: un cierre en curso de ese día termina primero (booking/cashLock.ts).
+      await lockCashDayAt(tx, businessId, row.createdAt);
 
       const lines = await tx.select().from(saleItems).where(and(eq(saleItems.businessId, businessId), eq(saleItems.saleId, id)));
       for (const line of lines) {

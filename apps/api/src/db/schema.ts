@@ -413,6 +413,7 @@ export const serviceRecords = pgTable(
   (t) => [
     index('service_records_client_idx').on(t.businessId, t.clientId, t.createdAt.desc()),
     index('service_records_business_idx').on(t.businessId, t.createdAt.desc()),
+    // + service_records_balance_idx (negocio, fecha) INCLUDE (monto, tipo) WHERE vigente: solo en drizzle/0036 (Drizzle no expresa INCLUDE).
     index('service_records_appointment_idx').on(t.appointmentId),
     check('service_records_amount_ck', sql`${t.amount} >= 0 and ${t.amount} <= 1000000000`),
     check('service_records_kind_ck', sql`${t.kind} in ('service','product')`),
@@ -1171,6 +1172,7 @@ export const sales = pgTable(
     foreignKey({ columns: [t.createdBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'sales_created_by_fk' }),
     foreignKey({ columns: [t.voidedBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'sales_voided_by_fk' }),
     index('sales_business_idx').on(t.businessId, t.createdAt.desc()),
+    // + sales_balance_idx (negocio, fecha) INCLUDE (descuento, propina) WHERE completada: solo en drizzle/0036 (Drizzle no expresa INCLUDE).
     index('sales_client_idx').on(t.clientId),
     check('sales_status_ck', sql`${t.status} in ('completed','voided')`),
     check('sales_amounts_ck', sql`${t.subtotal} >= 0 and ${t.discount} >= 0 and ${t.tip} >= 0 and ${t.total} >= 0`),

@@ -45,6 +45,8 @@ export interface CashCloseClosedInfo {
   closedByName: string;
   status: 'completed' | 'voided';
   voidReason: string;
+  /** "Después del cierre: ventas +$X · efectivo esperado +$Y…" (lib/cashFlow.ts); null si nada cambió después de firmar. */
+  afterClose?: string | null;
 }
 
 const amountValue = (n: number) => (n === 0 ? '' : formatAmountInput(String(n)));
@@ -62,6 +64,8 @@ export interface CashCloseViewProps {
   onRetry: () => void;
 
   kpis: KpiView[];
+  /** "Cobros sin venta registrada…" (lib/cashFlow.ts → unbilledNote); null si no hubo. Informativo: no toca el arqueo. */
+  unbilledNote?: string | null;
   bars: CashCloseBar[];
   paymentRows: CashCloseRankRow[];
   topServices: CashCloseRankRow[];
@@ -142,6 +146,11 @@ export function CashCloseView(props: CashCloseViewProps) {
             </div>
           </dl>
           {props.closed.note ? <p className="xw-hint">{props.closed.note}</p> : null}
+          {props.closed.status === 'completed' && props.closed.afterClose ? (
+            <p className="xw-hint xw-after-close" role="note">
+              <Ico name="info" size={16} /> {props.closed.afterClose}
+            </p>
+          ) : null}
           <p className="xw-hint">{t('cash_close_closed_by', { name: props.closed.closedByName })}</p>
           <div className="xw-sale-actions">
             <Button variant="secondary" icon={<Ico name="send" size={18} />} onPress={props.onWhatsapp}>
@@ -160,6 +169,11 @@ export function CashCloseView(props: CashCloseViewProps) {
       ) : null}
 
       <KpiRow kpis={props.kpis} label={t('cash_close_kpis')} t={t} />
+      {props.unbilledNote ? (
+        <p className="xw-hint xw-after-close" role="note">
+          <Ico name="info" size={16} /> {props.unbilledNote}
+        </p>
+      ) : null}
 
       {/* xw-panels--3 es un modificador de xw-panels (agrega una tercera columna en pantallas anchas, ver pagesCss.ts):
           con solo dos columnas, tarjetas cortas como "Clientes y citas" o "Gastos del día" quedaban junto a otras

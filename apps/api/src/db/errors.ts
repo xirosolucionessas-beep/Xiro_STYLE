@@ -27,12 +27,6 @@ export const isForeignKeyViolation = (error: unknown) => pgCode(error) === '2350
 /** 23P01: violación de una restricción de EXCLUSIÓN (dos citas activas del mismo profesional que se cruzan). */
 export const isExclusionViolation = (error: unknown) => pgCode(error) === '23P01';
 
-/** 23514: violación de CHECK. */
-export const isCheckViolation = (error: unknown) => pgCode(error) === '23514';
-
-/** Fallos transitorios que conviene reintentar: serialization_failure y deadlock_detected. */
-export const isRetryable = (error: unknown) => ['40001', '40P01'].includes(pgCode(error) ?? '');
-
 const NETWORK_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EPIPE', 'EAI_AGAIN']);
 const UNAVAILABLE_MESSAGE = /timeout exceeded when trying to connect|Connection terminated|Cannot use a pool after calling end|the database system is (starting up|shutting down)/i;
 

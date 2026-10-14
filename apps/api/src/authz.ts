@@ -49,6 +49,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'GET /reports/balance/export.pdf': ['finance'],
   'GET /reports/balance/export.xlsx': ['finance'],
   'GET /expenses/export.xlsx': ['finance'],
+  'GET /expenses/page': ['finance'],
   'GET /cash/close-summary': 'owner',
   'GET /cash/closings': 'owner',
   'GET /cash/closings/:id': 'owner',

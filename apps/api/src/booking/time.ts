@@ -73,12 +73,3 @@ export function localMinutes(instant: Date, timezone: string): number {
   return z.getHours() * 60 + z.getMinutes();
 }
 
-/** ¿Es un identificador de zona horaria IANA válido? */
-export function isTimezone(timezone: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: timezone });
-    return true;
-  } catch {
-    return false;
-  }
-}

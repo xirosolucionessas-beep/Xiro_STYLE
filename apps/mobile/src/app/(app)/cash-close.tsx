@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { addDays, formatClock, formatDay, localTime, todayIn } from '@/lib/agenda';
 import { api, errorKey } from '@/lib/api';
+import { afterCloseNote, unbilledNote } from '@/lib/cashFlow';
 import { apiErrors } from '@/lib/forms';
 import { useCashClosingDetail, useCashClosings, useCashCloseSummary, useInvalidateCash } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
@@ -195,6 +196,12 @@ export default function CashCloseNative() {
               {closedForDay.note}
             </AppText>
           ) : null}
+          {/* Ventas o ajustes hechos DESPUÉS de firmar: el cierre no cambia, pero se explica la diferencia con el resumen. */}
+          {afterCloseNote(summary?.afterClose ?? null, fmt, t) ? (
+            <AppText variant="small" tone="gold" accessibilityRole="text" style={{ marginTop: space.sm }}>
+              {afterCloseNote(summary?.afterClose ?? null, fmt, t)}
+            </AppText>
+          ) : null}
           <AppText variant="small" tone="muted">
             {t('cash_close_closed_by', { name: closedForDay.closedByName })}
           </AppText>
@@ -228,6 +235,12 @@ export default function CashCloseNative() {
             <AppText variant="small" tone="muted">{t('cash_close_kpi_expected')}</AppText>
             <AppText variant="heading" tone="gold">{summary?.expectedCash != null ? fmt(summary.expectedCash) : '—'}</AppText>
           </Card>
+          {/* Citas completadas y servicios registrados a mano: ingreso del Balance, pero sin método de pago (no entran al arqueo). */}
+          {unbilledNote(summary?.unbilledRecords, fmt, t) ? (
+            <AppText variant="small" tone="gold" style={{ marginBottom: space.md }}>
+              {unbilledNote(summary?.unbilledRecords, fmt, t)}
+            </AppText>
+          ) : null}
 
           <SectionTitle>{t('cash_close_hourly_chart')}</SectionTitle>
           {peak === 0 ? (

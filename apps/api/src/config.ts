@@ -145,6 +145,11 @@ export interface Config {
   database: DatabaseConfig;
   /** Tope del cierre ordenado (SIGTERM) antes de forzar la salida. */
   shutdownTimeoutMs: number;
+  /**
+   * Descargas PDF/Excel (Balance, Gastos): se generan en hilos de trabajo (worker_threads) para no bloquear el hilo principal
+   * (medido: un Excel de 30 días lo bloqueaba ~1,2 s; ver docs/finance-capacity.md). `workers` 0 = en el hilo principal.
+   */
+  exports: { workers: number; queueMax: number; timeoutMs: number; workerMemoryMb: number };
   autoMigrate: boolean;
   jwtSecret: string;
   jwtIssuer: string;
@@ -199,6 +204,10 @@ const envSchema = z.object({
   MAX_HEAP_USED_MB: int('MAX_HEAP_USED_MB', 0, 0, 65_536),
   KEEP_ALIVE_TIMEOUT_MS: int('KEEP_ALIVE_TIMEOUT_MS', 72_000, 1_000, 600_000),
   HASH_CONCURRENCY: int('HASH_CONCURRENCY', 2, 1, 16),
+  EXPORT_WORKERS: int('EXPORT_WORKERS', 2, 0, 16),
+  EXPORT_QUEUE_MAX: int('EXPORT_QUEUE_MAX', 20, 0, 1_000),
+  EXPORT_TIMEOUT_MS: int('EXPORT_TIMEOUT_MS', 60_000, 1_000, 600_000),
+  EXPORT_WORKER_MEMORY_MB: int('EXPORT_WORKER_MEMORY_MB', 256, 64, 4_096),
   REDIS_URL: z.string().optional(),
   MEDIA_STORAGE: z.enum(['local', 's3']).optional(),
   S3_ENDPOINT: z.string().url().optional(),
@@ -359,6 +368,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       directUrl: e.DATABASE_DIRECT_URL,
     },
     shutdownTimeoutMs: e.SHUTDOWN_TIMEOUT_MS,
+    exports: { workers: e.EXPORT_WORKERS, queueMax: e.EXPORT_QUEUE_MAX, timeoutMs: e.EXPORT_TIMEOUT_MS, workerMemoryMb: e.EXPORT_WORKER_MEMORY_MB },
     observability: {
       sentryDsn: e.SENTRY_DSN ?? null,
       sentryEnvironment: e.SENTRY_ENVIRONMENT ?? (production ? 'production' : (env.NODE_ENV ?? 'development')),

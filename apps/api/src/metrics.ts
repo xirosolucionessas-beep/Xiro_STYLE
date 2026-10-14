@@ -22,6 +22,9 @@ export class Metrics {
   private readonly loop = monitorEventLoopDelay({ resolution: 20 });
   private readonly startedAt = Date.now();
 
+  /** Cola de descargas PDF/Excel (exports/pool.ts); la asigna buildApp. */
+  exportStats: (() => { running: number; waiting: number }) | null = null;
+
   constructor(private readonly pool: pg.Pool | null) {
     this.loop.enable();
   }
@@ -84,6 +87,14 @@ export class Metrics {
     lines.push(`xiro_password_hash_running ${hashing.running}`);
     metric('xiro_password_hash_waiting', 'gauge', 'Hashes de contraseña en cola.');
     lines.push(`xiro_password_hash_waiting ${hashing.waiting}`);
+
+    if (this.exportStats) {
+      const exports = this.exportStats();
+      metric('xiro_export_running', 'gauge', 'Descargas PDF/Excel generándose (como mucho EXPORT_WORKERS).');
+      lines.push(`xiro_export_running ${exports.running}`);
+      metric('xiro_export_waiting', 'gauge', 'Descargas esperando turno (si se acerca a EXPORT_QUEUE_MAX, las siguientes reciben 503).');
+      lines.push(`xiro_export_waiting ${exports.waiting}`);
+    }
     return `${lines.join('\n')}\n`;
   }
 

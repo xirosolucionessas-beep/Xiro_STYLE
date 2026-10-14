@@ -53,7 +53,6 @@ export const slugSchema = z
   .max(40, 'slug_invalid')
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slug_invalid')
   .refine((slug) => !(RESERVED_SLUGS as readonly string[]).includes(slug), 'slug_reserved');
-export const slugInputSchema = z.object({ slug: slugSchema });
 
 /* ---------- Horarios ---------- */
 

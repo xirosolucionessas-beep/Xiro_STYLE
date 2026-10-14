@@ -67,7 +67,7 @@ import type {
   SubscriptionPlatform,
   User,
 } from '@xiro/shared';
-import type { BalanceDto, BalanceExportFormat, BalanceExportQuery, BalanceMovementsPage, BalanceMovementsQuery, BalanceQuery, DiscountCodeDto, DiscountCodeInput, ExpensePayeeDto, ExpensesExportQuery, ExpensesQuery, ExpenseUpdateInput, ExpenseVoidInput, WaitlistEntryDto } from '@xiro/shared';
+import type { BalanceDto, BalanceExportFormat, BalanceExportQuery, BalanceMovementsPage, BalanceMovementsQuery, BalanceQuery, DiscountCodeDto, DiscountCodeInput, ExpensePayeeDto, ExpensesExportQuery, ExpensesPage, ExpensesPageQuery, ExpensesQuery, ExpenseUpdateInput, ExpenseVoidInput, WaitlistEntryDto } from '@xiro/shared';
 import { HTTP_TIMEOUT_MS, withRetry, type ClientsQuery, type ClientVisits, type ClientsSummary, type ItemsQuery, type ItemsSummary, type LoyaltySummary, type Page, type PageParams, type ProductOrderDto, type ProductOrdersQuery, type ProductOrdersSummary, type ServiceRecordsQuery, type ServiceRecordsSummary } from '@xiro/shared';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
@@ -330,6 +330,8 @@ export const api = {
   createExpense: (body: ExpenseInput) => request<ExpenseDto>('/api/expenses', { method: 'POST', body }),
   /* Módulo Finanzas: listado con filtros, detalle (con ajustes), edición, anulación y beneficiarios de nómina. */
   expensesList: (params: ExpensesQuery) => request<ExpenseDto[]>(`/api/expenses${query(params)}`),
+  /** Listado paginado con totales del servidor (la pantalla de Gastos usa este; `expensesList` queda por compatibilidad). */
+  expensesPage: (params: ExpensesPageQuery) => request<ExpensesPage>(`/api/expenses/page${query(params)}`),
   expense: (id: string) => request<ExpenseDto>(`/api/expenses/${id}`),
   updateExpense: (id: string, body: ExpenseUpdateInput) => request<ExpenseDto>(`/api/expenses/${id}`, { method: 'PUT', body }),
   voidExpense: (id: string, body: ExpenseVoidInput) => request<ExpenseDto>(`/api/expenses/${id}/void`, { method: 'POST', body }),
@@ -522,14 +524,3 @@ export function errorKey(error: unknown): string {
   return 'unknown_error';
 }
 
-/** Mapa campo → clave de i18n para mostrar errores junto a cada input. */
-export function fieldErrors(error: unknown): Record<string, string> {
-  const result: Record<string, string> = {};
-  if (error instanceof ApiError) {
-    for (const issue of error.issues) {
-      const field = issue.path.split('.')[0] ?? '';
-      if (field && !result[field]) result[field] = issue.message;
-    }
-  }
-  return result;
-}

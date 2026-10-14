@@ -159,6 +159,7 @@ function queryFor(key: string, s: Seeded): Record<string, string> {
     case 'GET /reports/balance/export.pdf':
     case 'GET /reports/balance/export.xlsx':
     case 'GET /expenses/export.xlsx':
+    case 'GET /expenses/page':
       // El balance no admite fechas futuras: termina ayer (en cualquier zona horaria sigue siendo pasado).
       return { from: isoDay(-30), to: isoDay(-1) };
     case 'GET /cash/close-summary':
