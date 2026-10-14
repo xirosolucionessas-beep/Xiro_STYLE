@@ -232,6 +232,20 @@
       "when": 1791875480690,
       "tag": "0032_public_page_options",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791880377116,
+      "tag": "0033_finance_expenses",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791881844172,
+      "tag": "0034_expense_adjustments",
+      "breakpoints": true
     }
   ]
 }

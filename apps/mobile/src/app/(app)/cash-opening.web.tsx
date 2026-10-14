@@ -26,6 +26,8 @@ export default function CashOpeningWeb() {
     try {
       await api.openCash(input);
       await queryClient.invalidateQueries({ queryKey: keys.cash });
+      // El flujo de caja del Inicio pasa a "caja abierta" con su base.
+      await queryClient.invalidateQueries({ queryKey: keys.cashCloseSummary });
       close();
       return { ok: true };
     } catch (error) {

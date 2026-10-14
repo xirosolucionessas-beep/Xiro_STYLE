@@ -86,10 +86,12 @@ describe('navigation config', () => {
     expect(NAV_ITEMS.map((item) => item.href)).toContain('/reports');
   });
 
-  it('Citas needs the agenda permission, My web page the public-page permission and Reportes is owner-only (the server enforces the same)', () => {
+  it('Citas needs the agenda permission, My web page the public-page permission and Reportes the owner or "Finanzas" (the server enforces the same)', () => {
     expect(NAV_ITEMS.find((item) => item.id === 'agenda')!.requires).toEqual(['agenda_own']);
     expect(NAV_ITEMS.find((item) => item.id === 'booking')!.requires).toEqual(['public_page_manage']);
-    expect(NAV_ITEMS.find((item) => item.id === 'reports')!.requires).toBe('owner');
+    // Finanzas, fase 4: con "Finanzas" se entra a Reportes → Balance general; Reportes → Ventas sigue siendo solo del dueño
+    // (la pantalla redirige al balance — ver balance.logic.test.ts).
+    expect(NAV_ITEMS.find((item) => item.id === 'reports')!.requires).toEqual(['finance']);
   });
 
   it('every nav label exists in both languages', () => {

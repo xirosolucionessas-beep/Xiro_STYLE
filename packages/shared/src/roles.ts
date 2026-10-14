@@ -19,6 +19,8 @@ export const EMPLOYEE_PERMISSIONS = [
   'agenda_all',
   'appointments_manage',
   'public_page_manage',
+  // Finanzas: gastos (operativos y nómina) y Balance general. Pensado para un administrador de confianza.
+  'finance',
 ] as const;
 export type EmployeePermission = (typeof EMPLOYEE_PERMISSIONS)[number];
 

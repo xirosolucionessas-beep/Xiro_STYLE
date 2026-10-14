@@ -1,6 +1,5 @@
 import {
   cashCloseInputSchema,
-  expenseInputSchema,
   voidCashCloseInputSchema,
   type CashClosingDto,
   type CashDaySummary,
@@ -8,12 +7,12 @@ import {
   type CashOpeningDto,
   type CashSalesByMethod,
   type CashTopEntry,
-  type ExpenseDto,
 } from '@xiro/shared';
 import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { addDays, localMinutes, zonedInstant } from '../booking/time';
+import { loadAdjustments, toExpenseDto } from '../booking/expenses';
 import { withBusinessTrusted, type Tx } from '../booking/scope';
 import type { Ctx } from '../context';
 import { appointments, businesses, cashClosings, cashOpenings, clients, expenses, saleItems, salePayments, sales, users } from '../db/schema';
@@ -39,14 +38,6 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     return row.timezone;
   }
 
-  const toExpenseDto = (row: typeof expenses.$inferSelect, name: string): ExpenseDto => ({
-    id: row.id,
-    amount: row.amount,
-    description: row.description,
-    method: row.method as ExpenseDto['method'],
-    createdByName: name,
-    createdAt: row.createdAt.toISOString(),
-  });
 
   async function namesOf(tx: Tx | typeof db, businessId: string, ids: readonly string[]): Promise<Map<string, string>> {
     const unique = [...new Set(ids)];
@@ -69,8 +60,10 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
       saleIds.length > 0 ? tx.select().from(salePayments).where(and(eq(salePayments.businessId, businessId), inArray(salePayments.saleId, saleIds))) : Promise.resolve([]),
     ]);
 
-    const expenseRows = await tx.select().from(expenses).where(and(eq(expenses.businessId, businessId), gte(expenses.createdAt, rangeFrom), lt(expenses.createdAt, rangeTo)));
-    const expenseNames = await namesOf(tx, businessId, expenseRows.map((e) => e.createdBy));
+    // Gastos DEL DÍA (por su fecha de gasto) y vigentes: los anulados ya no cuentan. Los anteriores a Finanzas tienen como fecha
+    // su día de creación (migración 0033), así que el resumen de días pasados no cambia.
+    const expenseRows = await tx.select().from(expenses).where(and(eq(expenses.businessId, businessId), eq(expenses.expenseDate, day), eq(expenses.status, 'active')));
+    const expenseNames = await namesOf(tx, businessId, expenseRows.flatMap((e) => [e.createdBy, e.employeeId, e.voidedBy].filter((v): v is string => Boolean(v))));
 
     const byMethod = new Map<string, CashSalesByMethod>();
     for (const payment of paymentRows) {
@@ -120,7 +113,8 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     const totalTip = saleRows.reduce((sum, s) => sum + s.tip, 0);
     const totalExpenses = expenseRows.reduce((sum, e) => sum + e.amount, 0);
     const cashIn = byMethod.get('cash')?.total ?? 0;
-    const cashOut = expenseRows.filter((e) => e.method === 'cash').reduce((sum, e) => sum + e.amount, 0);
+    // Solo lo que salió del efectivo de la caja (antes: todo gasto en efectivo, que es exactamente lo mismo para los existentes).
+    const cashOut = expenseRows.filter((e) => e.paidFromCash).reduce((sum, e) => sum + e.amount, 0);
 
     return {
       day,
@@ -133,8 +127,10 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
       topServices: rank(itemRows, 'service'),
       topProducts: rank(itemRows, 'product'),
       employeeSales,
-      expenses: expenseRows.map((e) => toExpenseDto(e, expenseNames.get(e.createdBy) ?? '')),
+      expenses: expenseRows.map((e) => toExpenseDto(e, expenseNames)),
       totalExpenses,
+      // Correcciones hechas DESPUÉS del cierre de este día (el cierre firmado no cambia; quedan a la vista).
+      adjustmentsAfterClose: await loadAdjustments(tx as Tx, businessId, { cashDay: day }),
       expectedCash: opening ? opening.amount + cashIn - cashOut : null,
       hourly,
       clientsServed: clientIds.size,
@@ -161,27 +157,7 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     ...(summary ? { summary } : {}),
   });
 
-  /* ---------- Gastos ---------- */
-
-  app.get('/expenses', async (request) => {
-    const { from, to } = parse(rangeQuery, request.query);
-    const businessId = businessOf(request);
-    const timezone = await timezoneOf(businessId);
-    const rangeFrom = zonedInstant(from, 0, timezone);
-    const rangeTo = zonedInstant(addDays(to, 1), 0, timezone);
-    const rows = await db.select().from(expenses).where(and(eq(expenses.businessId, businessId), gte(expenses.createdAt, rangeFrom), lt(expenses.createdAt, rangeTo))).orderBy(desc(expenses.createdAt));
-    const names = await namesOf(db, businessId, rows.map((r) => r.createdBy));
-    return rows.map((r) => toExpenseDto(r, names.get(r.createdBy) ?? ''));
-  });
-
-  app.post('/expenses', async (request, reply) => {
-    const input = parse(expenseInputSchema, request.body);
-    const businessId = businessOf(request);
-    const userId = request.user.sub;
-    const [row] = await db.insert(expenses).values({ businessId, amount: input.amount, description: input.description, method: input.method, createdBy: userId }).returning();
-    const name = (await namesOf(db, businessId, [userId])).get(userId) ?? '';
-    return reply.status(201).send(toExpenseDto(row!, name));
-  });
+  /* Gastos: viven en routes/expenses.ts (módulo Finanzas), con el mismo GET/POST /expenses de antes, ampliado. */
 
   /* ---------- Cierre de caja ---------- */
 

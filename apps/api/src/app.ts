@@ -27,6 +27,8 @@ import { authRoutes } from './routes/auth';
 import { bookingRoutes } from './routes/booking';
 import { bookingConfigRoutes } from './routes/bookingConfig';
 import { cashRoutes } from './routes/cash';
+import { expenseRoutes } from './routes/expenses';
+import { balanceRoutes } from './routes/balance';
 import { catalogRoutes } from './routes/catalog';
 import { clientRoutes } from './routes/clients';
 import { employeeRoutes } from './routes/employees';
@@ -418,6 +420,8 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
       discountRoutes(scope, ctx);
       waitlistRoutes(scope, ctx);
       cashRoutes(scope, ctx);
+      expenseRoutes(scope, ctx);
+      balanceRoutes(scope, ctx);
       serviceRecordRoutes(scope, ctx);
       loyaltyRoutes(scope, ctx);
       notificationRoutes(scope, ctx);

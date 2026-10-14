@@ -35,6 +35,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       { id: 'messages', labelKey: 'messages_title', icon: 'chatbubbles-outline', href: '/messages' },
       { id: 'appointments', labelKey: 'appointments', icon: 'calendar-outline', href: '/agenda', requires: ['agenda_own'] },
       { id: 'orders', labelKey: 'nav_orders', icon: 'bag-handle-outline', href: '/orders', requires: ['services_record'], badge: 'open_orders' },
+      { id: 'expenses', labelKey: 'nav_expenses', icon: 'wallet-outline', href: '/expenses', requires: ['finance'] },
       { id: 'booking', labelKey: 'booking_title', icon: 'globe-outline', href: '/booking', requires: ['public_page_manage'] },
       { id: 'clients', labelKey: 'clients', icon: 'people-outline', href: '/clients', requires: ['clients_view'] },
       { id: 'catalog', labelKey: 'catalog', icon: 'book-outline', href: '/catalog', requires: ['catalog_view'] },
@@ -61,7 +62,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       { id: 'categories', labelKey: 'manage_categories', icon: 'pricetags-outline', href: '/categories', requires: ['catalog_manage'] },
       { id: 'packages', labelKey: 'pkg_title', icon: 'gift-outline', href: '/packages', requires: ['catalog_view'] },
       { id: 'plan', labelKey: 'subscription_title', icon: 'star-outline', href: '/subscription', requires: 'owner' },
-      { id: 'reports', labelKey: 'menu_reports', icon: 'bar-chart-outline', href: '/reports', requires: 'owner' },
+      { id: 'reports', labelKey: 'menu_reports', icon: 'bar-chart-outline', href: '/reports', requires: ['finance'] },
     ],
   },
   {

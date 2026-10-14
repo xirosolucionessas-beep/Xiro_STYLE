@@ -19,6 +19,8 @@ interface CalendarPickerProps {
   marks?: Record<string, DayMark>;
   /** Último día que se puede elegir (inclusive). */
   maxDate?: string;
+  /** Primer día que se puede elegir (inclusive), p. ej. el "hasta" de un rango no puede ser antes del "desde". */
+  minDate?: string;
   onMonthChange?: (firstDayOfMonth: string) => void;
 }
 
@@ -26,7 +28,7 @@ interface CalendarPickerProps {
  * Calendario mensual táctil (Android, iOS y Web, sin librerías): semanas de lunes a domingo, mes anterior/siguiente y
  * marcas por día. El estado nunca va solo en el color: cada día tiene nombre accesible ("martes 6 de octubre, con cupo").
  */
-export function CalendarPicker({ value, onChange, today, allowPast, marks, maxDate, onMonthChange }: CalendarPickerProps) {
+export function CalendarPicker({ value, onChange, today, allowPast, marks, maxDate, minDate, onMonthChange }: CalendarPickerProps) {
   const { colors, language, t } = useSettings();
   const [month, setMonth] = useState(`${value.slice(0, 7)}-01`);
   useEffect(() => setMonth(`${value.slice(0, 7)}-01`), [value]);
@@ -71,7 +73,7 @@ export function CalendarPicker({ value, onChange, today, allowPast, marks, maxDa
             // Los días pasados no se marcan: no se pueden elegir y un punto rojo de "sin cupo" confundiría.
             const mark = date >= today ? marks?.[date] : undefined;
             const past = !allowPast && date < today;
-            const beyond = Boolean(maxDate && date > maxDate);
+            const beyond = Boolean((maxDate && date > maxDate) || (minDate && date < minDate));
             const disabled = past || beyond || mark === 'closed';
             const selected = date === value;
             return (

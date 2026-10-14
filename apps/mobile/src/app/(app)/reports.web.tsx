@@ -5,7 +5,7 @@
  * frente a los registros de servicio que usaba antes). Presentación en src/web/screens/Reports.tsx.
  */
 import { addDays, formatMoney, type Currency } from '@xiro/shared';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { variation, type Trend } from '@/lib/dashboard';
 import { useCashOpenings, useClientsSummary, useItemsSummary, useSales } from '@/lib/queries';
@@ -24,6 +24,7 @@ import {
   type ReportPeriod,
 } from '@/lib/sections';
 import { useAuthed } from '@/lib/session';
+import { ReportsTabs } from '@/ui/reports/ReportsTabs';
 import { Header, Screen } from '@/ui/Screen';
 import { businessAddressLine, toDataUrl } from '@/web/services/invoicePdf';
 import { downloadReportsExcel } from '@/web/services/reportsExcel';
@@ -46,7 +47,14 @@ function trendView(trend: Trend, t: T): KpiView['trend'] {
 
 const PAYMENT_METHOD_LABEL_KEY: Record<string, string> = { cash: 'sale_pay_cash', card: 'sale_pay_card', nequi: 'sale_pay_nequi', bank_transfer: 'sale_pay_bank_transfer', other: 'sale_pay_other' };
 
+/** Reportes → Ventas es solo del dueño; quien entra con "Finanzas" llega directo a Reportes → Balance general. */
 export default function ReportsWeb() {
+  const { user } = useAuthed();
+  if (user.role !== 'owner') return <Redirect href="/reports/balance" />;
+  return <SalesReportsWeb />;
+}
+
+function SalesReportsWeb() {
   const router = useRouter();
   const { t, language } = useWebText();
   const { business } = useAuthed();
@@ -215,6 +223,7 @@ export default function ReportsWeb() {
 
   return (
     <Screen header={<Header root title={t('nav_reports')} subtitle={t('sec_reports_sub')} />}>
+      <ReportsTabs active="sales" showSales />
       <ReportsView
         t={t}
         period={period}

@@ -10,18 +10,19 @@ import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { relativeTime } from '@/lib/alerts';
 import { useCookieConsent } from '@/lib/useCookieConsent';
+import { dailyCashFlow, flowShares } from '@/lib/cashFlow';
 import { buildActivity, variation, type Trend } from '@/lib/dashboard';
 import { supportMessage, supportWhatsappUrl } from '@/lib/contact';
-import { api } from '@/lib/api';
+import { api, errorKey } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
 import { dayRange, formatClock, formatDay, localDate, localTime, STATUS_TONE, summarizeItems, todayIn, upcoming } from '@/lib/agenda';
-import { keys, useAppointments, useCashToday, useClassification, useClientsSummary, useItemsQuery, useItemsSummary, useRecentClients, useRecentServiceRecords, useServiceRecordsSummary } from '@/lib/queries';
+import { keys, useAppointments, useCashCloseSummary, useCashClosings, useCashToday, useClassification, useClientsSummary, useItemsQuery, useItemsSummary, useRecentClients, useRecentServiceRecords, useServiceRecordsSummary } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { Brand } from '@/ui/Brand';
 import { useDialogs } from '@/ui/Dialogs';
 import { Screen } from '@/ui/Screen';
 import { localDateKey } from '@/web/date';
-import { DashboardView, type ActivityRowView } from '@/web/screens/Dashboard';
+import { DashboardView, type ActivityRowView, type CashFlowView } from '@/web/screens/Dashboard';
 import type { KpiView } from '@/web/ui/Page';
 import type { HomeAction } from '@/web/screens/Home';
 import { photoToFormData } from '@/web/services/imageUpload.web';
@@ -146,6 +147,8 @@ export default function HomeWeb() {
     try {
       await api.openCash(input);
       await queryClient.invalidateQueries({ queryKey: keys.cash });
+      // El flujo de caja del día también cambia (pasa a "caja abierta" con su base).
+      await queryClient.invalidateQueries({ queryKey: keys.cashCloseSummary });
       setManualCashOpen(false);
       setDismissed(true);
       dismissToday();
@@ -179,6 +182,8 @@ export default function HomeWeb() {
     { id: 'catalog', icon: 'book-open', label: t('catalog'), href: '/catalog', requires: ['catalog_view'] },
     { id: 'inventory', icon: 'package', label: t('inventory'), href: '/inventory', requires: ['catalog_view'] },
     { id: 'cash_close', icon: 'receipt', label: t('cash_close'), href: '/cash-close', requires: 'owner' },
+    // Finanzas: abre Gastos con el formulario de alta ya abierto.
+    { id: 'register_expense', icon: 'wallet', label: t('home_register_expense'), href: '/expenses?new=1', requires: ['finance'] },
     { id: 'clients', icon: 'users', label: t('clients'), href: '/clients', requires: ['clients_view'] },
   ];
   const actions: HomeAction[] = allActions.filter((action) => meets(actor, action.requires)).map((action) => ({ id: action.id, icon: action.icon, label: action.label, href: action.href, soon: action.soon }));
@@ -220,6 +225,39 @@ export default function HomeWeb() {
     ...(canClients ? [{ id: 'clients', icon: 'users' as const, label: t('dash_kpi_clients'), value: dashboard.newClients ? String(dashboard.newClients.today) : '—', loading: clientsSummary.isLoading, trend: clientsTrend ? trendView(clientsTrend, t) : undefined, onPress: () => router.push('/clients?since=today') }] : []),
     ...(isOwner ? [{ id: 'cash', icon: 'wallet' as const, label: t('available_balance'), value: opening ? money(opening.amount) : '—', loading: cash.isLoading, hint: opening ? undefined : t('cash_not_opened'), onPress: () => setManualCashOpen(true) }] : []),
   ];
+
+  /* ---------- Flujo de caja diario (solo el dueño: el resumen de caja es suyo, el servidor exige lo mismo) ---------- */
+  const daySummary = useCashCloseSummary(todayKey, isOwner);
+  const todayClosings = useCashClosings(isOwner ? { from: todayKey, to: todayKey } : null, isOwner);
+  const cashFlow: CashFlowView | null = isOwner
+    ? (() => {
+        const base = { closeHref: '/cash-close' };
+        if (daySummary.isLoading) return { ...base, loading: true, net: '', netTone: 'neutral', income: '', expenses: '', incomeShare: 0, expenseShare: 0, empty: false, methods: [], cash: { kind: 'closed' } };
+        if (!daySummary.data) return { ...base, loading: false, error: t(errorKey(daySummary.error)), net: '', netTone: 'neutral', income: '', expenses: '', incomeShare: 0, expenseShare: 0, empty: false, methods: [], cash: { kind: 'closed' } };
+        const flow = dailyCashFlow(daySummary.data, todayClosings.data ?? []);
+        const shares = flowShares(flow);
+        const delta = flow.cash.state === 'open' ? flow.cash.current - flow.cash.opening : 0;
+        return {
+          ...base,
+          loading: false,
+          net: money(flow.net),
+          netTone: flow.net > 0 ? 'success' : flow.net < 0 ? 'danger' : 'neutral',
+          income: money(flow.income),
+          expenses: money(flow.expenses),
+          incomeShare: shares.income,
+          expenseShare: shares.expenses,
+          empty: flow.income === 0 && flow.expenses === 0,
+          tipsNote: flow.tips > 0 ? t('home_cf_tips', { amount: money(flow.tips) }) : undefined,
+          methods: flow.methods.map((m) => ({ id: m.method, label: t(`sale_pay_${m.method}`), value: money(m.total) })),
+          cash:
+            flow.cash.state === 'open'
+              ? { kind: 'open', current: money(flow.cash.current), base: money(flow.cash.opening), delta: t('home_cf_since_open', { amount: `${delta > 0 ? '+' : ''}${money(delta)}` }), deltaTone: delta > 0 ? 'success' : delta < 0 ? 'danger' : 'neutral' }
+              : flow.cash.state === 'closed'
+                ? { kind: 'closed' }
+                : { kind: 'not_opened', onOpen: () => setManualCashOpen(true) },
+        };
+      })()
+    : null;
 
   const summary = canSales
     ? {
@@ -286,6 +324,7 @@ export default function HomeWeb() {
           onChangeLogo={() => fileInput.current?.click()}
           logoBusy={logoBusy}
           kpis={kpis}
+          cashFlow={cashFlow}
           actions={actions}
           needsWhatsappSetup={isOwner && !business.whatsapp}
           onGoBusinessSettings={() => router.push('/business')}

@@ -67,7 +67,7 @@ import type {
   SubscriptionPlatform,
   User,
 } from '@xiro/shared';
-import type { DiscountCodeDto, DiscountCodeInput, WaitlistEntryDto } from '@xiro/shared';
+import type { BalanceDto, BalanceExportFormat, BalanceExportQuery, BalanceMovementsPage, BalanceMovementsQuery, BalanceQuery, DiscountCodeDto, DiscountCodeInput, ExpensePayeeDto, ExpensesExportQuery, ExpensesQuery, ExpenseUpdateInput, ExpenseVoidInput, WaitlistEntryDto } from '@xiro/shared';
 import { HTTP_TIMEOUT_MS, withRetry, type ClientsQuery, type ClientVisits, type ClientsSummary, type ItemsQuery, type ItemsSummary, type LoyaltySummary, type Page, type PageParams, type ProductOrderDto, type ProductOrdersQuery, type ProductOrdersSummary, type ServiceRecordsQuery, type ServiceRecordsSummary } from '@xiro/shared';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
@@ -252,6 +252,18 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (await response.json()) as T;
 }
 
+/** Archivo generado por el servidor (PDF o Excel): misma sesión y renovación que `request`, pero devuelve los bytes. */
+export async function requestFile(path: string): Promise<Uint8Array> {
+  const init = (): RequestInit & { auth: boolean } => ({ method: 'GET', auth: true });
+  let response = await rawRequest(path, init());
+  if (response.status === 401) {
+    if (await tryRefresh()) response = await rawRequest(path, init());
+    else hooks?.onSignedOut();
+  }
+  if (!response.ok) throw await toError(response);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 /** `?a=1&b=x` a partir de un objeto; omite `undefined`, `null` y cadenas vacías. */
 function query(params: object): string {
   const search = new URLSearchParams();
@@ -316,6 +328,18 @@ export const api = {
   /* ---------- Gastos y cierre de caja ---------- */
   expenses: (from: string, to: string) => request<ExpenseDto[]>(`/api/expenses?${new URLSearchParams({ from, to }).toString()}`),
   createExpense: (body: ExpenseInput) => request<ExpenseDto>('/api/expenses', { method: 'POST', body }),
+  /* Módulo Finanzas: listado con filtros, detalle (con ajustes), edición, anulación y beneficiarios de nómina. */
+  expensesList: (params: ExpensesQuery) => request<ExpenseDto[]>(`/api/expenses${query(params)}`),
+  expense: (id: string) => request<ExpenseDto>(`/api/expenses/${id}`),
+  updateExpense: (id: string, body: ExpenseUpdateInput) => request<ExpenseDto>(`/api/expenses/${id}`, { method: 'PUT', body }),
+  voidExpense: (id: string, body: ExpenseVoidInput) => request<ExpenseDto>(`/api/expenses/${id}/void`, { method: 'POST', body }),
+  expensePayees: () => request<ExpensePayeeDto[]>('/api/expenses/payees'),
+  // Balance general (Reportes → Balance general; solo dueño o 'Finanzas').
+  balance: (params: BalanceQuery) => request<BalanceDto>(`/api/reports/balance${query(params)}`),
+  balanceMovements: (params: BalanceMovementsQuery) => request<BalanceMovementsPage>(`/api/reports/balance/movements${query(params)}`),
+  /** Descargas generadas en el servidor (máximo 12 meses). */
+  balanceExport: (format: BalanceExportFormat, params: BalanceExportQuery) => requestFile(`/api/reports/balance/export.${format}${query(params)}`),
+  expensesExport: (params: ExpensesExportQuery) => requestFile(`/api/expenses/export.xlsx${query(params)}`),
   cashCloseSummary: (day: string) => request<CashDaySummary>(`/api/cash/close-summary?day=${day}`),
   cashClosings: (from: string, to: string) => request<CashClosingDto[]>(`/api/cash/closings?${new URLSearchParams({ from, to }).toString()}`),
   cashClosing: (id: string) => request<CashClosingDto>(`/api/cash/closings/${id}`),

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SALE_PAYMENT_METHODS, type SalePaymentMethod } from './sales';
+import type { ExpenseAdjustmentDto, ExpenseDto } from './expenses';
 
 /**
  * Gastos (salidas de caja) y cierre de caja (Tarea 8). El cierre solo congela lo que no tiene otra fuente — la base con
@@ -7,21 +8,7 @@ import { SALE_PAYMENT_METHODS, type SalePaymentMethod } from './sales';
  * de las ventas, los registros de servicio y los gastos de ese día, que ya son inmutables por su cuenta.
  */
 
-export const expenseInputSchema = z.object({
-  amount: z.number().int().min(1).max(1_000_000_000),
-  description: z.string().trim().min(1, 'required').max(200),
-  method: z.enum(SALE_PAYMENT_METHODS).default('cash'),
-});
-export type ExpenseInput = z.input<typeof expenseInputSchema>;
-
-export interface ExpenseDto {
-  id: string;
-  amount: number;
-  description: string;
-  method: SalePaymentMethod;
-  createdByName: string;
-  createdAt: string;
-}
+// Gastos: el esquema y el DTO viven ahora en ./expenses (ampliados y compatibles con el formato anterior).
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -75,6 +62,8 @@ export interface CashDaySummary {
   employeeSales: CashEmployeeSales[];
   expenses: ExpenseDto[];
   totalExpenses: number;
+  /** Ajustes a gastos de este día hechos DESPUÉS del cierre (el cierre firmado no cambia; quedan a la vista). */
+  adjustmentsAfterClose: ExpenseAdjustmentDto[];
   /** opening + ventas en efectivo − gastos en efectivo. null si `opening` es null (no se puede cerrar sin abrir). */
   expectedCash: number | null;
   hourly: CashHourlyBucket[];

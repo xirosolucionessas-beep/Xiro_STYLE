@@ -41,6 +41,24 @@ export interface AppointmentRowView {
   href: string;
 }
 
+/** Flujo de caja del día, ya formateado (ver lib/cashFlow.ts para las cuentas). */
+export interface CashFlowView {
+  loading: boolean;
+  error?: string;
+  net: string;
+  netTone: 'success' | 'danger' | 'neutral';
+  income: string;
+  expenses: string;
+  /** 0–1: proporción de entradas y de gastos para la barra. */
+  incomeShare: number;
+  expenseShare: number;
+  tipsNote?: string;
+  empty: boolean;
+  methods: Array<{ id: string; label: string; value: string }>;
+  cash: { kind: 'open'; current: string; base: string; delta: string; deltaTone: 'success' | 'danger' | 'neutral' } | { kind: 'closed' } | { kind: 'not_opened'; onOpen: () => void };
+  closeHref: string;
+}
+
 export interface DashboardViewProps {
   t: HeaderT;
   /** "Buenos días" ya resuelto con la hora del negocio. */
@@ -52,6 +70,8 @@ export interface DashboardViewProps {
   onChangeLogo: () => void;
   logoBusy: boolean;
   kpis: KpiView[];
+  /** Flujo de caja del día (solo el dueño; null = no se muestra). */
+  cashFlow?: CashFlowView | null;
   actions: HomeAction[];
   needsWhatsappSetup: boolean;
   onGoBusinessSettings: () => void;
@@ -128,6 +148,8 @@ export function DashboardView(props: DashboardViewProps) {
       ) : null}
 
       <KpiRow kpis={kpis} label={t('dash_kpis')} t={t} />
+
+      {props.cashFlow ? <CashFlowCard flow={props.cashFlow} t={t} navigate={navigate} /> : null}
 
       <div className="xw-dash-grid">
         <div className="xw-dash-col">
@@ -263,5 +285,108 @@ export function DashboardView(props: DashboardViewProps) {
         </nav>
       </footer>
     </div>
+  );
+}
+
+/**
+ * "Flujo de caja diario": neto del día grande (verde si es positivo, rojo si es negativo), entradas frente a gastos con una
+ * barra proporcional, lo cobrado por método y, con la caja abierta, el efectivo que debería haber frente a la base inicial.
+ */
+function CashFlowCard({ flow, t, navigate }: { flow: CashFlowView; t: HeaderT; navigate: (href: string) => void }) {
+  return (
+    <section className="xw-cf" aria-labelledby="xw-cf-title">
+      <header className="xw-cf-head">
+        <div className="xw-cf-heading">
+          <span className="xw-cf-badge" aria-hidden="true">
+            <Ico name="wallet" size={18} />
+          </span>
+          <div>
+            <h2 id="xw-cf-title" className="xw-cf-title">
+              {t('home_cf_title')}
+            </h2>
+            <p className="xw-cf-sub">{t('home_cf_sub')}</p>
+          </div>
+        </div>
+        <a className="xw-cf-link" {...linkProps(flow.closeHref, navigate)}>
+          {t('home_cf_see_close')}
+          <Ico name="chevron-right" size={16} />
+        </a>
+      </header>
+
+      {flow.loading ? <LoadingRows label={t('dash_loading')} /> : null}
+      {!flow.loading && flow.error ? <p className="xw-panel-empty">{flow.error}</p> : null}
+      {!flow.loading && !flow.error ? (
+        <div className="xw-cf-body">
+          <div className="xw-cf-main">
+            <span className="xw-cf-label">{t('home_cf_net')}</span>
+            <span className={cx('xw-cf-net', flow.netTone !== 'neutral' && `is-${flow.netTone}`)}>{flow.net}</span>
+            <div className="xw-cf-flows">
+              <span className="xw-cf-flow is-in">
+                <span className="xw-cf-flow-ic" aria-hidden="true">
+                  <Ico name="trending-up" size={16} />
+                </span>
+                <span className="xw-cf-flow-text">
+                  <span className="xw-cf-flow-label">{t('home_cf_in')}</span>
+                  <span className="xw-cf-flow-value">{flow.income}</span>
+                </span>
+              </span>
+              <span className="xw-cf-flow is-out">
+                <span className="xw-cf-flow-ic" aria-hidden="true">
+                  <Ico name="trending-down" size={16} />
+                </span>
+                <span className="xw-cf-flow-text">
+                  <span className="xw-cf-flow-label">{t('home_cf_out')}</span>
+                  <span className="xw-cf-flow-value">{flow.expenses}</span>
+                </span>
+              </span>
+            </div>
+            <div className="xw-cf-bar" aria-hidden="true">
+              <span className="xw-cf-bar-in" style={{ flexGrow: flow.incomeShare }} />
+              <span className="xw-cf-bar-out" style={{ flexGrow: flow.expenseShare }} />
+            </div>
+            {flow.empty ? <p className="xw-cf-note">{t('home_cf_empty')}</p> : null}
+            {flow.tipsNote ? <p className="xw-cf-note">{flow.tipsNote}</p> : null}
+            {flow.methods.length > 0 ? (
+              <ul className="xw-cf-methods" aria-label={t('home_cf_by_method')}>
+                {flow.methods.map((m) => (
+                  <li key={m.id}>
+                    <span>{m.label}</span>
+                    <strong>{m.value}</strong>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+
+          <div className="xw-cf-cash">
+            {flow.cash.kind === 'open' ? (
+              <>
+                <span className="xw-cf-label">{t('home_cf_cash_now')}</span>
+                <span className="xw-cf-cash-value">{flow.cash.current}</span>
+                <span className={cx('xw-cf-delta', flow.cash.deltaTone !== 'neutral' && `is-${flow.cash.deltaTone}`)}>{flow.cash.delta}</span>
+                <span className="xw-cf-base">
+                  <span>{t('home_cf_base')}</span>
+                  <strong>{flow.cash.base}</strong>
+                </span>
+              </>
+            ) : flow.cash.kind === 'closed' ? (
+              <>
+                <span className="xw-cf-cash-ic" aria-hidden="true">
+                  <Ico name="circle-check" size={22} />
+                </span>
+                <span className="xw-cf-cash-text">{t('home_cf_closed')}</span>
+              </>
+            ) : (
+              <>
+                <span className="xw-cf-cash-text">{t('home_cf_not_opened')}</span>
+                <button type="button" className="xw-btn xw-btn--secondary xw-btn--sm" onClick={flow.cash.onOpen}>
+                  {t('home_cf_open_cash')}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }

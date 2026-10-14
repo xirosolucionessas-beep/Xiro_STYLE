@@ -6,7 +6,7 @@
  * guardan o comparten desde la hoja del sistema. También comparte un resumen en texto (WhatsApp, correo, notas…).
  */
 import { addDays, formatMoney, todayIn, type Currency } from '@xiro/shared';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Share } from 'react-native';
 import { resolveMedia } from '@/lib/api';
@@ -34,6 +34,7 @@ import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { useDialogs } from '@/ui/Dialogs';
 import { ReportsView, type ReportBar, type ReportKpi, type ShareRow } from '@/ui/reports/ReportsView';
+import { ReportsTabs } from '@/ui/reports/ReportsTabs';
 import { Header, Screen } from '@/ui/Screen';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
@@ -48,7 +49,14 @@ function trendView(trend: Trend, t: T): ReportKpi['trend'] {
 
 const PAYMENT_METHOD_LABEL_KEY: Record<string, string> = { cash: 'sale_pay_cash', card: 'sale_pay_card', nequi: 'sale_pay_nequi', bank_transfer: 'sale_pay_bank_transfer', other: 'sale_pay_other' };
 
+/** Reportes → Ventas es solo del dueño; quien entra con "Finanzas" llega directo a Reportes → Balance general. */
 export default function Reports() {
+  const { user } = useAuthed();
+  if (user.role !== 'owner') return <Redirect href="/reports/balance" />;
+  return <SalesReports />;
+}
+
+function SalesReports() {
   const router = useRouter();
   const { t, language } = useSettings();
   const { business } = useAuthed();
@@ -252,6 +260,7 @@ export default function Reports() {
 
   return (
     <Screen header={<Header title={t('menu_reports')} subtitle={t('sec_reports_sub')} />} refreshing={salesCurrent.isRefetching} onRefresh={refresh}>
+      <ReportsTabs active="sales" showSales />
       <ReportsView
         period={period}
         onPeriod={setPeriod}

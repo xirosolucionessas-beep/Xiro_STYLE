@@ -1,5 +1,5 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
-import type { ClientsQuery, ItemsQuery, Page, ProductOrdersQuery } from '@xiro/shared';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import type { BalanceMovementsQuery, BalanceQuery, ClientsQuery, ExpensesQuery, ItemsQuery, Page, ProductOrdersQuery } from '@xiro/shared';
 import { api, fetchAllPages } from './api';
 
 export const keys = {
@@ -27,6 +27,7 @@ export const keys = {
   closures: ['closures'] as const,
   bookingReviews: ['bookingReviews'] as const,
   discountCodes: ['discountCodes'] as const,
+  expensePayees: ['expensePayees'] as const,
   waitlist: ['waitlist'] as const,
   packages: ['packages'] as const,
   variants: ['variants'] as const,
@@ -227,6 +228,12 @@ export const useBookingSettings = (enabled = true) => useQuery({ queryKey: keys.
 export const useClosures = (enabled = true) => useQuery({ queryKey: keys.closures, queryFn: api.closures, enabled });
 export const useBookingReviews = (enabled = true) =>
   useInfiniteQuery({ queryKey: keys.bookingReviews, queryFn: ({ pageParam }) => api.bookingReviews({ cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
+export const useExpenseList = (params: ExpensesQuery, enabled = true) => useQuery({ queryKey: [...keys.expenses, 'list', params], queryFn: () => api.expensesList(params), enabled });
+export const useExpensePayees = (enabled = true) => useQuery({ queryKey: keys.expensePayees, queryFn: api.expensePayees, enabled, staleTime: 5 * 60_000 });
+/** Balance general: bajo la clave de gastos, así registrar, editar o anular un gasto lo actualiza. */
+export const useBalance = (params: BalanceQuery, enabled = true) => useQuery({ queryKey: [...keys.expenses, 'balance', params], queryFn: () => api.balance(params), enabled, placeholderData: keepPreviousData });
+export const useBalanceMovements = (params: BalanceMovementsQuery, enabled = true) =>
+  useQuery({ queryKey: [...keys.expenses, 'balance-movements', params], queryFn: () => api.balanceMovements(params), enabled, placeholderData: keepPreviousData });
 export const useDiscountCodes = () => useQuery({ queryKey: keys.discountCodes, queryFn: api.discountCodes });
 export const useWaitlist = () => useQuery({ queryKey: keys.waitlist, queryFn: () => api.waitlist() });
 export const usePackages = (enabled = true) => useQuery({ queryKey: keys.packages, queryFn: api.packages, enabled });

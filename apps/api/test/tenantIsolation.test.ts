@@ -69,6 +69,8 @@ async function seed(label: string): Promise<Seeded> {
   await ok(await send(s, 'POST', `/api/professionals/${biz.ownerId}/time-off`, { startsAt: at(workday(9), '09:00'), endsAt: at(workday(9), '10:00'), reason: `Libre ${label}` }), 'tiempo libre');
   await ok(await send(s, 'POST', '/api/cash/opening', { amount: 100000, note: `Base ${label}` }), 'apertura de caja');
   await ok(await send(s, 'POST', '/api/expenses', { amount: 5000, description: `Gasto ${label}`, method: 'cash' }), 'gasto');
+  // Gasto por transferencia (no sale de la caja, que este negocio cierra al final): editable y anulable en el control.
+  await ok(await send(s, 'POST', '/api/expenses', { amount: 7000, description: `Arriendo ${label}`, method: 'bank_transfer', category: 'rent' }), 'gasto por transferencia');
   const employee = await createEmployee(app, s, ['clients_view']);
   const conversation = await ok(await send(s, 'POST', '/api/messages/conversations', { userId: employee.employee.id }), 'conversación');
   await ok(await send(s, 'POST', `/api/messages/conversations/${conversation.id}/messages`, { content: `Hola ${label}` }), 'mensaje');
@@ -152,6 +154,13 @@ function queryFor(key: string, s: Seeded): Record<string, string> {
     case 'GET /expenses':
     case 'GET /cash/closings':
       return { from: isoDay(-30), to: isoDay(1) };
+    case 'GET /reports/balance':
+    case 'GET /reports/balance/movements':
+    case 'GET /reports/balance/export.pdf':
+    case 'GET /reports/balance/export.xlsx':
+    case 'GET /expenses/export.xlsx':
+      // El balance no admite fechas futuras: termina ayer (en cualquier zona horaria sigue siendo pasado).
+      return { from: isoDay(-30), to: isoDay(-1) };
     case 'GET /cash/close-summary':
       return { day: isoDay(0) };
     case 'GET /sales':
@@ -207,6 +216,8 @@ const BODIES: Record<string, (a: Seeded) => unknown> = {
   'POST /orders/:id/cancel': () => ({ reason: 'prueba' }),
   'PUT /discount-codes/:id': () => ({ code: 'CAMBIADO', kind: 'percent', value: 5 }),
   'POST /waitlist/:id/cancel': () => ({}),
+  'PUT /expenses/:id': () => ({ amount: 7100, description: 'Arriendo editado', method: 'bank_transfer', category: 'rent' }),
+  'POST /expenses/:id/void': () => ({ reason: 'Prueba de aislamiento' }),
 };
 /** Rutas que reciben una foto (multipart). */
 const MULTIPART = new Set(['PUT /clients/:id/photo', 'PUT /professionals/:id/photo', 'PUT /employees/:id/photo', 'POST /items/:id/photos']);
@@ -363,6 +374,8 @@ describe('aislamiento multi-negocio (BOLA/IDOR) en todas las rutas autenticadas'
       'POST /orders/:id/cancel': await own('product_orders', "and status = 'pending'"),
       'PUT /discount-codes/:id': await own('discount_codes'),
       'POST /waitlist/:id/cancel': await own('waitlist_entries', "and status = 'waiting'"),
+      'PUT /expenses/:id': await own('expenses', "and paid_from_cash = false and status = 'active'"),
+      'POST /expenses/:id/void': await own('expenses', "and paid_from_cash = false and status = 'active'"),
     };
     const failures: string[] = [];
     for (const [key, id] of Object.entries(ids)) {
@@ -423,6 +436,7 @@ describe('las respuestas nunca exponen campos sensibles', () => {
       [/^\/messages\/conversations\//, await first('select id from conversations where business_id = $1')],
       [/^\/professionals\//, A.biz.ownerId],
       [/^\/orders\//, await first('select id from product_orders where business_id = $1')],
+      [/^\/expenses\//, await first('select id from expenses where business_id = $1')],
     ];
     const failed: string[] = [];
     for (const key of Object.keys(POLICY).filter((k) => k.startsWith('GET ') && !EXTERNAL.has(k))) {

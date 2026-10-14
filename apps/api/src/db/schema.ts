@@ -1248,12 +1248,75 @@ export const expenses = pgTable(
     method: text('method').notNull().default('cash'),
     createdBy: uuid('created_by').notNull(),
     createdAt: createdAt(),
+    /* ---- Módulo Finanzas (migración 0033): todo aditivo; los gastos anteriores quedan como "operativo · otros". ---- */
+    /** 'operating' (operativo) | 'payroll' (nómina). */
+    type: text('type').notNull().default('operating'),
+    /** Código de categoría (catálogo en @xiro/shared/expenses, ampliable sin migración). */
+    category: text('category').notNull().default('other'),
+    /** Día del gasto en la zona del negocio (lo que usa el Balance). */
+    expenseDate: date('expense_date', { mode: 'string' }).notNull().defaultNow(),
+    /** Empleado que recibe el pago (obligatorio en nómina). */
+    employeeId: uuid('employee_id'),
+    notes: text('notes').notNull().default(''),
+    /** Salió del efectivo de la caja del día (se resta del esperado en el arqueo). */
+    paidFromCash: boolean('paid_from_cash').notNull().default(false),
+    /** Apertura de caja (del día) de la que salió, si aplica. */
+    cashOpeningId: uuid('cash_opening_id').references(() => cashOpenings.id, { onDelete: 'set null' }),
+    /** 'active' | 'voided' (anulación con motivo; nunca se borra). */
+    status: text('status').notNull().default('active'),
+    voidReason: text('void_reason').notNull().default(''),
+    voidedBy: uuid('voided_by'),
+    voidedAt: ts('voided_at'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
     foreignKey({ columns: [t.createdBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'expenses_created_by_fk' }),
+    foreignKey({ columns: [t.employeeId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'expenses_employee_fk' }),
+    foreignKey({ columns: [t.voidedBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'expenses_voided_by_fk' }),
     index('expenses_business_idx').on(t.businessId, t.createdAt.desc()),
+    index('expenses_business_date_idx').on(t.businessId, t.expenseDate.desc()),
+    index('expenses_business_employee_idx').on(t.businessId, t.employeeId).where(sql`${t.employeeId} is not null`),
     check('expenses_method_ck', sql`${t.method} in ('cash','card','nequi','bank_transfer','other')`),
     check('expenses_amount_ck', sql`${t.amount} > 0 and ${t.amount} <= 1000000000`),
+    check('expenses_type_ck', sql`${t.type} in ('operating','payroll')`),
+    check('expenses_status_ck', sql`${t.status} in ('active','voided')`),
+    check('expenses_payroll_employee_ck', sql`${t.type} <> 'payroll' or ${t.employeeId} is not null`),
+    check('expenses_cash_method_ck', sql`not ${t.paidFromCash} or ${t.method} = 'cash'`),
+  ],
+);
+
+/**
+ * Ajustes explícitos a gastos de una caja YA CERRADA (Finanzas, fase 2): el cierre firmado no se toca, pero toda corrección
+ * posterior (editar o anular un gasto que salió de esa caja) queda registrada aquí con su motivo, el antes y el después, quién
+ * y cuándo. Solo se agrega (nunca se edita ni se borra).
+ */
+export const expenseAdjustments = pgTable(
+  'expense_adjustments',
+  {
+    id: id(),
+    businessId: businessRef(),
+    expenseId: uuid('expense_id')
+      .notNull()
+      .references(() => expenses.id, { onDelete: 'cascade' }),
+    /** Día de caja (cerrada) que afecta. */
+    cashDay: date('cash_day', { mode: 'string' }).notNull(),
+    /** 'edit' | 'void'. */
+    kind: text('kind').notNull(),
+    reason: text('reason').notNull(),
+    /** Monto que salía de la caja antes y después del ajuste (0 si dejó de salir de ella). */
+    amountBefore: integer('amount_before').notNull(),
+    amountAfter: integer('amount_after').notNull(),
+    /** Copia de los campos del gasto antes y después (para auditoría). */
+    before: jsonb('before').$type<Record<string, unknown>>().notNull(),
+    after: jsonb('after').$type<Record<string, unknown>>().notNull(),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.createdBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'expense_adjustments_created_by_fk' }),
+    index('expense_adjustments_expense_idx').on(t.businessId, t.expenseId),
+    index('expense_adjustments_day_idx').on(t.businessId, t.cashDay),
+    check('expense_adjustments_kind_ck', sql`${t.kind} in ('edit','void')`),
   ],
 );
 

@@ -8,11 +8,12 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-n
 import { actorOf, meets } from '@/lib/access';
 import { dayRange, localDate, todayIn, upcoming } from '@/lib/agenda';
 import { relativeTime } from '@/lib/alerts';
-import { api } from '@/lib/api';
+import { api, errorKey } from '@/lib/api';
+import { dailyCashFlow } from '@/lib/cashFlow';
 import { buildActivity } from '@/lib/dashboard';
 import { formatCompactMoney, TEAM_LABEL_KEYS } from '@/lib/homeMetrics';
 import { menuFor } from '@/lib/menu';
-import { keys, useAppointments, useCashToday, useClassification, useClientsSummary, useEmployees, useItemsQuery, useItemsSummary, useOrdersSummary, useRecentClients, useRecentServiceRecords, useServiceRecordsSummary } from '@/lib/queries';
+import { keys, useAppointments, useCashCloseSummary, useCashClosings, useCashToday, useClassification, useClientsSummary, useEmployees, useItemsQuery, useItemsSummary, useOrdersSummary, useRecentClients, useRecentServiceRecords, useServiceRecordsSummary } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { useGreetingKey } from '@/lib/useGreeting';
@@ -20,6 +21,7 @@ import { useCookieConsent } from '@/lib/useCookieConsent';
 import { useHomeAlerts } from '@/lib/useHomeAlerts';
 import { useDialogs } from '@/ui/Dialogs';
 import { AlertsCard } from '@/ui/home/AlertsCard';
+import { CashFlowCard } from '@/ui/home/CashFlowCard';
 import { AssistantChat } from '@/ui/home/AssistantChat';
 import { ActivityCard, DaySummaryCard, StockAlertsCard, type ActivityRow, type SummaryStat } from '@/ui/home/DashboardCards';
 import { HomeHeader } from '@/ui/home/HomeHeader';
@@ -61,6 +63,9 @@ export default function Home() {
   const canSales = meets(actor, ['services_record']);
 
   const cash = useCashToday(isOwner);
+  // Flujo de caja diario (solo el dueño: el resumen de caja es suyo, el servidor exige lo mismo).
+  const daySummary = useCashCloseSummary(todayIn(business.timezone), isOwner);
+  const todayClosings = useCashClosings(isOwner ? { from: todayIn(business.timezone), to: todayIn(business.timezone) } : null, isOwner);
   const employees = useEmployees(isOwner);
   const canAgenda = meets(actor, ['agenda_own']);
   const canReview = meets(actor, ['catalog_manage']);
@@ -161,9 +166,11 @@ export default function Home() {
     ...(canSales ? [{ id: 'sale', label: t('home_fab_sale'), icon: 'cash-outline' as IconName, onPress: () => router.push('/sale/new'), primary: true }] : []),
     ...(meets(actor, ['catalog_manage']) ? [{ id: 'service', label: t('home_fab_service'), icon: 'add-circle-outline' as IconName, onPress: () => router.push('/item/form') }] : []),
     ...(meets(actor, ['clients_manage']) ? [{ id: 'client', label: t('home_fab_client'), icon: 'person-add-outline' as IconName, onPress: () => router.push('/client/form') }] : []),
+    // Finanzas: "Registrar gasto" (abre Gastos con el formulario de alta ya abierto).
+    ...(meets(actor, ['finance']) ? [{ id: 'expense', label: t('home_register_expense'), icon: 'wallet-outline' as IconName, onPress: () => router.push({ pathname: '/expenses', params: { new: '1' } }) }] : []),
   ];
 
-  const refresh = () => Promise.all([keys.cash, keys.clients, keys.items, keys.employees, keys.serviceRecords, keys.subscription, keys.appointments, keys.classification].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
+  const refresh = () => Promise.all([keys.cash, keys.cashCloseSummary, keys.cashClosings, keys.clients, keys.items, keys.employees, keys.serviceRecords, keys.subscription, keys.appointments, keys.classification].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
 
   const changeLanguage = (next: 'es' | 'en') => {
     setLanguage(next);
@@ -193,6 +200,17 @@ export default function Home() {
 
         <View style={styles.body}>
           <MetricCards metrics={metrics} />
+
+          {isOwner ? (
+            <CashFlowCard
+              flow={daySummary.data ? dailyCashFlow(daySummary.data, todayClosings.data ?? []) : null}
+              loading={daySummary.isLoading}
+              error={daySummary.isError ? t(errorKey(daySummary.error)) : undefined}
+              currency={business.currency as Currency}
+              onSeeClose={() => router.push('/cash-close')}
+              onOpenCash={() => router.push('/cash-opening')}
+            />
+          ) : null}
 
           {canSales || isOwner ? (
             <DaySummaryCard
