@@ -260,6 +260,13 @@
       "when": 1791999234151,
       "tag": "0036_finance_covering_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792266615411,
+      "tag": "0037_platform_admin",
+      "breakpoints": true
     }
   ]
 }

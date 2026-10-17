@@ -38,6 +38,11 @@ export interface Subscription {
   gracePeriodEndsAt: string | null;
   /** Derivado en el servidor (nunca confiar en un cliente para esto): ¿tiene acceso a funciones premium ahora mismo? */
   hasAccess: boolean;
+  /**
+   * Fin del acceso de cortesía concedido por la administración de Xiro (panel del fundador), si cubre este momento. NO es un
+   * pago ni cambia `status`: solo hace `hasAccess` verdadero mientras dure. Ausente o null = sin concesión vigente.
+   */
+  accessGrantEndsAt?: string | null;
 }
 
 /** Un comprobante de pago ya confirmado (Tarea de facturación de suscripción): monto y fechas congelados al momento del pago. */
@@ -101,9 +106,11 @@ export function deriveEffectiveStatus(row: SubscriptionClock, now: Date = new Da
 export type SubscriptionNotice = 'blocked' | 'grace' | 'expiring_soon' | null;
 
 export function subscriptionNotice(
-  subscription: Pick<Subscription, 'status' | 'hasAccess' | 'trialEndsAt' | 'currentPeriodEnd' | 'gracePeriodEndsAt' | 'cancelAtPeriodEnd'>,
+  subscription: Pick<Subscription, 'status' | 'hasAccess' | 'trialEndsAt' | 'currentPeriodEnd' | 'gracePeriodEndsAt' | 'cancelAtPeriodEnd' | 'accessGrantEndsAt'>,
   now: Date = new Date(),
 ): SubscriptionNotice {
+  // Acceso de cortesía concedido por Xiro sobre un plan vencido: no se avisa de "gracia" ni de bloqueo mientras dure.
+  if (subscription.hasAccess && subscription.accessGrantEndsAt && subscription.status !== 'trial' && subscription.status !== 'active') return null;
   if (!subscription.hasAccess) return subscription.status === 'past_due' || subscription.status === 'expired' ? 'blocked' : null;
   if (subscription.status === 'past_due') return 'grace';
   if (subscription.cancelAtPeriodEnd) return null; // ya decidió no renovar: no hace falta agobiarlo con la cuenta regresiva

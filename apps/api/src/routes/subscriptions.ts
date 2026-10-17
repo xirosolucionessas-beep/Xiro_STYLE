@@ -9,6 +9,7 @@ import { AppError, notFound, parse } from '../errors';
 import { safeEqualSecret } from '../security';
 import { createPayPalSubscription } from '../paypal';
 import Stripe from 'stripe';
+import { accessGrantStatus } from '../platform/grants';
 import { addDays, getSubscriptionRow, hasClaimedTrial, listSubscriptionInvoices, recordSubscriptionInvoice, startTrial, toSubscriptionResponse } from '../subscriptions';
 
 const trialSchema = z.object({ plan: z.enum(SUBSCRIPTION_PLANS), platform: z.enum(SUBSCRIPTION_PLATFORMS) });
@@ -34,10 +35,13 @@ export function subscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   app.get('/subscription', async (request) => {
     const row = await getSubscriptionRow(db, request.user.bid);
-    const full = await toSubscriptionResponse(db, row);
+    const paid = await toSubscriptionResponse(db, row);
+    // Concesión administrativa vigente (panel del fundador): da acceso sin tocar el estado de pago ni al proveedor.
+    const grant = await accessGrantStatus(db, request.user.bid);
+    const full: Subscription = grant.coversNow ? { ...paid, hasAccess: true, accessGrantEndsAt: grant.until!.toISOString() } : { ...paid, accessGrantEndsAt: null };
     if (request.actor.role === 'owner') return full;
     // Un empleado solo necesita saber si la cuenta tiene acceso: nada de plan, precios, fechas de cobro ni método de pago.
-    return { plan: null, status: full.status, platform: null, paymentMethod: null, trialEndsAt: null, currentPeriodEnd: null, nextBillingAt: null, cancelAtPeriodEnd: false, gracePeriodEndsAt: full.gracePeriodEndsAt, hasAccess: full.hasAccess } satisfies Subscription;
+    return { plan: null, status: full.status, platform: null, paymentMethod: null, trialEndsAt: null, currentPeriodEnd: null, nextBillingAt: null, cancelAtPeriodEnd: false, gracePeriodEndsAt: full.gracePeriodEndsAt, hasAccess: full.hasAccess, accessGrantEndsAt: full.accessGrantEndsAt } satisfies Subscription;
   });
 
   /** Reclama la prueba gratuita de 7 días (sección 2). Un negocio solo puede hacerlo una vez, para siempre. */

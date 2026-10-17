@@ -46,6 +46,10 @@ const AUTH = (titleKey: string, extra: Partial<RouteInfo> = {}): RouteInfo => ({
 export function describeRoute(pathname: string, search = ''): RouteInfo {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   const editing = new URLSearchParams(search).has('id');
+  // Panel del fundador: pantalla completa, sin la barra lateral ni las herramientas de un negocio.
+  if (path === '/platform' || path.startsWith('/platform/')) {
+    return { titleKey: 'platform_title', section: null, trail: [{ labelKey: 'platform_title' }], auth: false, width: 'wide', needsHeading: false, hideFloating: true, standalone: true };
+  }
 
   switch (path) {
     case '/':

@@ -46,6 +46,38 @@ export class Metrics {
     histogram.count += 1;
   }
 
+  /**
+   * Resumen para el panel de plataforma: totales de ESTE proceso desde su arranque y percentiles aproximados (la cota
+   * superior del bucket del histograma donde cae el percentil; null si cae por encima del último bucket o no hay datos).
+   */
+  snapshot(): { since: Date; requests: number; errors4xx: number; errors5xx: number; p50Ms: number | null; p95Ms: number | null; p99Ms: number | null } {
+    let requests = 0;
+    let errors4xx = 0;
+    let errors5xx = 0;
+    for (const [labels, value] of this.requests) {
+      requests += value;
+      if (labels.includes('status="4xx"')) errors4xx += value;
+      if (labels.includes('status="5xx"')) errors5xx += value;
+    }
+    const counts = BUCKETS.map(() => 0);
+    let total = 0;
+    for (const h of this.durations.values()) {
+      h.counts.forEach((c, i) => (counts[i]! += c));
+      total += h.count;
+    }
+    const percentile = (p: number): number | null => {
+      if (total === 0) return null;
+      const index = counts.findIndex((c) => c >= total * p);
+      return index === -1 ? null : BUCKETS[index]! * 1000;
+    };
+    return { since: new Date(this.startedAt), requests, errors4xx, errors5xx, p50Ms: percentile(0.5), p95Ms: percentile(0.95), p99Ms: percentile(0.99) };
+  }
+
+  /** Conexiones del pool de PostgreSQL de este proceso (null sin pool). */
+  poolStats(): { total: number; idle: number; waiting: number } | null {
+    return this.pool ? { total: this.pool.totalCount, idle: this.pool.idleCount, waiting: this.pool.waitingCount } : null;
+  }
+
   render(): string {
     const lines: string[] = [];
     const metric = (name: string, type: string, help: string) => lines.push(`# HELP ${name} ${help}`, `# TYPE ${name} ${type}`);

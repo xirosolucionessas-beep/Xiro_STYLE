@@ -247,7 +247,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (await tryRefresh()) response = await rawRequest(path, init());
     else hooks?.onSignedOut();
   }
-  if (!response.ok) throw await toError(response);
+  if (!response.ok) {
+    const error = await toError(response);
+    // Negocio suspendido desde la administración de Xiro: la sesión ya no sirve (el servidor también cerró las demás).
+    if (auth && error.code === 'business_suspended') hooks?.onSignedOut();
+    throw error;
+  }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }

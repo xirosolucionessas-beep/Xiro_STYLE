@@ -27,12 +27,23 @@ export const businesses = pgTable(
     timezone: text('timezone').notNull().default('America/Bogota'),
     hours: jsonb('hours').$type<BusinessHours>().notNull(),
     logoFile: text('logo_file'),
+    /**
+     * Acceso a XIRO decidido por la administración de la plataforma (panel del fundador, ver routes/platform.ts). Es
+     * independiente del pago: `subscriptions` dice si el negocio pagó; esto dice si puede entrar. 'suspended' y
+     * 'deactivated' (baja lógica, recuperable) bloquean el inicio de sesión, la API del negocio y sus páginas públicas.
+     * Solo lo cambian los servicios de platform/, siempre con auditoría.
+     */
+    accessStatus: text('access_status').notNull().default('active'),
+    accessStatusChangedAt: ts('access_status_changed_at'),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('businesses_slug_uq').on(t.slug),
     check('businesses_type_ck', sql`${t.type} in ('barbershop','beauty_salon','spa','nails','other')`),
     check('businesses_currency_ck', sql`${t.currency} in ('COP','USD','MXN','EUR')`),
+    check('businesses_access_status_ck', sql`${t.accessStatus} in ('active','suspended','deactivated')`),
+    // Panel de plataforma: altas por período (gráfica histórica) sin recorrer toda la tabla.
+    index('businesses_created_idx').on(t.createdAt),
   ],
 );
 
@@ -1499,5 +1510,120 @@ export const waitlistEntries = pgTable(
     uniqueIndex('waitlist_client_date_uq').on(t.businessId, t.clientId, t.date).where(sql`${t.status} = 'waiting'`),
     index('waitlist_business_date_idx').on(t.businessId, t.date, t.createdAt),
     check('waitlist_status_ck', sql`${t.status} in ('waiting','notified','cancelled')`),
+  ],
+);
+
+
+/* =====================================================================================================================
+ * Administración de la PLATAFORMA (panel del fundador). Identidades separadas por completo de las de los negocios: un
+ * administrador no es un `users` (no tiene negocio) y un usuario de negocio nunca puede volverse administrador desde la API
+ * (no hay ruta de alta: solo el script `npm run platform:admin`). Ninguna de estas tablas es accesible para `xiro_app`.
+ * ===================================================================================================================== */
+
+export const platformAdmins = pgTable(
+  'platform_admins',
+  {
+    id: id(),
+    /** Siempre en minúsculas. */
+    email: text('email').notNull(),
+    name: text('name').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    /** Secreto TOTP (RFC 6238) CIFRADO con AES-256-GCM (clave PLATFORM_ADMIN_KEY); nunca en claro en la base. */
+    totpSecretEnc: text('totp_secret_enc').notNull(),
+    /** Último paso TOTP aceptado: un código ya usado no sirve otra vez (anti-repetición). */
+    totpLastStep: integer('totp_last_step').notNull().default(0),
+    /** El fundador tiene todos los permisos; el resto, solo los de `permissions` (PLATFORM_PERMISSIONS). */
+    isFounder: boolean('is_founder').notNull().default(false),
+    permissions: jsonb('permissions').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    active: boolean('active').notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('platform_admins_email_uq').on(t.email), check('platform_admins_email_lower_ck', sql`${t.email} = lower(${t.email})`)],
+);
+
+/**
+ * Sesiones de administrador: token opaco (solo su HMAC en la base), vencimiento absoluto y por inactividad, revocables al
+ * instante. `mfaAt` es la última verificación TOTP: las acciones sensibles exigen que sea reciente (reautenticación).
+ */
+export const platformAdminSessions = pgTable(
+  'platform_admin_sessions',
+  {
+    id: id(),
+    adminId: uuid('admin_id')
+      .notNull()
+      .references(() => platformAdmins.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: ts('expires_at').notNull(),
+    lastSeenAt: ts('last_seen_at').notNull().defaultNow(),
+    mfaAt: ts('mfa_at').notNull(),
+    revokedAt: ts('revoked_at'),
+    ip: text('ip'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('platform_sessions_token_uq').on(t.tokenHash), index('platform_sessions_admin_idx').on(t.adminId)],
+);
+
+/**
+ * Bitácora de la plataforma: toda lectura sensible y toda acción administrativa (también los intentos denegados o fallidos).
+ * INMUTABLE desde la aplicación: un trigger rechaza UPDATE, DELETE y TRUNCATE (ver la migración). Sin FK a `businesses`
+ * a propósito: el registro sobrevive aunque algún día se borre el negocio. Nunca guarda contraseñas, tokens ni cuerpos.
+ */
+export const platformAuditLog = pgTable(
+  'platform_audit_log',
+  {
+    id: id(),
+    /** null = intento de inicio de sesión de una cuenta inexistente. */
+    adminId: uuid('admin_id').references(() => platformAdmins.id, { onDelete: 'restrict' }),
+    action: text('action').notNull(),
+    businessId: uuid('business_id'),
+    outcome: text('outcome').notNull(),
+    requestId: text('request_id'),
+    ip: text('ip'),
+    /** Valores anteriores/nuevos, motivo, referencia de soporte… (lista blanca: ver platform/audit.ts). */
+    details: jsonb('details').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('platform_audit_created_idx').on(t.createdAt.desc()),
+    index('platform_audit_business_idx').on(t.businessId, t.createdAt.desc()),
+    index('platform_audit_admin_idx').on(t.adminId, t.createdAt.desc()),
+    check('platform_audit_outcome_ck', sql`${t.outcome} in ('success','denied','error')`),
+  ],
+);
+
+/**
+ * Concesión administrativa de acceso (días o meses de cortesía). NO es un pago: no genera comprobante, no toca
+ * `subscriptions` ni al proveedor de pagos. Da acceso entre `startsAt` y `endsAt`; revocarla la deja sin efecto (no se borra).
+ * `idempotencyKey` (único) hace que un reintento o un doble clic no la dupliquen.
+ */
+export const businessAccessGrants = pgTable(
+  'business_access_grants',
+  {
+    id: id(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id, { onDelete: 'restrict' }),
+    adminId: uuid('admin_id')
+      .notNull()
+      .references(() => platformAdmins.id, { onDelete: 'restrict' }),
+    unit: text('unit').notNull(),
+    amount: integer('amount').notNull(),
+    startsAt: ts('starts_at').notNull(),
+    endsAt: ts('ends_at').notNull(),
+    reason: text('reason').notNull(),
+    supportRef: text('support_ref'),
+    idempotencyKey: uuid('idempotency_key').notNull(),
+    revokedAt: ts('revoked_at'),
+    revokedBy: uuid('revoked_by').references(() => platformAdmins.id, { onDelete: 'restrict' }),
+    revokeReason: text('revoke_reason'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('access_grants_idempotency_uq').on(t.idempotencyKey),
+    index('access_grants_business_idx').on(t.businessId, t.endsAt.desc()),
+    check('access_grants_unit_ck', sql`${t.unit} in ('days','months')`),
+    check('access_grants_amount_ck', sql`(${t.unit} = 'days' and ${t.amount} between 1 and 366) or (${t.unit} = 'months' and ${t.amount} between 1 and 24)`),
+    check('access_grants_range_ck', sql`${t.endsAt} > ${t.startsAt}`),
   ],
 );

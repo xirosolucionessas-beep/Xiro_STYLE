@@ -79,6 +79,19 @@ export interface SubscriptionsConfig {
   adminAllowedIps: string[];
 }
 
+/** Panel de administración de la plataforma (ver docs/platform-admin.md). Sin PLATFORM_ADMIN_KEY no existe: todas sus rutas responden 404. */
+export interface PlatformConfig {
+  /** Clave (≥ 32 caracteres) con la que se cifran los secretos TOTP de los administradores. Cambiarla invalida su MFA. */
+  adminKey: string | null;
+  /** Si no está vacía, solo estas IPs llegan a /api/platform (el resto recibe 404). */
+  allowedIps: string[];
+  /** Vida máxima de una sesión de administrador (horas) y cierre por inactividad (minutos). */
+  sessionHours: number;
+  idleMinutes: number;
+  /** Las acciones sensibles exigen haber verificado el código TOTP hace menos de esto (minutos). */
+  stepUpMinutes: number;
+}
+
 export interface NotificationsConfig {
   /**
    * Proveedor de los mensajes al usuario (códigos de verificación, recordatorios). `console` solo los escribe en el log:
@@ -168,6 +181,7 @@ export interface Config {
   security: SecurityConfig;
   subscriptions: SubscriptionsConfig;
   notifications: NotificationsConfig;
+  platform: PlatformConfig;
   booking: BookingConfig;
   observability: ObservabilityConfig;
 }
@@ -259,6 +273,11 @@ const envSchema = z.object({
   NOTIFIER_PROVIDER: z.enum(NOTIFIER_PROVIDERS).default('console'),
   /** IPs (separadas por coma) desde las que se aceptan las rutas /api/admin; vacío = cualquiera (con secreto y límite estricto). */
   ADMIN_ALLOWED_IPS: z.string().optional(),
+  PLATFORM_ADMIN_KEY: z.string().optional(),
+  PLATFORM_ADMIN_ALLOWED_IPS: z.string().optional(),
+  PLATFORM_SESSION_HOURS: int('PLATFORM_SESSION_HOURS', 8, 1, 24),
+  PLATFORM_IDLE_MINUTES: int('PLATFORM_IDLE_MINUTES', 30, 5, 240),
+  PLATFORM_STEP_UP_MINUTES: int('PLATFORM_STEP_UP_MINUTES', 5, 1, 30),
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().optional(),
@@ -327,6 +346,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (mediaStorage === 's3' && !(e.S3_ENDPOINT && e.S3_BUCKET && e.S3_ACCESS_KEY_ID && e.S3_SECRET_ACCESS_KEY)) {
     throw new Error('MEDIA_STORAGE=s3 requiere S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID y S3_SECRET_ACCESS_KEY (en Cloudflare R2: https://<account-id>.r2.cloudflarestorage.com).');
   }
+  if (e.PLATFORM_ADMIN_KEY !== undefined && e.PLATFORM_ADMIN_KEY.length < 32) throw new Error('PLATFORM_ADMIN_KEY debe tener al menos 32 caracteres (genera una con: openssl rand -base64 48).');
   // Un secreto de administración débil o de ejemplo es peor que no tenerlo: la API no arranca con él (en ningún entorno).
   if (e.ADMIN_SECRET !== undefined) {
     if (e.ADMIN_SECRET.length < 32) throw new Error('ADMIN_SECRET debe tener al menos 32 caracteres (genera uno con: openssl rand -base64 48).');
@@ -423,6 +443,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       bankTransferInstructions: e.BANK_TRANSFER_INSTRUCTIONS ?? null,
       adminSecret: e.ADMIN_SECRET ?? null,
       adminAllowedIps: csv(e.ADMIN_ALLOWED_IPS),
+    },
+    platform: {
+      adminKey: e.PLATFORM_ADMIN_KEY || null,
+      allowedIps: csv(e.PLATFORM_ADMIN_ALLOWED_IPS),
+      sessionHours: e.PLATFORM_SESSION_HOURS,
+      idleMinutes: e.PLATFORM_IDLE_MINUTES,
+      stepUpMinutes: e.PLATFORM_STEP_UP_MINUTES,
     },
     booking: {
       publicPerMinutePerBusiness: e.BOOKING_PUBLIC_PER_MIN_BUSINESS,

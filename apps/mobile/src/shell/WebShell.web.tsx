@@ -108,7 +108,7 @@ export function WebShell({ children }: { children: ReactNode }) {
         }>
         {children}
       </ShellView>
-      <SubscriptionGate t={t} language={language} />
+      {pathname.startsWith('/platform') ? null : <SubscriptionGate t={t} language={language} />}
       {signedIn && business ? <PlanCelebrationHost businessId={business.id} /> : null}
       <CookieConsentView open={cookies.visible && !route.auth && !route.standalone} t={t} onAccept={cookies.accept} navigate={(href) => router.navigate(href as never)} />
     </AssistantContext.Provider>

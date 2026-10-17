@@ -77,7 +77,7 @@ export function webRoutes(app: FastifyInstance, ctx: Ctx): string | null {
 
   async function ogTags(request: FastifyRequest, slug: string, itemId: string | null): Promise<string> {
     const [business] = await db.select().from(businesses).where(eq(businesses.slug, slug.slice(0, 60))).limit(1);
-    if (!business) return '<title>Catálogo | Xiro Style</title><meta name="robots" content="noindex">';
+    if (!business || business.accessStatus !== 'active') return '<title>Catálogo | Xiro Style</title><meta name="robots" content="noindex">';
     const origin = `${request.protocol}://${request.host}`;
     const item = itemId && isUuid(itemId) ? (await loadItems(db, business.id, { id: itemId.toLowerCase(), publishedOnly: true }))[0] : undefined;
     const title = item ? `${item.name} | ${business.name}` : `${business.name} | Catálogo`;

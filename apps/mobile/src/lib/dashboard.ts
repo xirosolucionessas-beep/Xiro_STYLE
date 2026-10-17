@@ -155,8 +155,10 @@ export interface PlanCard {
  * Tarjeta del plan en la barra lateral, con el estado REAL de la suscripción. Devuelve `null` (no se muestra) si nunca
  * eligió plan o canceló a propósito: no se le ofrece un "plan activo" que no tiene.
  */
-export function planCard(subscription: { status: string; hasAccess: boolean; trialEndsAt: string | null; currentPeriodEnd: string | null } | undefined): PlanCard | null {
+export function planCard(subscription: { status: string; hasAccess: boolean; trialEndsAt: string | null; currentPeriodEnd: string | null; accessGrantEndsAt?: string | null } | undefined): PlanCard | null {
   if (!subscription) return null;
+  // Acceso de cortesía de Xiro sobre un plan vencido: no es un "plan activo" ni un bloqueo; no se muestra tarjeta.
+  if (subscription.hasAccess && subscription.accessGrantEndsAt && subscription.status !== 'trial' && subscription.status !== 'active') return null;
   if (subscription.status === 'trial' && subscription.hasAccess) return { kind: 'trial', date: subscription.trialEndsAt };
   if (subscription.status === 'active' && subscription.hasAccess) return { kind: 'active', date: subscription.currentPeriodEnd };
   if (subscription.status === 'past_due') return { kind: subscription.hasAccess ? 'grace' : 'blocked', date: null };

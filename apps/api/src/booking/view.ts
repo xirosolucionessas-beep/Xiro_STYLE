@@ -43,13 +43,17 @@ import { addDays, localDate, localMinutes, zonedInstant } from './time';
  * marca `redirected` (la página web responde con una redirección permanente a la vigente).
  * Consulta con la conexión normal: aún no se sabe de qué negocio se trata, así que no hay negocio activo para RLS.
  */
-export async function resolveSlug(db: DbExecutor, slug: string): Promise<{ business: BusinessRow; redirected: boolean } | null> {
+export async function resolveSlug(db: DbExecutor, slug: string, options: { includeInactive?: boolean } = {}): Promise<{ business: BusinessRow; redirected: boolean } | null> {
   const [current] = await db.select().from(businesses).where(eq(businesses.slug, slug)).limit(1);
-  if (current) return { business: current, redirected: false };
+  // Negocio suspendido o dado de baja desde el panel de plataforma: sus páginas públicas responden como si no existieran
+  // (su equipo no puede entrar a ver reservas ni pedidos nuevos, así que no se deben aceptar). `includeInactive` solo para
+  // que un cliente final siga pudiendo ver, cancelar o pedir el borrado de SU cita con su enlace personal.
+  const usable = (b: BusinessRow) => options.includeInactive === true || b.accessStatus === 'active';
+  if (current) return usable(current) ? { business: current, redirected: false } : null;
   const [old] = await db.select({ businessId: businessSlugHistory.businessId }).from(businessSlugHistory).where(eq(businessSlugHistory.slug, slug)).limit(1);
   if (!old) return null;
   const [moved] = await db.select().from(businesses).where(eq(businesses.id, old.businessId)).limit(1);
-  return moved ? { business: moved, redirected: true } : null;
+  return moved && usable(moved) ? { business: moved, redirected: true } : null;
 }
 
 /**

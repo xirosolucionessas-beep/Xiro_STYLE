@@ -191,6 +191,7 @@ describe('migración 0024: reversible y sin cambiar resultados', () => {
 
     // Las reversiones van en ORDEN INVERSO: el migrador solo aplica lo posterior a la ÚLTIMA migración registrada, así que
     // para revertir 0024 primero se revierte lo que vino después, de la más nueva a la más vieja (0036 índices del balance, 0035 RLS de registros de servicio, 0034 ajustes de gastos, 0033 finanzas, 0032 opciones de la página, 0031 índices de códigos, 0030 lista de espera, 0029 códigos, 0028 opciones de la Fase 4, 0027 especialidad, 0026 marca, 0025 pedidos).
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0037_platform_admin.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0036_finance_covering_indexes.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0035_service_records_rls.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0034_expense_adjustments.down.sql'), 'utf8'));
@@ -206,7 +207,12 @@ describe('migración 0024: reversible y sin cambiar resultados', () => {
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0024_search_and_tenant_indexes.down.sql'), 'utf8'));
     expect(await existing()).toEqual([]);
     expect(await counts()).toEqual(dataBefore);
+    // La API actual lee businesses.access_status en cada petición autenticada (0037, panel de plataforma) y NO tolera su
+    // ausencia a propósito (fallaría abierta). Para comparar resultados con el esquema anterior a 0024 se agrega solo esa
+    // columna mientras dura la comparación y se quita antes de volver a migrar (0037 la crea de nuevo).
+    await testDb.pool.query(`alter table businesses add column access_status text not null default 'active'`);
     expect(await snapshot()).toEqual(before);
+    await testDb.pool.query(`alter table businesses drop column access_status`);
 
     await runMigrations(testDb);
     expect(await existing()).toEqual([...INDEXES].sort());

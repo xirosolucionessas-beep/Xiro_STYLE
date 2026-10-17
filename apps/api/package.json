@@ -16,6 +16,7 @@
     "db:migrate": "tsx --env-file-if-exists=.env src/db/migrate-cli.ts",
     "media:migrate": "tsx --env-file-if-exists=.env scripts/migrate-media-to-s3.ts",
     "env:check": "tsx --env-file-if-exists=.env scripts/check-env.ts",
+    "platform:admin": "tsx --env-file-if-exists=.env scripts/platform-admin.ts",
     "load:db": "tsx loadtest/db.ts",
     "load:seed": "tsx loadtest/seed.ts",
     "load:run": "tsx loadtest/run.ts",

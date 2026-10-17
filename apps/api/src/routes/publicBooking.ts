@@ -122,7 +122,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
       .where(eq(businesses.slug, slug))
       .limit(1);
     if (current) {
-      if (!current.published) throw notFound();
+      if (!current.published || current.business.accessStatus !== 'active') throw notFound();
       return current.business;
     }
     // Dirección anterior (el negocio cambió su slug): el camino de siempre.
@@ -485,9 +485,13 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
    * El token (256 bits aleatorios; en la base solo su hash) es la única llave. Se busca sin negocio activo porque aún no se
    * sabe de cuál es, y luego se EXIGE que pertenezca al negocio de la dirección: un token de otro negocio responde 404.
    */
-  async function ownAppointment(slug: string, token: string): Promise<{ business: BusinessRow; appointmentId: string }> {
+  /**
+   * `forClient`: ver, cancelar o pedir el borrado de la propia cita siguen funcionando aunque el negocio esté suspendido o
+   * dado de baja desde la plataforma (son derechos del cliente final). Reprogramar o reseñar, no.
+   */
+  async function ownAppointment(slug: string, token: string, forClient = false): Promise<{ business: BusinessRow; appointmentId: string }> {
     if (!TOKEN.test(token)) throw notFound();
-    const resolved = await resolveSlug(db, slug);
+    const resolved = await resolveSlug(db, slug, { includeInactive: forClient });
     if (!resolved) throw notFound();
     const [row] = await db.select({ id: appointments.id, businessId: appointments.businessId, expiresAt: appointments.tokenExpiresAt }).from(appointments).where(eq(appointments.tokenHash, hashToken(token))).limit(1);
     if (!row || row.businessId !== resolved.business.id || !row.expiresAt || row.expiresAt.getTime() < Date.now()) throw notFound();
@@ -505,14 +509,14 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   app.get('/:slug/appointments/:token', async (request): Promise<PublicAppointmentDto> => {
     const { slug, token } = parse(tokenParams, request.params);
-    const { business, appointmentId } = await ownAppointment(slug, token);
+    const { business, appointmentId } = await ownAppointment(slug, token, true);
     return scopedTo(business, (tx) => view(tx, business, appointmentId, new Date()));
   });
 
   app.post('/:slug/appointments/:token/cancel', async (request): Promise<PublicAppointmentDto> => {
     const { slug, token } = parse(tokenParams, request.params);
     const { reason } = parse(publicCancelInputSchema, request.body ?? {});
-    const { business, appointmentId } = await ownAppointment(slug, token);
+    const { business, appointmentId } = await ownAppointment(slug, token, true);
     let cancelled: AppointmentRow | undefined;
     const dto = await scopedTo(business, async (tx) => {
       const now = new Date();
@@ -541,7 +545,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
    */
   app.post('/:slug/appointments/:token/privacy-delete', async (request): Promise<{ ok: true }> => {
     const { slug, token } = parse(tokenParams, request.params);
-    const { business, appointmentId } = await ownAppointment(slug, token);
+    const { business, appointmentId } = await ownAppointment(slug, token, true);
     return scopedTo(business, async (tx) => {
       const [row] = await tx.select({ clientId: appointments.clientId }).from(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.businessId, business.id))).limit(1);
       if (!row) throw notFound();

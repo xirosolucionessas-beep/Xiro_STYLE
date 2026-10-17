@@ -18,7 +18,7 @@ import { GoogleMapsClient, type GoogleMaps } from './booking/google';
 import type { Ctx } from './context';
 import { ExportPool } from './exports/pool';
 import type { Database } from './db/client';
-import { users } from './db/schema';
+import { businesses, users } from './db/schema';
 import { AppError, containsNul, installErrorHandler, isUuid } from './errors';
 import { MAX_IMAGE_BYTES } from './media';
 import { createNotifier, type Notifier } from './notifier';
@@ -48,6 +48,7 @@ import { salesRoutes } from './routes/sales';
 import { serviceRecordRoutes } from './routes/serviceRecords';
 import type { RealtimeBus } from './realtime';
 import { adminSubscriptionRoutes, subscriptionRoutes } from './routes/subscriptions';
+import { platformRoutes } from './routes/platform';
 import { webRoutes } from './routes/web';
 import { webhookRoutes } from './routes/webhooks';
 import { configurePasswordHashing } from './passwords';
@@ -74,8 +75,9 @@ declare module 'fastify' {
 }
 
 export interface BuildOptions {
-  config?: Partial<Omit<Config, 'database' | 'rateLimit' | 'security' | 'booking'>> & {
+  config?: Partial<Omit<Config, 'database' | 'rateLimit' | 'security' | 'booking' | 'platform'>> & {
     booking?: Partial<Config['booking']>;
+    platform?: Partial<Config['platform']>;
     database?: Partial<Config['database']>;
     rateLimit?: Partial<Config['rateLimit']>;
     security?: Partial<Config['security']>;
@@ -107,6 +109,7 @@ export function mergeConfig(base: Config, overrides: BuildOptions['config'] = {}
     rateLimit: { ...base.rateLimit, ...overrides.rateLimit },
     security: { ...base.security, ...overrides.security },
     booking: { ...base.booking, ...overrides.booking },
+    platform: { ...base.platform, ...overrides.platform },
   } as Config;
 }
 
@@ -308,12 +311,15 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     // La librería no exige `exp`: un token sin caducidad sería eterno, así que se exige aquí.
     if (!isUuid(sub) || !isUuid(bid) || typeof exp !== 'number' || typeof iat !== 'number') throw new AppError(401, 'unauthorized');
     const [row] = await db
-      .select({ changedAt: users.passwordChangedAt, businessId: users.businessId, role: users.role, permissions: users.permissions, active: users.active })
+      .select({ changedAt: users.passwordChangedAt, businessId: users.businessId, role: users.role, permissions: users.permissions, active: users.active, businessAccess: businesses.accessStatus })
       .from(users)
+      .innerJoin(businesses, eq(businesses.id, users.businessId))
       .where(eq(users.id, sub))
       .limit(1);
     // Un empleado desactivado pierde el acceso al instante, aunque su token aún no haya vencido.
     if (!row || !row.active || row.businessId !== bid || iat * 1000 + 1000 <= row.changedAt.getTime()) throw new AppError(401, 'unauthorized');
+    // Negocio suspendido o dado de baja desde el panel de plataforma: ninguna sesión abierta sigue funcionando.
+    if (row.businessAccess !== 'active') throw new AppError(403, 'business_suspended');
     // Rol y permisos se leen de la base de datos en CADA petición (nunca del token): un cambio del dueño aplica de inmediato.
     request.actor = { id: sub, role: row.role === 'employee' ? 'employee' : 'owner', permissions: normalizePermissions(row.permissions) };
     authorize(request.actor, request.method, request.routeOptions.url ?? '');
@@ -371,6 +377,12 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     },
     { prefix: '/api/admin' },
   );
+
+  // Panel del fundador: solo existe con PLATFORM_ADMIN_KEY (sin ella, /api/platform responde 404 como cualquier ruta inexistente).
+  // Fuera del scope de negocios: su propia autenticación (token de plataforma + TOTP), permisos y bitácora (ver routes/platform.ts).
+  if (config.platform.adminKey) {
+    await app.register(async (scope) => platformRoutes(scope, ctx, { metrics }), { prefix: '/api/platform' });
+  }
 
   const userLimiter = rates.limiter('user', 60_000);
   const uploadLimiter = rates.limiter('media-uploads', 24 * 60 * 60_000);

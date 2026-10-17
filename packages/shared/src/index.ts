@@ -22,3 +22,4 @@ export * from './subscription';
 export * from './pagination';
 export * from './http';
 export * from './balance';
+export * from './platform';

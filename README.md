@@ -141,6 +141,10 @@ Referencia completa y comentada en `apps/api/.env.example`. Las principales:
 - **Backups**: usa los del proveedor de PostgreSQL (o `pg_dump`) y prueba la restauración periódicamente.
 - **Salud**: `GET /api/health` (proceso vivo) y `GET /api/health/ready` (comprueba la base de datos; 503 si no responde) para el balanceador.
 
+## Panel del fundador (administración de la plataforma)
+
+Panel seguro en `/platform` (web) para el fundador y administradores autorizados: métricas reales de la plataforma, búsqueda y ficha de negocios, suspensión/reactivación, días o meses de acceso de cortesía y baja lógica recuperable, todo auditado. Identidad separada de los negocios, contraseña + código TOTP y permisos por defecto-denegar. Solo existe con `PLATFORM_ADMIN_KEY`; los administradores se crean por consola (`npm run platform:admin -w @xiro/api`). Detalle, decisiones y pendientes: `docs/platform-admin.md`. Plan para validar el objetivo de 5.000+ usuarios concurrentes (no verificado todavía): `docs/platform-loadtest-plan.md`.
+
 ## Estado y pendientes
 
 Migrado desde la app Android: autenticación y recuperación, datos del negocio (horarios, logo), inicio con base de caja, inventario (stock, costos, estados, filtros), catálogo (fotos, publicación, categorías), compartir por WhatsApp, clientes, idioma ES/EN y modo oscuro/claro.

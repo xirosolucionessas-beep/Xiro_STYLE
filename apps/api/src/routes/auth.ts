@@ -83,6 +83,12 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (ip) await ipLimiter.hit(ip);
   };
 
+  /** Acceso decidido por la plataforma (suspensión o baja lógica desde el panel del fundador). */
+  async function businessIsActive(businessId: string): Promise<boolean> {
+    const [row] = await db.select({ status: businesses.accessStatus }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+    return row?.status === 'active';
+  }
+
   async function findUser(identifier: { kind: 'email' | 'phone'; value: string }): Promise<UserRow | undefined> {
     const [row] = await db.select().from(users).where(eq(identifier.kind === 'email' ? users.email : users.phone, identifier.value)).limit(1);
     return row;
@@ -171,6 +177,7 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (needsRehash(user.passwordHash)) await db.update(users).set({ passwordHash: await hashPassword(input.password) }).where(eq(users.id, user.id));
     // Se revela solo con la contraseña correcta: así no sirve para averiguar qué cuentas existen.
     if (!user.active) throw new AppError(403, 'account_disabled');
+    if (!(await businessIsActive(user.businessId))) throw new AppError(403, 'business_suspended');
     return deliver(request, reply, await issueSession(user));
   });
 
@@ -200,7 +207,7 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
     }
 
     const [user] = await db.select().from(users).where(eq(users.id, consumed.userId)).limit(1);
-    if (!user || !user.active) throw unauthorized();
+    if (!user || !user.active || !(await businessIsActive(user.businessId))) throw unauthorized();
     return deliver(request, reply, await issueSession(user, consumed.familyId));
   });
 
