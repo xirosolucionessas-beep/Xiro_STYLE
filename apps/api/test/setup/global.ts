@@ -11,6 +11,17 @@ declare module 'vitest' {
   }
 }
 
+// embedded-postgres registra (vía async-exit-hook) un manejador de 'beforeExit' que llama a process.exit(0) y borra el
+// código de salida que Vitest fija al fallar una prueba: la suite fallaba y el CI la daba por buena. Se restaura aquí.
+let failedExitCode: number | undefined;
+process.prependListener('beforeExit', () => {
+  const code = Number(process.exitCode ?? 0);
+  if (code !== 0) failedExitCode = code;
+});
+process.on('exit', () => {
+  if (failedExitCode !== undefined && Number(process.exitCode ?? 0) === 0) process.exitCode = failedExitCode;
+});
+
 const freePort = () =>
   new Promise<number>((resolve, reject) => {
     const server = net.createServer();

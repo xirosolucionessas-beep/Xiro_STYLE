@@ -167,8 +167,15 @@ describe('disponibilidad', () => {
     const near = workday(3);
     expect(stateAt((await availability(app, biz, near)).body.slots, '10:00')).toBe('available');
     expect((await availability(app, biz, '2020-01-06')).body.slots.every((s) => s.state === 'unavailable')).toBe(true);
+    // Cada día del resumen coincide con su disponibilidad real. No se exige que todo día abierto tenga horarios: según el día
+    // de la semana en que corra la prueba, alguno de estos 3 cae fuera de maxDaysAhead y debe salir sin disponibilidad.
     const summary = await app.inject({ method: 'GET', url: `${biz.base}/days?from=${near}&days=3&services=${biz.serviceId}` });
-    expect(summary.json<Array<{ open: boolean; hasAvailability: boolean }>>().every((d) => d.open === false || d.hasAvailability)).toBe(true);
+    const days = summary.json<Array<{ date: string; open: boolean; hasAvailability: boolean }>>();
+    expect(days).toHaveLength(3);
+    for (const day of days) {
+      const { slots } = (await availability(app, biz, day.date)).body;
+      expect({ date: day.date, hasAvailability: day.hasAvailability }).toEqual({ date: day.date, hasAvailability: slots.some((s) => s.state === 'available') });
+    }
   });
 
   it('rechaza fechas y selecciones inválidas sin llegar a la base de datos', async () => {
