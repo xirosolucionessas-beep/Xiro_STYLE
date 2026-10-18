@@ -101,15 +101,25 @@ export async function createAppointment(tx: Tx, businessId: string, p: Prepared,
   // Primero de todo: si ya se atendió esta misma confirmación, se devuelve esa cita. Va ANTES de mirar la disponibilidad: el horario
   // ya lo ocupa la cita del primer envío y, mirado de nuevo, respondería "horario ocupado" a alguien que sí reservó.
   const idem = input.publicFlow && input.idempotency ? { hash: idempotencyHash(businessId, input.idempotency.key), token: deriveToken(input.idempotency.secret, businessId, input.idempotency.key) } : null;
-  if (idem) {
+  // Lectura confirmada: cada consulta ve lo que otras transacciones ya confirmaron. Si un envío simultáneo con la MISMA clave
+  // se confirmó después de esta primera búsqueda, su cita ocupa el horario (o cuenta como pendiente): antes de responder
+  // "horario ocupado" o "demasiadas pendientes" se vuelve a buscar la clave y se devuelve esa cita, que es la de este intento.
+  const replay = async (): Promise<CreatedAppointment | null> => {
+    if (!idem) return null;
     const prior = await findByIdempotency(tx, businessId, idem.hash);
-    if (prior) return { row: prior, token: idem.token, replayed: true };
-  }
+    return prior ? { row: prior, token: idem.token, replayed: true } : null;
+  };
+  const first = await replay();
+  if (first) return first;
 
   const evaluation = await evaluateStart(tx, businessId, p, input.now, input.startsAt);
   if (input.publicFlow && !evaluation.onGrid) throw new AppError(400, 'slot_not_allowed');
   const candidates = orderedCandidates(evaluation);
-  if (candidates.length === 0) throw slotTaken(await alternativesAround(tx, businessId, p, input.now, input.startsAt));
+  if (candidates.length === 0) {
+    const committed = await replay();
+    if (committed) return committed;
+    throw slotTaken(await alternativesAround(tx, businessId, p, input.now, input.startsAt));
+  }
 
   const clientId = 'id' in input.client ? (await assertClient(tx, businessId, input.client.id), input.client.id) : await findOrCreateClient(tx, businessId, input.client.create);
 
@@ -118,7 +128,11 @@ export async function createAppointment(tx: Tx, businessId: string, p: Prepared,
       .select({ id: appointments.id })
       .from(appointments)
       .where(and(eq(appointments.businessId, businessId), eq(appointments.clientId, clientId), eq(appointments.source, 'web'), inArray(appointments.status, ['pending', 'confirmed']), gt(appointments.startsAt, input.now)));
-    if (pending.length >= p.ctx.settings.maxPendingPerPhone) throw new AppError(429, 'too_many_pending');
+    if (pending.length >= p.ctx.settings.maxPendingPerPhone) {
+      const committed = await replay();
+      if (committed) return committed;
+      throw new AppError(429, 'too_many_pending');
+    }
   }
 
   const status: AppointmentStatus = input.publicFlow && !p.ctx.settings.autoConfirm ? 'pending' : 'confirmed';
