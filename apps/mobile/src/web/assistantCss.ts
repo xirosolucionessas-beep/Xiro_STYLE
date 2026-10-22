@@ -90,6 +90,20 @@ export function buildAssistantCss(): string {
 .xw-asst-footer { flex: none; margin: 0; box-sizing: border-box; padding: var(--xw-space-2) var(--xw-space-4); color: var(--xw-text-muted); font: var(--xw-text-xs)/${font.lineHeight.normal} var(--xw-font);
   border-top: 1px solid var(--xw-border-subtle); overflow-wrap: anywhere; }
 
+/* ---------- "Ver todas las preguntas" (catálogo) ---------- */
+.xw-asst-catalog { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--xw-space-4); box-sizing: border-box; padding: var(--xw-space-4); background: var(--xw-background); }
+.xw-asst-cat-search { box-sizing: border-box; width: 100%; padding: var(--xw-space-2) var(--xw-space-3); border-radius: var(--xw-radius-lg); border: 2px solid var(--xw-border); background: var(--xw-surface); color: var(--xw-text); font: var(--xw-text-md)/1.3 var(--xw-font); }
+.xw-asst-cat-search::placeholder { color: var(--xw-text-muted); }
+.xw-asst-cat-group { display: flex; flex-direction: column; gap: var(--xw-space-2); }
+.xw-asst-cat-group-title { margin: 0; color: var(--xw-text-muted); font: ${font.weight.semibold} var(--xw-text-sm)/1.2 var(--xw-font); }
+.xw-asst-cat-btn { text-align: left; box-sizing: border-box; padding: var(--xw-space-3); border-radius: var(--xw-radius-md); border: 1px solid var(--xw-border-subtle);
+  background: var(--xw-surface); color: var(--xw-text); font: var(--xw-text-sm)/1.3 var(--xw-font); cursor: pointer; }
+.xw-asst-cat-btn:hover { background: var(--xw-surface-alt); }
+.xw-asst-period-row { display: flex; flex-wrap: wrap; gap: var(--xw-space-2); }
+.xw-asst-period-chip { box-sizing: border-box; padding: var(--xw-space-2) var(--xw-space-3); border-radius: var(--xw-radius-pill); border: 1px solid var(--xw-border);
+  background: var(--xw-surface); color: var(--xw-text); cursor: pointer; font: var(--xw-text-sm)/1 var(--xw-font); }
+.xw-asst-period-chip:hover { background: var(--xw-accent-tint); border-color: var(--xw-accent); }
+
 /* Móvil: hoja inferior casi a pantalla completa con fondo atenuado detrás. */
 @media (max-width: 639px) {
   .xw-asst-panel { left: 0; right: 0; bottom: 0; width: 100%; max-height: 92vh; border-radius: 28px 28px 0 0; animation: xw-asst-sheet var(--xw-base) ease-out; }
@@ -105,6 +119,17 @@ export function buildAssistantCss(): string {
     border: 1px solid var(--xw-border-subtle); box-shadow: 0 20px 45px -18px rgba(0, 0, 0, .55); }
   .xw-asst-panel { animation: xw-asst-float var(--xw-base) ease-out; }
   @keyframes xw-asst-float { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+  /* "Abrir/expandir": mucho más grande, sin dejar de caber en la pantalla. El tamaño normal se ancla desde ABAJO
+     (deja espacio a los botones flotantes); a este alto no le alcanza ese mismo ancla sin salirse por arriba, así
+     que aquí se ancla desde ARRIBA con el mismo margen seguro — nunca se recorta, sin importar el alto de la ventana. */
+  .xw-asst-panel.is-expanded { top: var(--xw-space-4); bottom: auto; width: min(48rem, calc(100vw - var(--xw-space-4) * 2)); height: min(44rem, calc(100vh - var(--xw-space-4) * 2)); max-height: none; }
+  /* "Minimizar": solo queda la cabecera (con sus controles), lista para arrastrarla fuera del camino. */
+  .xw-asst-panel.is-minimized { height: auto; max-height: none; }
+
+  /* El "fondo" de la cabecera se puede arrastrar (los botones de dentro siguen respondiendo a su propio clic). */
+  .xw-asst-head { cursor: grab; touch-action: none; }
+  .xw-asst-head:active { cursor: grabbing; }
 }
 
 @media (prefers-reduced-motion: reduce) {

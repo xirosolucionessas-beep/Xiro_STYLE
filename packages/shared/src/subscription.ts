@@ -43,6 +43,74 @@ export interface Subscription {
    * pago ni cambia `status`: solo hace `hasAccess` verdadero mientras dure. Ausente o null = sin concesión vigente.
    */
   accessGrantEndsAt?: string | null;
+  /**
+   * Cortesía ya concedida que todavía NO cubre este momento (empieza al terminar la prueba o el período pagado vigente).
+   * Ausente o null = no hay ninguna programada. Solo informativa: el acceso lo sigue decidiendo `hasAccess`.
+   */
+  accessGrantUpcoming?: { startsAt: string; endsAt: string } | null;
+}
+
+/**
+ * Qué mostrarle al negocio sobre su acceso (tarjeta "Suscripción y estado de cuenta"). Solo usa campos reales de
+ * `Subscription` y la MISMA prioridad que el servidor al decidir `hasAccess`; nunca inventa una fecha:
+ * - `endsAt` es el fin del acceso del estado mostrado (fin de prueba, de período pagado, de gracia o de cortesía); null si
+ *   no aplica o no se conoce.
+ * - `renews` = el período pagado se renovará solo (su fin NO es un vencimiento del acceso).
+ */
+export type AccountAccessKind = 'trial' | 'active' | 'grace' | 'courtesy' | 'expired' | 'canceled' | 'no_plan' | 'no_access';
+
+export interface AccountAccessSummary {
+  kind: AccountAccessKind;
+  hasAccess: boolean;
+  endsAt: string | null;
+  /** Días de calendario que faltan hasta `endsAt` (null si no hay fecha). Nunca negativo mientras haya acceso. */
+  daysLeft: number | null;
+  renews: boolean;
+  /** Cortesía que cubre el presente además del plan (p. ej. concedida antes de empezar la prueba). */
+  courtesyEndsAt: string | null;
+  /** Cortesía programada para después del período actual. */
+  upcomingCourtesy: { startsAt: string; endsAt: string } | null;
+}
+
+/** Claves de traducción (i18n.ts) para presentar un resumen: iguales en web, Android e iOS. */
+export function accountAccessTextKeys(summary: AccountAccessSummary): { title: string; description: string; dateLabel: string | null; days: { key: string; n?: number } | null } {
+  const variant = summary.kind === 'active' ? (summary.renews ? 'active_renews' : 'active_ends') : summary.kind;
+  const dated: Partial<Record<AccountAccessKind, string>> = { trial: 'trial', active: variant, grace: 'grace', courtesy: 'courtesy', expired: 'expired' };
+  const dateKey = dated[summary.kind];
+  let days: { key: string; n?: number } | null = null;
+  if (summary.hasAccess && summary.daysLeft !== null) {
+    days = summary.daysLeft <= 0 ? { key: 'account_access_last_day' } : summary.daysLeft === 1 ? { key: 'account_access_day_left' } : { key: 'account_access_days_left', n: summary.daysLeft };
+  }
+  return {
+    title: `account_access_kind_${summary.kind}`,
+    description: `account_access_desc_${summary.kind === 'active' ? variant : summary.kind}`,
+    dateLabel: dateKey ? `account_access_date_${dateKey}` : null,
+    days,
+  };
+}
+
+export function accountAccessSummary(subscription: Subscription, now: Date = new Date()): AccountAccessSummary {
+  const grantEnd = subscription.accessGrantEndsAt ?? null;
+  const upcomingCourtesy = subscription.accessGrantUpcoming ?? null;
+  const base = { hasAccess: subscription.hasAccess, renews: false, courtesyEndsAt: null as string | null, upcomingCourtesy };
+  const days = (endsAt: string | null) => {
+    const d = daysUntil(endsAt, now);
+    return d === null ? null : Math.max(0, d);
+  };
+  const { status } = subscription;
+  if (subscription.hasAccess) {
+    if (status === 'trial') return { ...base, kind: 'trial', endsAt: subscription.trialEndsAt, daysLeft: days(subscription.trialEndsAt), courtesyEndsAt: grantEnd };
+    if (status === 'active') {
+      return { ...base, kind: 'active', endsAt: subscription.currentPeriodEnd, daysLeft: days(subscription.currentPeriodEnd), renews: !subscription.cancelAtPeriodEnd, courtesyEndsAt: grantEnd };
+    }
+    // Plan vencido, cancelado o inexistente, pero con cortesía vigente: el acceso lo da la cortesía.
+    if (grantEnd) return { ...base, kind: 'courtesy', endsAt: grantEnd, daysLeft: days(grantEnd) };
+    if (status === 'past_due') return { ...base, kind: 'grace', endsAt: subscription.gracePeriodEndsAt, daysLeft: days(subscription.gracePeriodEndsAt) };
+  }
+  if (status === 'none') return { ...base, kind: 'no_plan', endsAt: null, daysLeft: null };
+  if (status === 'expired') return { ...base, kind: 'expired', endsAt: subscription.gracePeriodEndsAt, daysLeft: null };
+  if (status === 'canceled') return { ...base, kind: 'canceled', endsAt: null, daysLeft: null };
+  return { ...base, kind: 'no_access', endsAt: null, daysLeft: null };
 }
 
 /** Un comprobante de pago ya confirmado (Tarea de facturación de suscripción): monto y fechas congelados al momento del pago. */

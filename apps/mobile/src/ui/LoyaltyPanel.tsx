@@ -10,6 +10,7 @@ import { flatPages, useAllItems, useInvalidateLoyalty, useLoyaltyClients, useLoy
 import { LoadMoreButton } from './PagedFooter';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
+import { BirthdayProgramPanel } from './BirthdayProgramPanel';
 import { Button } from './Button';
 import { CheckRow } from './CheckRow';
 import { useDialogs } from './Dialogs';
@@ -19,7 +20,7 @@ import { Header, Screen } from './Screen';
 import { AppText } from './Text';
 import { radius } from './theme';
 
-type Tab = 'config' | 'clients' | 'history';
+type Tab = 'config' | 'clients' | 'history' | 'birthday';
 
 /**
  * Fidelización en nativo: misma lógica, reglas y endpoints que la Web (Fase 2). Solo el dueño configura el programa;
@@ -41,6 +42,7 @@ export function LoyaltyPanel() {
         {canConfigure ? <Chip label={t('loyalty_tab_config')} selected={active === 'config'} onPress={() => setTab('config')} /> : null}
         <Chip label={t('loyalty_tab_clients')} selected={active === 'clients'} onPress={() => setTab('clients')} />
         {canRedeem ? <Chip label={t('loyalty_tab_history')} selected={active === 'history'} onPress={() => setTab('history')} /> : null}
+        {canConfigure ? <Chip label={t('birthday_program_title')} selected={active === 'birthday'} onPress={() => setTab('birthday')} /> : null}
       </ChipRow>
       <View style={{ marginTop: 14 }}>
         {program.isLoading ? <ActivityIndicator accessibilityLabel={t('loading')} /> : null}
@@ -48,6 +50,7 @@ export function LoyaltyPanel() {
         {program.data && active === 'config' ? <ConfigTab /> : null}
         {program.data && active === 'clients' ? <ClientsTab canRedeem={canRedeem} /> : null}
         {program.data && active === 'history' ? <HistoryTab /> : null}
+        {active === 'birthday' ? <BirthdayProgramPanel /> : null}
       </View>
     </Screen>
   );

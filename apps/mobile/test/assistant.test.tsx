@@ -96,15 +96,23 @@ describe('AssistantPanel', () => {
   it('stays mounted but hidden while closed, and becomes a real dialog with the welcome message when open', async () => {
     mockMicrophone('granted');
     const onClose = vi.fn();
-    const { rerender } = render(<AssistantPanel open={false} onClose={onClose} t={t} ask={unavailable} />);
+    const { rerender } = render(<AssistantPanel open={false} onClose={onClose} t={t} language="es" ask={unavailable} />);
     expect(document.querySelector('.xw-asst-root')?.className).toContain('is-closed');
     expect(screen.queryByRole('dialog')).toBeNull();
 
-    rerender(<AssistantPanel open onClose={onClose} t={t} ask={unavailable} />);
+    rerender(<AssistantPanel open onClose={onClose} t={t} language="es" ask={unavailable} />);
     const dialog = screen.getByRole('dialog', { name: 'Asistente de negocio' });
-    expect(within(dialog).getByText(/Pregúntame por ventas, citas, gastos o inventario/)).toBeTruthy();
+    // El saludo cambia según la hora del día (ver assistantGreeting); sin nombre de negocio, la parte fija es genérica.
+    expect(within(dialog).getByText(/Soy su asistente de negocio\. ¿En qué puedo ayudarle\?/)).toBeTruthy();
     expect(within(dialog).getByText('Consultas privadas de tu negocio')).toBeTruthy();
     await noViolations(dialog);
+  });
+
+  it('greets by the business name when one is known, never a made-up one', async () => {
+    mockMicrophone('granted');
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" businessName="Studio Bella" ask={unavailable} />);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText(/Soy el asistente de Studio Bella\. ¿En qué puedo ayudarle\?/)).toBeTruthy();
   });
 
   it('Escape closes it and returns focus to whatever opened it', async () => {
@@ -114,7 +122,7 @@ describe('AssistantPanel', () => {
       return (
         <>
           <button onClick={() => setOpen(true)}>abrir</button>
-          <AssistantPanel open={open} onClose={() => setOpen(false)} t={t} ask={unavailable} />
+          <AssistantPanel open={open} onClose={() => setOpen(false)} t={t} language="es" ask={unavailable} />
         </>
       );
     }
@@ -131,7 +139,7 @@ describe('AssistantPanel', () => {
   it('disables Send until there is text or an attachment, Enter sends and Shift+Enter only breaks the line', async () => {
     mockMicrophone('granted');
     const ask = vi.fn(succeed);
-    render(<AssistantPanel open onClose={vi.fn()} t={t} ask={ask} />);
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" ask={ask} />);
     const user = userEvent.setup();
     const send = screen.getByRole('button', { name: 'Enviar' });
     expect((send as HTMLButtonElement).disabled).toBe(true);
@@ -143,18 +151,18 @@ describe('AssistantPanel', () => {
     expect((send as HTMLButtonElement).disabled).toBe(false);
 
     await user.type(input, '{Enter}');
-    expect(ask).toHaveBeenCalledWith({ text: 'Hola\nVentas de hoy', attachments: [] });
+    expect(ask).toHaveBeenCalledWith({ text: 'Hola\nVentas de hoy', attachments: [], language: 'es' });
     expect(await screen.findByText('Vendiste $ 500.000 esta semana.', { selector: '.xw-asst-msg p' })).toBeTruthy();
     expect((input as HTMLTextAreaElement).value).toBe('');
   });
 
-  it('with the real service (no backend yet) answers honestly instead of a fake reply', async () => {
+  it('with the real service, a question outside the closed catalog is answered honestly, never with a made-up reply', async () => {
     mockMicrophone('granted');
-    render(<AssistantPanel open onClose={vi.fn()} t={t} />);
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" />);
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText('Consulta para el asistente'), '¿Cuánto vendí hoy?');
+    await user.type(screen.getByLabelText('Consulta para el asistente'), 'cuéntame un chiste');
     await user.click(screen.getByRole('button', { name: 'Enviar' }));
-    expect(await screen.findByText('Aún no puedo responder consultas: esta función llega pronto.', { selector: '.xw-asst-msg p' })).toBeTruthy();
+    expect(await screen.findByText('No entendí esa pregunta. Elige una de estas, o toca «Ver todas las preguntas»:', { selector: '.xw-asst-msg p' })).toBeTruthy();
   });
 
   it('a network error shows a banner with Retry, which resends the very same message', async () => {
@@ -162,8 +170,8 @@ describe('AssistantPanel', () => {
     const ask = vi
       .fn<(request: AssistantRequest) => Promise<AssistantAskResult>>()
       .mockResolvedValueOnce({ ok: false, reason: 'network' })
-      .mockResolvedValueOnce(await succeed({ text: '', attachments: [] }));
-    render(<AssistantPanel open onClose={vi.fn()} t={t} ask={ask} />);
+      .mockResolvedValueOnce(await succeed({ text: '', attachments: [], language: 'es' }));
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" ask={ask} />);
     const user = userEvent.setup();
     await user.type(screen.getByLabelText('Consulta para el asistente'), 'Reintento por favor');
     await user.click(screen.getByRole('button', { name: 'Enviar' }));
@@ -171,13 +179,13 @@ describe('AssistantPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Reintentar' }));
     expect(await screen.findByText('Vendiste $ 500.000 esta semana.', { selector: '.xw-asst-msg p' })).toBeTruthy();
     expect(ask).toHaveBeenCalledTimes(2);
-    expect(ask.mock.calls[1][0]).toEqual({ text: 'Reintento por favor', attachments: [] });
+    expect(ask.mock.calls[1][0]).toEqual({ text: 'Reintento por favor', attachments: [], language: 'es' });
   });
 
   it('attaches an image via the file picker, previews it and can remove it before sending', async () => {
     mockMicrophone('granted');
     const ask = vi.fn(succeed);
-    render(<AssistantPanel open onClose={vi.fn()} t={t} ask={ask} />);
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" ask={ask} />);
     const user = userEvent.setup();
     const file = new File(['x'], 'inventario.png', { type: 'image/png' });
     const input = document.querySelector('input[type=file]:not([capture])') as HTMLInputElement;
@@ -186,13 +194,13 @@ describe('AssistantPanel', () => {
     await screen.findByRole('button', { name: /Quitar adjunto: inventario\.png/ });
     expect(screen.getByRole('button', { name: 'Enviar' }).hasAttribute('disabled')).toBe(false);
     await user.click(screen.getByRole('button', { name: 'Enviar' }));
-    expect(ask).toHaveBeenCalledWith({ text: '', attachments: [{ kind: 'image', name: 'inventario.png', blob: file }] });
+    expect(ask).toHaveBeenCalledWith({ text: '', attachments: [{ kind: 'image', name: 'inventario.png', blob: file }], language: 'es' });
     expect(screen.queryByRole('button', { name: /Quitar adjunto: inventario\.png/ })).toBeNull();
   });
 
   it('rejects a file of the wrong type without touching the network-error state', async () => {
     mockMicrophone('granted');
-    render(<AssistantPanel open onClose={vi.fn()} t={t} />);
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" />);
     const input = document.querySelector('input[type=file]:not([capture])') as HTMLInputElement;
     const file = new File(['x'], 'nota.pdf', { type: 'application/pdf' });
     // El picker nativo ya filtra por `accept`; se desactiva ese filtro para probar la validación propia del panel.
@@ -207,7 +215,7 @@ describe('AssistantPanel', () => {
   it('records a voice note: asks for the mic, shows the pulsing timer, and "Detener y adjuntar" leaves it ready to preview and send', async () => {
     mockMicrophone('granted');
     const ask = vi.fn(succeed);
-    render(<AssistantPanel open onClose={vi.fn()} t={t} ask={ask} />);
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" ask={ask} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Grabar audio' }));
     expect(await screen.findByText('Grabando nota de voz')).toBeTruthy();
@@ -222,7 +230,7 @@ describe('AssistantPanel', () => {
 
   it('"Cancelar" while recording discards the audio (no attachment is added)', async () => {
     mockMicrophone('granted');
-    render(<AssistantPanel open onClose={vi.fn()} t={t} />);
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" />);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Grabar audio' }));
     await screen.findByText('Grabando nota de voz');
@@ -233,21 +241,21 @@ describe('AssistantPanel', () => {
 
   it('a denied microphone shows the friendly permissions message', async () => {
     mockMicrophone('denied');
-    render(<AssistantPanel open onClose={vi.fn()} t={t} />);
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" />);
     await userEvent.setup().click(screen.getByRole('button', { name: 'Grabar audio' }));
     expect(await screen.findByText('No pudimos acceder al micrófono. Revisa los permisos del navegador.')).toBeTruthy();
   });
 
   it('keeps the draft text and attachments when the panel is closed and reopened (in-memory only, still mounted)', async () => {
     mockMicrophone('granted');
-    const { rerender } = render(<AssistantPanel open onClose={vi.fn()} t={t} ask={unavailable} />);
+    const { rerender } = render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" ask={unavailable} />);
     const user = userEvent.setup();
     await user.type(screen.getByLabelText('Consulta para el asistente'), 'Borrador sin enviar');
     const file = new File(['x'], 'foto.jpg', { type: 'image/jpeg' });
     await user.upload(document.querySelector('input[type=file]:not([capture])') as HTMLInputElement, file);
 
-    rerender(<AssistantPanel open={false} onClose={vi.fn()} t={t} ask={unavailable} />);
-    rerender(<AssistantPanel open onClose={vi.fn()} t={t} ask={unavailable} />);
+    rerender(<AssistantPanel open={false} onClose={vi.fn()} t={t} language="es" ask={unavailable} />);
+    rerender(<AssistantPanel open onClose={vi.fn()} t={t} language="es" ask={unavailable} />);
     expect((screen.getByLabelText('Consulta para el asistente') as HTMLTextAreaElement).value).toBe('Borrador sin enviar');
     expect(screen.getByRole('button', { name: /Quitar adjunto: foto\.jpg/ })).toBeTruthy();
   });
@@ -256,10 +264,102 @@ describe('AssistantPanel', () => {
     mockMicrophone('granted');
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const ask = vi.fn(succeed);
-    render(<AssistantPanel open onClose={vi.fn()} t={t} ask={ask} />);
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" ask={ask} />);
     await userEvent.setup().type(screen.getByLabelText('Consulta para el asistente'), 'dato privado del negocio{Enter}');
     await screen.findByText('Vendiste $ 500.000 esta semana.', { selector: '.xw-asst-msg p' });
     expect(logSpy).not.toHaveBeenCalled();
     logSpy.mockRestore();
+  });
+
+  it('a voice note gets a polite "please type it" reply — never a made-up transcription (no STT yet)', async () => {
+    mockMicrophone('granted');
+    // Con el servicio real (sin `ask` inyectado): nunca llega a la red con una nota de voz adjunta.
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Grabar audio' }));
+    await screen.findByText('Grabando nota de voz');
+    await user.click(screen.getByRole('button', { name: 'Detener y adjuntar' }));
+    await waitFor(() => expect(screen.getByLabelText('Consulta para el asistente')).toBeTruthy());
+    await user.click(screen.getByRole('button', { name: 'Enviar' }));
+    expect(await screen.findByText('Por ahora no puedo escuchar notas de voz. ¿Podría escribir su consulta, por favor?', { selector: '.xw-asst-msg p' })).toBeTruthy();
+  });
+
+  it('expand/minimize are accessible toggle buttons (keyboard-operable), separate from fully closing the panel', async () => {
+    mockMicrophone('granted');
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" ask={unavailable} />);
+    const user = userEvent.setup();
+    const panelEl = () => document.querySelector('.xw-asst-panel') as HTMLElement;
+
+    const expandBtn = screen.getByRole('button', { name: 'Expandir ventana' });
+    expect(expandBtn.getAttribute('aria-pressed')).toBe('false');
+    await user.click(expandBtn);
+    expect(panelEl().className).toContain('is-expanded');
+    expect(screen.getByRole('button', { name: 'Volver al tamaño normal' }).getAttribute('aria-pressed')).toBe('true');
+    await user.keyboard('{Enter}'); // sigue enfocado tras el clic: Enter también lo colapsa (control de teclado)
+    expect(panelEl().className).not.toContain('is-expanded');
+
+    const minimizeBtn = screen.getByRole('button', { name: 'Minimizar' });
+    await user.click(minimizeBtn);
+    expect(panelEl().className).toContain('is-minimized');
+    expect(screen.queryByLabelText('Consulta para el asistente')).toBeNull(); // el cuerpo se oculta; la cabecera sigue
+    expect(screen.getByRole('dialog')).toBeTruthy(); // minimizar no es cerrar: sigue siendo el mismo diálogo montado
+    await user.click(screen.getByRole('button', { name: 'Restaurar ventana' }));
+    expect(panelEl().className).not.toContain('is-minimized');
+    expect(screen.getByLabelText('Consulta para el asistente')).toBeTruthy();
+  });
+});
+
+/* ---------- "Ver todas las preguntas" (catálogo, Fase B) ---------- */
+
+describe('AssistantPanel — catálogo de preguntas', () => {
+  it('abre el catálogo por categorías y, al elegir una pregunta sin período, la responde con datos reales', async () => {
+    mockMicrophone('granted');
+    const fetchCatalog = vi.fn().mockResolvedValue([{ question: 'employees_active', category: 'team', needsPeriod: false }]);
+    const askQuestion = vi.fn().mockResolvedValue({
+      ok: true,
+      answer: { question: 'employees_active', category: 'team', period: null, currency: 'COP', source: 'Equipo', data: { question: 'employees_active', active: 3, limit: 5 } },
+    });
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" fetchCatalog={fetchCatalog} askQuestion={askQuestion} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Ver todas las preguntas' }));
+    expect(await screen.findByText('Equipo')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '¿Cuántos empleados activos tengo?' }));
+    expect(await screen.findByText(/3 \/ 5/, { selector: '.xw-asst-msg p' })).toBeTruthy();
+    expect(askQuestion).toHaveBeenCalledWith('employees_active', undefined);
+  });
+
+  it('una pregunta con período pide elegirlo antes de ejecutarla', async () => {
+    mockMicrophone('granted');
+    const fetchCatalog = vi.fn().mockResolvedValue([{ question: 'sales_total', category: 'sales', needsPeriod: true }]);
+    const askQuestion = vi.fn().mockResolvedValue({
+      ok: true,
+      answer: {
+        question: 'sales_total',
+        category: 'sales',
+        period: { period: 'today', from: '2026-01-01', to: '2026-01-01' },
+        currency: 'COP',
+        source: 'Reportes → Ventas',
+        data: { question: 'sales_total', total: 80_000, count: 2 },
+      },
+    });
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" fetchCatalog={fetchCatalog} askQuestion={askQuestion} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Ver todas las preguntas' }));
+    await user.click(await screen.findByRole('button', { name: '¿Cuánto vendí en el período?' }));
+    await user.click(await screen.findByRole('button', { name: 'Hoy' }));
+    expect(await screen.findByText((_, el) => /80[.,]000/.test(el?.textContent ?? ''), { selector: '.xw-asst-msg p' })).toBeTruthy();
+    expect(askQuestion).toHaveBeenCalledWith('sales_total', 'today');
+  });
+
+  it('sin permiso para la pregunta (403), muestra el aviso de acceso en vez de un error genérico', async () => {
+    mockMicrophone('granted');
+    const fetchCatalog = vi.fn().mockResolvedValue([{ question: 'net_profit', category: 'finance', needsPeriod: true }]);
+    const askQuestion = vi.fn().mockResolvedValue({ ok: false, reason: 'no_access' });
+    render(<AssistantPanel open onClose={vi.fn()} t={t} language="es" fetchCatalog={fetchCatalog} askQuestion={askQuestion} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Ver todas las preguntas' }));
+    await user.click(await screen.findByRole('button', { name: '¿Cuál fue la utilidad neta?' }));
+    await user.click(await screen.findByRole('button', { name: 'Hoy' }));
+    expect(await screen.findByText('No tienes permiso para esta pregunta.', { selector: '.xw-asst-msg p' })).toBeTruthy();
   });
 });

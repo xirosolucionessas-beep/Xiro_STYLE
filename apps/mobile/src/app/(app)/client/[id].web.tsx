@@ -9,7 +9,8 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
 import { api, errorKey } from '@/lib/api';
-import { flatPages, useClient, useInvalidateClients, useServiceRecordsPages, useServiceRecordsSummary } from '@/lib/queries';
+import { birthdayStatusText, birthdayWhatsappUrl, formatDay } from '@/lib/birthdayText';
+import { flatPages, useClient, useClientBirthday, useInvalidateClients, useServiceRecordsPages, useServiceRecordsSummary } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useDialogs } from '@/ui/Dialogs';
 import { EmptyState } from '@/ui/Kit';
@@ -28,6 +29,7 @@ export default function ClientDetailWeb() {
   const canRecords = meets(actor, ['services_record']);
   const canManage = meets(actor, ['clients_manage']);
   const { data: client, isPending } = useClient(id);
+  const birthday = useClientBirthday(id);
   // Historial paginado ("Cargar más") e indicadores calculados en el servidor sobre TODO el historial.
   const records = useServiceRecordsPages(id, canRecords && Boolean(id));
   const stats = useServiceRecordsSummary({ clientId: id }, canRecords && Boolean(id));
@@ -101,7 +103,19 @@ export default function ClientDetailWeb() {
           { id: 'email', label: t('email'), value: client.email ?? '—', href: client.email ? `mailto:${client.email}` : undefined },
           { id: 'address', label: t('address'), value: client.address || '—' },
           { id: 'notes', label: t('client_notes'), value: client.notes || '—' },
+          ...(client.birthDate ? [{ id: 'birthDate', label: t('birth_date'), value: formatDay(client.birthDate) }] : []),
         ]}
+        birthday={
+          birthday.data
+            ? {
+                text: birthdayStatusText(t, birthday.data, business.currency as Currency),
+                whatsappHref:
+                  birthday.data.programEnabled && birthday.data.reward?.state === 'available' && client.phone
+                    ? birthdayWhatsappUrl(t, { phone: client.phone, clientName: client.name, businessName: business.name, reward: birthday.data.reward, message: birthday.data.message, currency: business.currency as Currency })
+                    : undefined,
+              }
+            : null
+        }
         history={
           canRecords
             ? {

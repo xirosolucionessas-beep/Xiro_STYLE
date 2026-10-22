@@ -137,6 +137,8 @@ export interface PlatformBusinessSummary {
   slug: string;
   accessStatus: BusinessAccessStatus;
   createdAt: string;
+  /** Logo del negocio (el mismo que usa su página pública), ya resuelto a una URL; `null` si no subió uno. */
+  logoUrl: string | null;
 }
 
 export interface PlatformSearchResult {
@@ -144,6 +146,42 @@ export interface PlatformSearchResult {
   /** true = hay más coincidencias que el límite: afina la búsqueda. */
   truncated: boolean;
 }
+
+/* ---------- Listado paginado (pantalla "Ver más" de Negocios registrados) ---------- */
+
+export const PLATFORM_BUSINESS_SORTS = ['name_asc', 'name_desc', 'created_desc', 'created_asc'] as const;
+export type PlatformBusinessSort = (typeof PLATFORM_BUSINESS_SORTS)[number];
+
+export const PLATFORM_BUSINESS_LIST_PAGE_SIZE_MAX = 50;
+
+export interface PlatformBusinessListItem extends PlatformBusinessSummary {
+  /** Correo del dueño más antiguo del negocio, ENMASCARADO (misma política que la ficha: ver `owners[].emailMasked` en
+   * `PlatformBusinessDetail`). `null` si el negocio no tiene ningún dueño con correo registrado. */
+  ownerEmailMasked: string | null;
+}
+
+export interface PlatformBusinessListResult {
+  results: PlatformBusinessListItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+/**
+ * `q`: coincide por id exacto (si parece un uuid), por correo exacto de cualquier persona del negocio (si contiene "@",
+ * mismo alcance que `GET /businesses/search?kind=email`) o, si no, por nombre (contiene) o slug (exacto). Sin "kind"
+ * explícito: una sola caja de búsqueda para la lista, igual que pide la pantalla.
+ */
+export const platformBusinessListQuerySchema = z
+  .object({
+    q: z.string().trim().max(254).optional(),
+    sort: z.enum(PLATFORM_BUSINESS_SORTS).default('created_desc'),
+    page: z.coerce.number().int().min(1).max(100_000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(PLATFORM_BUSINESS_LIST_PAGE_SIZE_MAX).default(25),
+  })
+  .strict();
+export type PlatformBusinessListQuery = z.infer<typeof platformBusinessListQuerySchema>;
 
 export interface AccessGrantDto {
   id: string;
@@ -166,6 +204,23 @@ export interface PlatformAuditEntryDto {
   adminName: string | null;
   businessId: string | null;
   details: Record<string, unknown>;
+  createdAt: string;
+}
+
+/**
+ * Una fila de "negocios eliminados" (panel del fundador): el dueño eliminó su propio negocio desde /profile — ver
+ * accountDeletion.ts. Sale del mismo `platform_audit_log` que `PlatformAuditEntryDto` (acción `business.self_delete`),
+ * ya con sus campos reconocidos; `null` = ese dato no estaba disponible (nunca se inventa).
+ */
+export interface PlatformDeletedBusinessDto {
+  id: string;
+  businessId: string | null;
+  businessName: string | null;
+  requestedByUserId: string | null;
+  requestedByName: string | null;
+  requestedByEmail: string | null;
+  requestedByRole: string | null;
+  outcome: 'success' | 'error';
   createdAt: string;
 }
 
@@ -231,6 +286,54 @@ export const platformGrantSchema = z
 export type PlatformGrantInput = z.infer<typeof platformGrantSchema>;
 
 export const platformRevokeGrantSchema = z.object({ reason }).strict();
+
+/** Vista previa de una concesión (mismas reglas que al concederla; no escribe nada). */
+export const platformGrantPreviewQuerySchema = z
+  .object({ unit: z.enum(['days', 'months']), amount: z.coerce.number().int().min(1) })
+  .strict()
+  .refine((v) => (v.unit === 'days' ? v.amount <= 366 : v.amount <= 24), { message: 'amount_out_of_range', path: ['amount'] });
+
+export interface PlatformGrantPreview {
+  /** Hasta cuándo tiene acceso hoy (pago, prueba o cortesía vigente); null = sin acceso vigente. */
+  currentAccessEndsAt: string | null;
+  /** De dónde sale esa fecha. */
+  currentAccessSource: 'trial' | 'paid' | 'grant' | 'none';
+  startsAt: string;
+  endsAt: string;
+}
+
+/**
+ * Alta de un negocio desde el panel (solo el fundador). El fundador NUNCA fija ni ve la contraseña: la cuenta nace con una
+ * contraseña aleatoria que nadie conoce y el dueño pone la suya con "¿Olvidaste tu contraseña?" (código a su correo).
+ * `.strict()`: cualquier campo extra (rol, permisos, negocio…) se rechaza (sin asignación masiva).
+ */
+export const platformCreateBusinessSchema = z
+  .object({
+    businessName: z.string().trim().min(2, 'required').max(80),
+    businessType: z.enum(['barbershop', 'beauty_salon', 'spa', 'nails', 'other']),
+    ownerName: z.string().trim().min(2, 'required').max(80),
+    ownerEmail: z.string().trim().toLowerCase().max(254).pipe(z.email('email_invalid')),
+    language: z.enum(['es', 'en']),
+    /** Acceso inicial de cortesía opcional (una concesión normal: no es un pago). */
+    initialAccess: z
+      .object({ unit: z.enum(['days', 'months']), amount: z.number().int().min(1) })
+      .strict()
+      .refine((v) => (v.unit === 'days' ? v.amount <= 366 : v.amount <= 24), { message: 'amount_out_of_range', path: ['amount'] })
+      .optional(),
+    reason,
+    idempotencyKey: z.uuid(),
+  })
+  .strict();
+export type PlatformCreateBusinessInput = z.infer<typeof platformCreateBusinessSchema>;
+
+export interface PlatformCreateBusinessResult {
+  business: PlatformBusinessSummary;
+  ownerEmailMasked: string | null;
+  /** Concesión inicial, si se pidió. */
+  initialAccessEndsAt: string | null;
+  /** true = la misma solicitud ya se había procesado (reintento o doble clic): no se creó otra cuenta. */
+  replayed: boolean;
+}
 
 /* ---------- Reglas de fechas de una concesión ---------- */
 

@@ -4,6 +4,7 @@ import { assertStartupReady, loadConfig } from './config';
 import type { Ctx } from './context';
 import { createDatabase, directDatabaseConfig } from './db/client';
 import { runMigrations } from './db/migrate';
+import { ensureBirthdaySchedule, registerBirthdayWorker } from './jobs/birthdays';
 import { ensureReminderQueue, registerReminderWorker } from './jobs/reminders';
 import { scheduleMaintenance } from './maintenance';
 import { flushMonitoring, initMonitoring, reportError } from './monitoring';
@@ -56,6 +57,7 @@ const boss = new PgBoss(config.database.directUrl ?? config.database.url);
 boss.on('error', (error: Error) => console.error('[pg-boss]', error.message));
 await boss.start();
 await ensureReminderQueue(boss);
+await ensureBirthdaySchedule(boss);
 
 // Conexión dedicada para LISTEN/NOTIFY (la Agenda en tiempo real, ver realtime.ts); independiente del pool de la app.
 const realtime = createRealtimeBus(config.database, (line) => console.error(line));
@@ -86,6 +88,7 @@ const workerCtx: Ctx = {
   maps: null, // el trabajador de recordatorios no usa mapas
 };
 await registerReminderWorker(boss, workerCtx, (line) => app.log.error(line));
+await registerBirthdayWorker(boss, workerCtx, (line) => app.log.info(line));
 const stopMaintenance = scheduleMaintenance(database.db, (message) => app.log.info(message));
 
 let closing = false;

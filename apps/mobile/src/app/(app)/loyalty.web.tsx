@@ -3,13 +3,15 @@
  * fidelización, ver resumen de la Fase 2). Configuración del programa, progreso por cliente y canjes.
  * Presentación en src/web/screens/Loyalty.tsx.
  */
+import type { BirthdayProgramInput } from '@xiro/shared';
 import { api } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
 import { errorKey } from '@/lib/api';
-import { flatPages, useAllItems, useInvalidateLoyalty, useLoyaltyClients, useLoyaltyProgram, useLoyaltyRedemptions, useLoyaltySummary } from '@/lib/queries';
+import { flatPages, useBirthdayProgram, useInvalidateBirthdayProgram, useAllItems, useInvalidateLoyalty, useLoyaltyClients, useLoyaltyProgram, useLoyaltyRedemptions, useLoyaltySummary } from '@/lib/queries';
 import { actorOf, meets } from '@/lib/access';
 import { useAuthed } from '@/lib/session';
 import { Header, Screen } from '@/ui/Screen';
+import { BirthdayProgramView } from '@/web/screens/BirthdayProgram';
 import { LoyaltyView } from '@/web/screens/Loyalty';
 import { useWebText } from '@/web/services/useWebText';
 
@@ -24,6 +26,10 @@ export default function LoyaltyWeb() {
   const summary = useLoyaltySummary();
   const redemptions = useLoyaltyRedemptions(undefined, canRedeem);
   const invalidateLoyalty = useInvalidateLoyalty();
+  // Programa de cumpleaños: solo el dueño lo configura (el servidor lo exige; aquí ni se consulta para empleados).
+  const isOwner = user.role === 'owner';
+  const birthday = useBirthdayProgram(isOwner);
+  const invalidateBirthday = useInvalidateBirthdayProgram();
 
   if (!program.data) return null;
 
@@ -35,6 +41,17 @@ export default function LoyaltyWeb() {
     } catch (error) {
       const result = apiErrors(error, t);
       return { ok: false as const, error: result.fields.goal ?? result.fields.rewardMessage ?? result.general ?? t('unknown_error') };
+    }
+  }
+
+  async function saveBirthday(input: BirthdayProgramInput) {
+    try {
+      await api.updateBirthdayProgram(input);
+      await invalidateBirthday();
+      return { ok: true as const };
+    } catch (error) {
+      const result = apiErrors(error, t);
+      return { ok: false as const, error: result.general ?? Object.values(result.fields)[0] ?? t('unknown_error') };
     }
   }
 
@@ -79,6 +96,7 @@ export default function LoyaltyWeb() {
       canConfigure={user.role === 'owner'}
       canRedeem={canRedeem}
     />
+    {isOwner && birthday.data ? <BirthdayProgramView t={t} program={birthday.data} onSave={saveBirthday} /> : null}
     </Screen>
   );
 }

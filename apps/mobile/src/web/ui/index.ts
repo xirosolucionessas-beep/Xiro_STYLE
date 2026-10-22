@@ -1,5 +1,6 @@
 export { Button, type ButtonProps } from './Button';
 export { Card, type CardProps } from './Card';
+export { DeleteBusinessModal, type DeleteBusinessModalProps, type DeleteBusinessResult } from './DeleteBusinessModal';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { Input, type InputProps } from './Input';
 export { Modal, type ModalProps } from './Modal';

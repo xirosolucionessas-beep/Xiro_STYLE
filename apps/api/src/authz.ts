@@ -20,6 +20,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'DELETE /me/photo': 'any',
   'POST /me/phone/request': 'any',
   'POST /me/phone/confirm': 'any',
+  'POST /me/password': 'any',
 
   // Mensajes: chat interno entre personas del mismo negocio, cada quien ve y escribe solo lo suyo.
   'GET /messages/people': 'any',
@@ -33,6 +34,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'GET /business': 'any',
   'PATCH /business': 'owner',
   'PUT /business/logo': 'owner',
+  'DELETE /business': 'owner',
   'GET /cash/today': 'owner',
   'GET /cash/openings': 'owner',
   'POST /cash/opening': 'owner',
@@ -51,6 +53,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'GET /expenses/export.xlsx': ['finance'],
   'GET /expenses/page': ['finance'],
   'GET /cash/close-summary': 'owner',
+  'GET /cash/day-sales': 'owner',
   'GET /cash/closings': 'owner',
   'GET /cash/closings/:id': 'owner',
   'POST /cash/close': 'owner',
@@ -113,6 +116,10 @@ export const POLICY: Record<string, PolicyRule> = {
   'GET /service-records/summary': ['services_record'],
   'GET /service-records/by-client': ['services_record'],
   'POST /service-records': ['services_record'],
+  // Programa de cumpleaños: configurarlo es del dueño; el estado de un cliente lo ve quien ve clientes o cobra en caja.
+  'GET /birthday/program': 'owner',
+  'PUT /birthday/program': 'owner',
+  'GET /clients/:id/birthday': ['clients_view', 'services_record'],
   'GET /loyalty/program': ['services_record', 'loyalty_redeem'],
   'PUT /loyalty/program': 'owner',
   'GET /loyalty/clients': ['loyalty_redeem', 'services_record'],
@@ -196,11 +203,21 @@ export const POLICY: Record<string, PolicyRule> = {
 
   // Equipo y bitácora
   'GET /employees': 'owner',
+  'GET /employees/quota': 'owner',
   'POST /employees': 'owner',
   'PATCH /employees/:id': 'owner',
   'PUT /employees/:id/photo': 'owner',
   'DELETE /employees/:id/photo': 'owner',
   'GET /audit-logs': 'owner',
+
+  // Asistente de negocio (Fase A): una sola ruta sirve preguntas con distinto permiso según `question` (ventas, caja,
+  // finanzas, inventario, equipo, suscripción) — no una regla fija por URL como el resto de esta tabla. Por eso es
+  // 'any' aquí: la ruta exige el permiso de CADA pregunta puntual en su propio código (ver requireQuestionAccess en
+  // routes/assistant.ts), nunca confiando en que llegar a la ruta ya autorizó nada.
+  'GET /assistant/catalog': 'any',
+  'GET /assistant/ask': 'any',
+  // Foto de un producto → comparación local contra el inventario: igual permiso que verlo (GET /items).
+  'POST /assistant/image-match': ['catalog_view'],
 };
 
 /** `/api/items/:id` → `/items/:id`; HEAD se rige por la política de GET. */

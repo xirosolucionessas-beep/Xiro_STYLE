@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { discountCodeSchema } from './discounts';
+import { discountCodeSchema, type AppliedDiscountDto } from './discounts';
 import { emailSchema, phoneSchema } from './schemas';
 
 /**
@@ -311,6 +311,8 @@ export const publicBookingInputSchema = z.object({
   idempotencyKey: uuidString.optional(),
   /** Código de descuento (Fase 4, si el negocio los activó). El servidor lo valida y calcula el descuento. */
   discountCode: discountCodeSchema.optional(),
+  /** Usar la recompensa de cumpleaños de la cuenta con sesión iniciada; el servidor la valida y calcula el descuento. */
+  useBirthdayReward: z.boolean().optional(),
 });
 export type PublicBookingInput = z.input<typeof publicBookingInputSchema>;
 
@@ -395,7 +397,7 @@ export interface AppointmentDto {
   durationMinutes: number;
   totalPrice: number;
   /** Código de descuento usado (Fase 4): se cobra totalPrice − amount. null = sin descuento. */
-  discount: { code: string; amount: number } | null;
+  discount: AppliedDiscountDto | null;
   customerNotes: string;
   internalNotes: string;
   modificationCount: number;
@@ -441,7 +443,7 @@ export interface PublicAppointmentDto {
   durationMinutes: number;
   totalPrice: number;
   /** Código de descuento usado (Fase 4): total a pagar = totalPrice − amount. */
-  discount: { code: string; amount: number } | null;
+  discount: AppliedDiscountDto | null;
   professionalName: string;
   items: AppointmentItemDto[];
   business: {

@@ -75,7 +75,7 @@ function SalesReportsWeb() {
       return null;
     }
   }, [period, business.timezone, now, customFrom, customTo]);
-  const customError = period === 'custom' && !range ? t('sec_period_invalid_range') : undefined;
+  const customError = period === 'custom' && customFrom && customTo && !range ? t('sec_period_invalid_range') : undefined;
 
   const salesCurrent = useSales(range?.current ?? null, Boolean(range));
   const salesPrevious = useSales(range?.previous ?? null, Boolean(range));

@@ -15,7 +15,7 @@ export async function anonymizeClient(db: DbExecutor, businessId: string, client
   if (!existing) return null;
   await db
     .update(clients)
-    .set({ name: 'Cliente eliminado', email: null, phone: null, address: '', notes: '', photoFile: null })
+    .set({ name: 'Cliente eliminado', email: null, phone: null, address: '', notes: '', photoFile: null, birthDate: null })
     .where(and(eq(clients.id, clientId), eq(clients.businessId, businessId)));
   await db.update(appointments).set({ customerNotes: '', termsAcceptedIp: null }).where(and(eq(appointments.clientId, clientId), eq(appointments.businessId, businessId)));
   return { previousPhotoFile: existing.photoFile };

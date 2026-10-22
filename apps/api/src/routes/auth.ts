@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import {
-  defaultBusinessHours,
   loginSchema,
   recoverRequestSchema,
   recoverResetSchema,
@@ -12,14 +11,14 @@ import {
   type Language,
 } from '@xiro/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { createBusinessWithOwner } from '../accounts';
 import type { Ctx } from '../context';
 import { parseCookies } from '../cookies';
-import { isUniqueViolation } from '../db/errors';
-import { businesses, categories, otpCodes, refreshTokens, resetTokens, users } from '../db/schema';
+import { businesses, otpCodes, refreshTokens, resetTokens, users } from '../db/schema';
 import { AppError, parse } from '../errors';
 import { notifyUser } from '../push';
 import { toBusiness, toUser, type UserRow } from '../serializers';
-import { DUMMY_HASH, hashPassword, hmac, needsRehash, randomToken, safeEqualHex, sixDigitCode, slugify, verifyPassword } from '../security';
+import { DUMMY_HASH, hashPassword, hmac, needsRehash, randomToken, safeEqualHex, sixDigitCode, verifyPassword } from '../security';
 
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -27,15 +26,6 @@ const RESET_TTL_MS = 15 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 /** Ventana en la que reusar un refresh token recién rotado se considera una carrera legítima (p. ej. dos pestañas) y no un robo. */
 const REUSE_GRACE_MS = 10_000;
-const SLUG_ATTEMPTS = 6;
-
-const DEFAULT_CATEGORIES: Record<Language, string[]> = {
-  es: ['Servicios', 'Productos', 'Tratamientos'],
-  en: ['Services', 'Products', 'Treatments'],
-};
-
-const slugCandidate = (base: string, attempt: number) => (attempt === 0 ? base : `${base}-${randomToken(3).toLowerCase().replace(/[^a-z0-9]/g, 'x')}`);
-
 /** Una IP puede fallar este múltiplo de los intentos por cuenta antes de bloquearse (redes compartidas: oficinas, NAT móvil). */
 const IP_ATTEMPTS_FACTOR = 5;
 
@@ -132,32 +122,16 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
   app.post('/register', authLimit, async (request, reply) => {
     const input = parse(registerSchema, request.body);
     const passwordHash = await hashPassword(input.password);
-    const base = slugify(input.businessName);
-
-    // La unicidad de correo, teléfono y slug la garantizan los índices únicos: sin "consultar y luego insertar" (carrera).
-    let user: UserRow | undefined;
-    for (let attempt = 0; attempt < SLUG_ATTEMPTS && !user; attempt += 1) {
-      try {
-        user = await db.transaction(async (tx) => {
-          const [business] = await tx
-            .insert(businesses)
-            .values({ name: input.businessName, slug: slugCandidate(base, attempt), type: input.businessType, whatsapp: input.phone ?? null, hours: defaultBusinessHours() })
-            .returning();
-          const [created] = await tx
-            .insert(users)
-            .values({ businessId: business!.id, name: input.name, email: input.email ?? null, phone: input.phone ?? null, passwordHash, language: input.language })
-            .returning();
-          await tx.insert(categories).values(DEFAULT_CATEGORIES[input.language].map((name) => ({ businessId: business!.id, name })));
-          return created!;
-        });
-      } catch (error) {
-        if (isUniqueViolation(error, 'users_email_uq') || isUniqueViolation(error, 'users_phone_uq')) throw new AppError(409, 'account_exists');
-        if (isUniqueViolation(error, 'businesses_slug_uq')) continue; // otro registro tomó ese slug a la vez: se reintenta con sufijo
-        throw error;
-      }
-    }
-    if (!user) throw new AppError(503, 'service_unavailable');
-    return reply.status(201).send(deliver(request, reply, await issueSession(user)));
+    const { owner } = await createBusinessWithOwner(db, {
+      businessName: input.businessName,
+      businessType: input.businessType,
+      ownerName: input.name,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+      passwordHash,
+      language: input.language,
+    });
+    return reply.status(201).send(deliver(request, reply, await issueSession(owner)));
   });
 
   app.post('/login', authLimit, async (request, reply) => {

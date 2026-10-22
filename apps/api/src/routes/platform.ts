@@ -3,6 +3,9 @@ import {
   PLATFORM_GROUPINGS,
   PLATFORM_SEARCH_KINDS,
   PLATFORM_SERIES,
+  platformBusinessListQuerySchema,
+  platformCreateBusinessSchema,
+  platformGrantPreviewQuerySchema,
   platformGrantSchema,
   platformLoginSchema,
   platformRevokeGrantSchema,
@@ -13,14 +16,27 @@ import {
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
-import { platformAdminSessions, platformAdmins } from '../db/schema';
+import { businesses, platformAdminSessions, platformAdmins } from '../db/schema';
 import { AppError, notFound, parse, uuid } from '../errors';
 import type { Metrics } from '../metrics';
-import { businessDetail, changeAccessStatus, createAccessGrant, loadAuditEntries, revokeAccessGrant, searchBusinesses, type StatusAction } from '../platform/businesses';
+import {
+  businessDetail,
+  changeAccessStatus,
+  createAccessGrant,
+  createBusinessAccount,
+  listBusinesses,
+  loadAuditEntries,
+  loadDeletedBusinesses,
+  previewAccessGrant,
+  revokeAccessGrant,
+  searchBusinesses,
+  type StatusAction,
+} from '../platform/businesses';
 import { recordPlatformAudit } from '../platform/audit';
 import { decryptSecret, verifyTotp } from '../platform/crypto';
 import { parsePeriod, platformOverview, platformSeries } from '../platform/metrics';
 import { createPlatformSession, platformAuthenticator, requirePermission, requireRecentMfa, toAdminDto } from '../platform/session';
+import { formatPushDate, notifyBusiness } from '../push';
 import { DUMMY_HASH, verifyPassword } from '../security';
 
 const periodQuery = z.object({ from: z.string().max(10).optional(), to: z.string().max(10).optional(), tz: z.string().max(64).optional() }).strict();
@@ -52,12 +68,25 @@ export function platformRoutes(app: FastifyInstance, ctx: Ctx, deps: PlatformRou
     if (config.platform.allowedIps.length > 0 && !config.platform.allowedIps.includes(request.ip)) throw notFound();
   });
 
+  // Solo desarrollo local (PLATFORM_DEV_SKIP_TOTP; loadConfig lo rechaza en producción): sin código TOTP ni reautenticación.
+  const skipTotp = config.platform.devSkipTotp;
+  if (skipTotp) app.log.warn('PLATFORM_DEV_SKIP_TOTP activo: el panel /platform acepta solo correo y contraseña (SOLO desarrollo local)');
+  const loginSchema = skipTotp ? platformLoginSchema.extend({ totp: z.string().optional().default('') }) : platformLoginSchema;
+
+  // Código maestro SOLO fuera de producción (config.production viene de NODE_ENV — ver config.ts): facilita probar el
+  // panel en local sin tener la app autenticadora a mano. El formato (6 dígitos) lo sigue exigiendo el esquema igual
+  // que siempre; esto solo añade UN código más que también vale, nunca relaja nada en producción.
+  const DEV_MASTER_TOTP = '123456';
+  if (!config.production) app.log.warn(`Código TOTP maestro "${DEV_MASTER_TOTP}" habilitado para /platform (NODE_ENV !== 'production', SOLO desarrollo local)`);
+
   /** Valida contraseña y código TOTP; devuelve el administrador solo si TODO es correcto (mismo error en cualquier fallo). */
   async function verifyCredentials(email: string, password: string, totp: string) {
     const [admin] = await db.select().from(platformAdmins).where(eq(platformAdmins.email, email)).limit(1);
     // Siempre se evalúa una contraseña (con un hash ficticio si no hay cuenta): mismo costo exista o no.
     const passwordOk = await verifyPassword(password, admin?.passwordHash ?? DUMMY_HASH);
     if (!admin || !passwordOk || !admin.active) return { admin: admin ?? null, ok: false as const };
+    if (skipTotp) return { admin, ok: true as boolean };
+    if (!config.production && totp === DEV_MASTER_TOTP) return { admin, ok: true as boolean };
     const step = verifyTotp(decryptSecret(adminKey, admin.totpSecretEnc), totp, admin.totpLastStep);
     if (step === null) return { admin, ok: false as const };
     // Consumo ATÓMICO del paso TOTP: dos inicios de sesión simultáneos con el mismo código, solo uno gana.
@@ -66,7 +95,7 @@ export function platformRoutes(app: FastifyInstance, ctx: Ctx, deps: PlatformRou
   }
 
   app.post('/auth/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request): Promise<PlatformSessionDto> => {
-    const input = parse(platformLoginSchema, request.body);
+    const input = parse(loginSchema, request.body);
     const accountKey = `platform-login:${input.email}`;
     if (config.rateLimit.enabled) {
       if ((await loginIpLimiter.count(request.ip)) >= config.rateLimit.accountAttempts * 2) {
@@ -85,7 +114,7 @@ export function platformRoutes(app: FastifyInstance, ctx: Ctx, deps: PlatformRou
     }
     if (config.rateLimit.enabled) await ctx.accountLimiter.reset(accountKey);
     const session = await createPlatformSession(db, config, admin.id, request.ip);
-    await recordPlatformAudit(db, request, { adminId: admin.id, action: 'auth.login', outcome: 'success' });
+    await recordPlatformAudit(db, request, { adminId: admin.id, action: 'auth.login', outcome: 'success', ...(skipTotp ? { details: { mfa: 'omitido_desarrollo_local' } } : {}) });
     return { token: session.token, expiresAt: session.expiresAt.toISOString(), admin: toAdminDto(admin) };
   });
 
@@ -151,6 +180,18 @@ export function platformRoutes(app: FastifyInstance, ctx: Ctx, deps: PlatformRou
       return result;
     });
 
+    /** Página de todos los negocios ("Ver más" de Negocios registrados): mismo permiso y disciplina de bitácora que la búsqueda. */
+    scope.get('/businesses', async (request) => {
+      await requirePermission(db, request, 'businesses_view');
+      const query = parse(platformBusinessListQuerySchema, request.query);
+      const result = await listBusinesses(db, query);
+      // El correo buscado es un dato personal: no se guarda en la bitácora (igual que business.search).
+      const details: Record<string, unknown> = { sort: query.sort, page: query.page, pageSize: query.pageSize, results: result.results.length };
+      if (query.q) details[query.q.includes('@') ? 'queryKind' : 'q'] = query.q.includes('@') ? 'email' : query.q;
+      await audit(request, 'business.list', null, details);
+      return result;
+    });
+
     scope.get('/businesses/:id', async (request) => {
       await requirePermission(db, request, 'businesses_view');
       const id = uuid((request.params as { id: string }).id);
@@ -186,9 +227,48 @@ export function platformRoutes(app: FastifyInstance, ctx: Ctx, deps: PlatformRou
       const input = parse(platformGrantSchema, request.body);
       try {
         const { grant, replayed } = await createAccessGrant(db, request, id, input);
+        // Aviso al negocio SOLO tras confirmarse la concesión, y una sola vez: un reintento (replayed) no avisa de nuevo y la
+        // clave de deduplicación (id de la concesión) impide un segundo registro en el centro de notificaciones.
+        if (!replayed) {
+          const [target] = await db.select({ timezone: businesses.timezone }).from(businesses).where(eq(businesses.id, id)).limit(1);
+          void notifyBusiness(ctx, id, 'billing', {
+            titleKey: 'push_access_extended_title',
+            bodyKey: grant.unit === 'days' ? 'push_access_extended_days_body' : 'push_access_extended_months_body',
+            params: { n: grant.amount, date: formatPushDate(grant.endsAt, target?.timezone ?? 'America/Bogota') },
+            dedupeKey: `access_grant:${grant.id}`,
+            href: '/profile',
+          });
+        }
         return reply.status(replayed ? 200 : 201).send({ grant, replayed });
       } catch (error) {
         if (error instanceof AppError && error.status < 500 && error.status !== 404) await audit(request, 'business.grant_access', id, { error: error.code }, 'denied');
+        throw error;
+      }
+    });
+
+    scope.get('/businesses/:id/grants/preview', async (request) => {
+      const id = uuid((request.params as { id: string }).id);
+      await requirePermission(db, request, 'business_extend', id);
+      const { unit, amount } = parse(platformGrantPreviewQuerySchema, request.query);
+      return previewAccessGrant(db, id, unit, amount);
+    });
+
+    /**
+     * Alta de un negocio. Solo el FUNDADOR (no basta un permiso delegable), con reautenticación reciente. Ver
+     * createBusinessAccount: transacción completa, idempotente por clave, sin contraseña conocida por el panel.
+     */
+    scope.post('/businesses', async (request, reply) => {
+      if (!request.platformAdmin.isFounder) {
+        await audit(request, 'business.create', null, { missingRole: 'founder' }, 'denied');
+        throw new AppError(403, 'forbidden');
+      }
+      requireRecentMfa(config, request);
+      const input = parse(platformCreateBusinessSchema, request.body);
+      try {
+        const result = await createBusinessAccount(db, request, input);
+        return reply.status(result.replayed ? 200 : 201).send(result);
+      } catch (error) {
+        if (error instanceof AppError && error.status < 500) await audit(request, 'business.create', null, { error: error.code }, 'denied');
         throw error;
       }
     });
@@ -211,6 +291,15 @@ export function platformRoutes(app: FastifyInstance, ctx: Ctx, deps: PlatformRou
       const { before } = parse(auditQuery, request.query);
       const entries = await loadAuditEntries(db, { limit: AUDIT_PAGE + 1, before: before ? new Date(before) : undefined });
       await audit(request, 'audit.view', null, { before: before ?? null });
+      return { entries: entries.slice(0, AUDIT_PAGE), nextBefore: entries.length > AUDIT_PAGE ? entries[AUDIT_PAGE - 1]!.createdAt : null };
+    });
+
+    /** Negocios eliminados por su propio dueño (ver accountDeletion.ts) — mismo permiso que el resto de la bitácora. */
+    scope.get('/businesses-deleted', async (request) => {
+      await requirePermission(db, request, 'audit_view');
+      const { before } = parse(auditQuery, request.query);
+      const entries = await loadDeletedBusinesses(db, { limit: AUDIT_PAGE + 1, before: before ? new Date(before) : undefined });
+      await audit(request, 'audit.view_deleted_businesses', null, { before: before ?? null });
       return { entries: entries.slice(0, AUDIT_PAGE), nextBefore: entries.length > AUDIT_PAGE ? entries[AUDIT_PAGE - 1]!.createdAt : null };
     });
   });

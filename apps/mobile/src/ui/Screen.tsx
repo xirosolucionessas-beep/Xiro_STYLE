@@ -16,9 +16,13 @@ interface ScreenProps {
   refreshing?: boolean;
   onRefresh?: () => void;
   bottomEdge?: boolean;
+  /** Centra el contenido horizontal y verticalmente (p. ej. una sola tarjeta de acceso) en vez de apilarlo desde
+   * arriba; con contenido que no cabe, sigue pudiéndose desplazar (no se pierde nada en pantallas chicas). No afecta
+   * ninguna otra pantalla: solo cambia si se pasa explícitamente. */
+  center?: boolean;
 }
 
-export function Screen({ children, scroll = true, footer, header, refreshing, onRefresh, bottomEdge = true }: ScreenProps) {
+export function Screen({ children, scroll = true, footer, header, refreshing, onRefresh, bottomEdge = true, center }: ScreenProps) {
   const { colors } = useSettings();
   return (
     <SafeAreaView edges={bottomEdge ? ['top', 'bottom'] : ['top']} style={[styles.root, { backgroundColor: colors.background }]}>
@@ -28,14 +32,14 @@ export function Screen({ children, scroll = true, footer, header, refreshing, on
           {scroll ? (
             <ScrollView
               style={styles.flex}
-              contentContainerStyle={styles.content}
+              contentContainerStyle={[styles.content, center && styles.centerContent]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
               refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.gold} /> : undefined}>
               {children}
             </ScrollView>
           ) : (
-            <View style={[styles.flex, styles.padded]}>{children}</View>
+            <View style={[styles.flex, styles.padded, center && styles.centerContent]}>{children}</View>
           )}
           {footer ? <View style={styles.footer}>{footer}</View> : null}
         </View>
@@ -89,6 +93,7 @@ const styles = StyleSheet.create({
   column: { width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' },
   content: { paddingHorizontal: 20, paddingBottom: 32, paddingTop: 4 },
   padded: { paddingHorizontal: 20 },
+  centerContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
   footer: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 12 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14 },
   back: { width: 44, height: 44, borderRadius: radius.md, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },

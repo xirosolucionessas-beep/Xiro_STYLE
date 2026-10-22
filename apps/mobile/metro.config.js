@@ -5,6 +5,13 @@ const { getDefaultConfig } = require('expo/metro-config');
 const config = getDefaultConfig(__dirname);
 
 /**
+ * `@xiro/shared` vive fuera de este proyecto (packages/shared, enlazado por el workspace). Sin esto, Metro solo
+ * vigila `apps/mobile` y un cambio ahí nunca dispara una recarga — el bundle sigue sirviendo la versión vieja hasta
+ * reiniciar el servidor a mano, aunque el archivo en disco ya esté actualizado.
+ */
+config.watchFolders = [...(config.watchFolders ?? []), path.join(__dirname, '..', '..', 'packages', 'shared')];
+
+/**
  * SOLO WEB. Expo compila `import { Pressable } from 'react-native'` en web como un import profundo de
  * react-native-web. Para el código de src/ esos componentes se sustituyen por versiones de src/web/rn/:
  *  - Pressable: traduce `accessibilityState` a ARIA (react-native-web 0.21 no lo hace).

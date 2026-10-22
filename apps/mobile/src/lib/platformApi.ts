@@ -3,7 +3,13 @@ import type {
   PlatformAdminDto,
   PlatformAuditEntryDto,
   PlatformBusinessDetail,
+  PlatformBusinessListResult,
+  PlatformBusinessSort,
+  PlatformCreateBusinessInput,
+  PlatformCreateBusinessResult,
+  PlatformDeletedBusinessDto,
   PlatformGrantInput,
+  PlatformGrantPreview,
   PlatformGrouping,
   PlatformOverview,
   PlatformSearchKind,
@@ -85,7 +91,8 @@ export interface PeriodParams {
 
 export const platformApi = {
   async login(email: string, password: string, totp: string): Promise<void> {
-    const session = await call<PlatformSessionDto>('/auth/login', { method: 'POST', body: { email, password, totp }, auth: false });
+    // Sin código solo lo acepta una API de desarrollo local con PLATFORM_DEV_SKIP_TOTP; cualquier otra lo rechaza.
+    const session = await call<PlatformSessionDto>('/auth/login', { method: 'POST', body: totp ? { email, password, totp } : { email, password }, auth: false });
     emit({ token: session.token, admin: session.admin, expiresAt: session.expiresAt });
   },
   async logout(): Promise<void> {
@@ -99,10 +106,15 @@ export const platformApi = {
   overview: (p: PeriodParams) => call<PlatformOverview>(`/metrics/overview${qs({ ...p })}`),
   series: (metric: PlatformSeries, grouping: PlatformGrouping, p: PeriodParams) => call<PlatformSeriesDto>(`/metrics/series${qs({ metric, grouping, ...p })}`),
   search: (kind: PlatformSearchKind, q: string) => call<PlatformSearchResult>(`/businesses/search${qs({ kind, q })}`),
+  businesses: (p: { q?: string; sort: PlatformBusinessSort; page: number; pageSize: number }) =>
+    call<PlatformBusinessListResult>(`/businesses${qs({ q: p.q, sort: p.sort, page: String(p.page), pageSize: String(p.pageSize) })}`),
   business: (id: string) => call<PlatformBusinessDetail>(`/businesses/${encodeURIComponent(id)}`),
   changeStatus: (id: string, action: 'suspend' | 'reactivate' | 'deactivate' | 'restore', body: { reason: string; confirmSlug: string }) =>
     call<{ from: string; to: string; sessionsRevoked: number }>(`/businesses/${encodeURIComponent(id)}/${action}`, { method: 'POST', body }),
   grant: (id: string, body: PlatformGrantInput) => call<{ grant: AccessGrantDto; replayed: boolean }>(`/businesses/${encodeURIComponent(id)}/grants`, { method: 'POST', body }),
+  grantPreview: (id: string, unit: 'days' | 'months', amount: number) => call<PlatformGrantPreview>(`/businesses/${encodeURIComponent(id)}/grants/preview${qs({ unit, amount: String(amount) })}`),
+  createBusiness: (body: PlatformCreateBusinessInput) => call<PlatformCreateBusinessResult>('/businesses', { method: 'POST', body }),
   revokeGrant: (id: string, grantId: string, reason: string) => call<void>(`/businesses/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}/revoke`, { method: 'POST', body: { reason } }),
   audit: (before?: string) => call<{ entries: PlatformAuditEntryDto[]; nextBefore: string | null }>(`/audit${qs({ before })}`),
+  deletedBusinesses: (before?: string) => call<{ entries: PlatformDeletedBusinessDto[]; nextBefore: string | null }>(`/businesses-deleted${qs({ before })}`),
 };

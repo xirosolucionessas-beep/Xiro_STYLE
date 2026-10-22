@@ -16,7 +16,7 @@ import { AppText } from '@/ui/Text';
 
 export default function More() {
   const router = useRouter();
-  const { t, language, setLanguage, theme, setTheme, aiFab, setAiFab, colors } = useSettings();
+  const { t, language, setLanguage, theme, setTheme, aiFab, setAiFab, whatsappFab, setWhatsappFab, colors } = useSettings();
   // Borde dorado fino (el dorado de la app con ~45% de opacidad) en los grupos de esta pantalla.
   const goldBorder = { borderColor: `${colors.gold}73` };
   const { user, business, signOut } = useSession();
@@ -72,6 +72,8 @@ export default function More() {
         <ToggleRow icon="moon-outline" label={t('dark_mode')} value={theme === 'dark'} onChange={changeTheme} />
         {/* Preferencia de este dispositivo: el botón aparece o desaparece de Inicio al instante y se recuerda al reabrir. */}
         <ToggleRow icon="sparkles-outline" label={t('ai_show_fab')} value={aiFab} onChange={setAiFab} />
+        {/* Hoy el botón flotante de WhatsApp solo existe en la web; la preferencia ya queda lista para cuando lo haya en la app. */}
+        <ToggleRow icon="logo-whatsapp" label={t('whatsapp_show_fab')} value={whatsappFab} onChange={setWhatsappFab} />
       </Card>
 
       {isOwner ? <NotificationsSection /> : null}

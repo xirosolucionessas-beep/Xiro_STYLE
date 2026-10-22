@@ -15,6 +15,7 @@ import type {
   PublicReviewDto,
   PublicTeamMemberDto,
   PublicWaitlistDto,
+  ClientBirthdayDto,
 } from '@xiro/shared';
 import { HTTP_TIMEOUT_MS, withRetry } from '@xiro/shared';
 
@@ -113,11 +114,11 @@ export const publicApi = {
   review: (slug: string, token: string, rating: number, comment: string) => request<PublicAppointmentDto>(`/${slug}/appointments/${token}/review`, { method: 'POST', body: JSON.stringify({ rating, comment }) }),
 
   accountMe: (slug: string) => request<ClientAccountDto | undefined>(`/${slug}/account/me`),
-  accountRegister: (slug: string, body: { name: string; phone: string; password: string; email?: string; acceptTerms: true; remember: boolean }) =>
+  accountRegister: (slug: string, body: { name: string; phone: string; password: string; email?: string; birthDate?: string; acceptTerms: true; remember: boolean }) =>
     request<ClientAccountDto>(`/${slug}/account/register`, { method: 'POST', body: JSON.stringify(body) }),
   accountLogin: (slug: string, body: { phone: string; password: string; remember: boolean }) => request<ClientAccountDto>(`/${slug}/account/login`, { method: 'POST', body: JSON.stringify(body) }),
   accountLogout: (slug: string) => request<void>(`/${slug}/account/logout`, { method: 'POST' }),
-  accountUpdate: (slug: string, body: { name?: string; email?: string | null }) => request<ClientAccountDto>(`/${slug}/account/me`, { method: 'PUT', body: JSON.stringify(body) }),
+  accountUpdate: (slug: string, body: { name?: string; email?: string | null; birthDate?: string | null }) => request<ClientAccountDto>(`/${slug}/account/me`, { method: 'PUT', body: JSON.stringify(body) }),
   accountUploadPhoto: (slug: string, file: File) => {
     const form = new FormData();
     form.append('photo', file);
@@ -135,4 +136,5 @@ export const publicApi = {
   accountReview: (slug: string, id: string, rating: number, comment: string) => request<ClientAppointmentDto>(`/${slug}/account/appointments/${id}/review`, { method: 'POST', body: JSON.stringify({ rating, comment }) }),
   accountCancelAppointment: (slug: string, id: string, reason = '') => request<ClientAppointmentDto>(`/${slug}/account/appointments/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
   accountLoyalty: (slug: string) => request<LoyaltyAccountView>(`/${slug}/account/loyalty`),
+  accountBirthday: (slug: string) => request<ClientBirthdayDto>(`/${slug}/account/birthday`),
 };

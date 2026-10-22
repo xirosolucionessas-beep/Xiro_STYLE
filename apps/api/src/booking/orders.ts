@@ -1,3 +1,4 @@
+import { birthdayTargetIds, markBirthdayRewardUsed, releaseBirthdayReward, reserveBirthdayReward, type ReservedReward } from '../birthday';
 import { canTransitionProductOrder, OPEN_PRODUCT_ORDER_STATUSES, type ProductOrderDto, type ProductOrderItemDto, type ProductOrderStatus, type PublicProductOrderDto } from '@xiro/shared';
 import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { isUniqueViolation } from '../db/errors';
@@ -25,6 +26,8 @@ export interface CreateProductOrderInput {
   idempotencyKey?: string | undefined;
   /** Código de descuento (Fase 4); se valida y se cuenta aquí, en la transacción del pedido. */
   discountCode?: string | undefined;
+  /** Usar la recompensa de cumpleaños de la cuenta con sesión (solo con cuenta: la recompensa es de esa persona). */
+  useBirthdayReward?: boolean | undefined;
 }
 
 export interface CreatedProductOrder {
@@ -77,6 +80,12 @@ export async function createProductOrder(tx: Tx, businessId: string, ctx: Bookin
     if (!ctx.settings.discountCodesEnabled) throw new AppError(409, 'discount_invalid');
     discount = await redeemDiscount(tx, businessId, input.discountCode, { subtotal: total, clientId, now: input.now });
   }
+  // Recompensa de cumpleaños: solo con la cuenta de la persona (nunca por teléfono escrito en un formulario de invitado).
+  let birthday: ReservedReward | null = null;
+  if (input.useBirthdayReward) {
+    if (!input.account) throw new AppError(401, 'unauthorized');
+    birthday = await reserveBirthdayReward(tx, { businessId, clientId, lines: lines.map((line) => ({ kind: 'product' as const, total: line.unitPrice * line.quantity })), otherDiscount: discount?.amount ?? 0, now: input.now });
+  }
 
   try {
     // Punto de guardado: si otro envío con la misma clave ganó la carrera, la transacción de la petición sigue viva.
@@ -93,7 +102,7 @@ export async function createProductOrder(tx: Tx, businessId: string, ctx: Bookin
           customerNotes: input.customer.notes,
           totalPrice: total,
           discountCodeId: discount?.id ?? null,
-          discountAmount: discount?.amount ?? 0,
+          discountAmount: (discount?.amount ?? 0) + (birthday?.amount ?? 0),
           idempotencyHash: idem,
           termsAcceptedAt: input.now,
           termsAcceptedIp: input.termsIp,
@@ -102,6 +111,7 @@ export async function createProductOrder(tx: Tx, businessId: string, ctx: Bookin
       await sp.insert(productOrderItems).values(lines.map((line) => ({ businessId, orderId: created!.id, ...line })));
       return created!;
     });
+    if (birthday) await markBirthdayRewardUsed(tx, businessId, birthday, { productOrderId: row.id }, input.now);
     return { row, replayed: false };
   } catch (error) {
     if (idem && isUniqueViolation(error, 'product_orders_idem_uq')) {
@@ -138,6 +148,7 @@ export async function loadProductOrderDtos(tx: Tx, businessId: string, rows: Pro
   ]);
   const nameOf = new Map(names.map((n) => [n.id, n.name]));
   const codes = await discountCodesById(tx, businessId, rows.map((r) => r.discountCodeId));
+  const birthdayIds = await birthdayTargetIds(tx, businessId, 'order', rows.map((r) => r.id));
   return rows.map((row) => ({
     id: row.id,
     status: row.status as ProductOrderStatus,
@@ -149,7 +160,7 @@ export async function loadProductOrderDtos(tx: Tx, businessId: string, rows: Pro
     customerNotes: row.customerNotes,
     items: lines.get(row.id) ?? [],
     totalPrice: row.totalPrice,
-    discount: discountOf(row, codes),
+    discount: discountOf(row, codes, birthdayIds),
     saleId: row.saleId,
     cancelReason: row.cancelReason,
     createdAt: row.createdAt.toISOString(),
@@ -166,7 +177,7 @@ export async function toPublicProductOrder(tx: Tx, business: BusinessRow, row: P
     status: row.status as ProductOrderStatus,
     items: lines.get(row.id) ?? [],
     totalPrice: row.totalPrice,
-    discount: discountOf(row, await discountCodesById(tx, business.id, [row.discountCodeId])),
+    discount: discountOf(row, await discountCodesById(tx, business.id, [row.discountCodeId]), await birthdayTargetIds(tx, business.id, 'order', [row.id])),
     createdAt: row.createdAt.toISOString(),
     business: {
       name: profile?.displayName || business.name,
@@ -197,6 +208,7 @@ export async function transitionProductOrder(tx: Tx, businessId: string, id: str
     .set({ status: to, updatedAt: new Date(), ...(to === 'cancelled' ? { cancelReason: reason } : {}) })
     .where(and(eq(productOrders.id, id), eq(productOrders.businessId, businessId)))
     .returning();
+  if (to === 'cancelled') await releaseBirthdayReward(tx, businessId, { productOrderId: id });
   return updated!;
 }
 

@@ -1,4 +1,4 @@
-import { formatClock, formatDay, localDate, localTime, upperFirst, type Language, type PublicBookingCatalog, type PublicBookingProfile, type PublicTeamMemberDto } from '@xiro/shared';
+import { formatClock, formatDay, localDate, localTime, upperFirst, type AppliedDiscountDto, type Language, type PublicBookingCatalog, type PublicBookingProfile, type PublicTeamMemberDto } from '@xiro/shared';
 import type { ReactNode } from 'react';
 import { initials, money } from '../lib/format';
 import { Alert } from '../ui/Alert';
@@ -318,7 +318,7 @@ export function ReviewStep({
   onWebsite: (value: string) => void;
   onCaptcha: (token: string | undefined) => void;
   /** Código de descuento aplicado (Fase 4): el total muestra el ahorro estimado. */
-  discount?: { code: string; amount: number } | null;
+  discount?: AppliedDiscountDto | null;
   /** El campo "¿Tienes un código?" (solo si el negocio usa códigos). */
   discountSlot?: ReactNode;
 }) {

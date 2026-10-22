@@ -2,6 +2,7 @@ import { formatClock, formatDay, formatMoney, localDate, localTime, translate, u
 import { useEffect, useState, type FormEvent } from 'react';
 import { publicApi, type LoyaltyAccountView } from '../api';
 import { accountErrorMessage } from '../lib/accountErrors';
+import { birthdayAccountText } from '../lib/birthday';
 import { useAsync, type AsyncState } from '../lib/useAsync';
 import { profilePath, navigate, accountPath } from '../lib/route';
 import { Avatar } from '../ui/Avatar';
@@ -23,6 +24,9 @@ export function MyAccountPage({ slug, language, account, onAccountChange, onLogo
   // Con el programa apagado, la pestaña desaparece del todo (no solo su contenido): si quedó elegida de antes
   // (otro negocio sí lo tenía activo), se corrige al vuelo durante el render, sin un efecto aparte.
   const loyaltyActive = !loyalty.loading && Boolean(loyalty.data?.active);
+  // Regalo de cumpleaños (si el negocio activó el programa). Se vuelve a pedir al cambiar la fecha en "Mi perfil".
+  const birthday = useAsync(() => (account ? publicApi.accountBirthday(slug) : Promise.resolve({ active: false as const })), [slug, Boolean(account), account?.birthDate ?? null]);
+  const birthdayText = birthday.data ? birthdayAccountText(t, birthday.data, birthday.data.active ? birthday.data.currency : 'COP') : null;
   const effectiveTab: Tab = tab === 'loyalty' && !loyaltyActive ? 'appointments' : tab;
 
   if (!account) return null; // undefined: aún resolviendo; null: ya se redirige arriba
@@ -58,6 +62,15 @@ export function MyAccountPage({ slug, language, account, onAccountChange, onLogo
         </button>
       </div>
 
+      {birthdayText ? (
+        <section className="xp-card xp-stack" aria-labelledby="xp-birthday-title" style={{ marginBottom: 20 }}>
+          <h2 id="xp-birthday-title" className="xp-subtitle">
+            {t('pub_birthday_title')}
+          </h2>
+          <p role="status">{birthdayText}</p>
+          {birthday.data?.active && birthday.data.message && birthday.data.reward?.state === 'available' ? <p className="xp-hint">{birthday.data.message}</p> : null}
+        </section>
+      ) : null}
       {effectiveTab === 'appointments' ? <AppointmentsTab slug={slug} language={language} t={t} /> : null}
       {effectiveTab === 'loyalty' ? <LoyaltyTab loyalty={loyalty} t={t} /> : null}
       {effectiveTab === 'profile' ? <ProfileTab slug={slug} account={account} t={t} onAccountChange={onAccountChange} onLogout={onLogout} /> : null}
@@ -254,6 +267,7 @@ function ForcedPasswordForm({ slug, t, onDone }: { slug: string; t: (k: string) 
 function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: string; account: ClientAccountDto; t: (k: string, p?: Record<string, string | number>) => string; onAccountChange: (a: ClientAccountDto) => void; onLogout: () => void }) {
   const [name, setName] = useState(account.name);
   const [email, setEmail] = useState(account.email ?? '');
+  const [birthDate, setBirthDate] = useState(account.birthDate ?? '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -291,7 +305,8 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
     setSaved(false);
     setSaveError('');
     try {
-      const updated = await publicApi.accountUpdate(slug, { name, email: email || null });
+      // La fecha se envía tal como está en el formulario (cargado con la actual): vacía = quitarla a propósito.
+      const updated = await publicApi.accountUpdate(slug, { name, email: email || null, birthDate: birthDate || null });
       onAccountChange(updated);
       setSaved(true);
     } catch (err) {
@@ -360,6 +375,20 @@ function ProfileTab({ slug, account, t, onAccountChange, onLogout }: { slug: str
               {t('pub_account_email_label')}
             </label>
             <input id="xp-prof-email" className="xp-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} />
+          </div>
+          <div className="xp-field">
+            <label className="xp-label" htmlFor="xp-prof-birth">
+              {t('pub_birth_date')}
+            </label>
+            <input id="xp-prof-birth" className="xp-input" type="date" autoComplete="bday" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={birthDate} onChange={(e) => setBirthDate(e.target.value)} aria-describedby="xp-prof-birth-hint" />
+            <p id="xp-prof-birth-hint" className="xp-hint">
+              {t('pub_birth_date_hint')}
+            </p>
+            {birthDate ? (
+              <button type="button" className="xp-link-btn" onClick={() => setBirthDate('')}>
+                {t('pub_birth_date_remove')}
+              </button>
+            ) : null}
           </div>
           <Button loading={saving} full={false} type="submit">
             {t('pub_my_account_save')}

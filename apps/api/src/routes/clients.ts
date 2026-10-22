@@ -92,7 +92,8 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     const [row] = await db.select().from(clients).where(ownedBy(businessOf(request), uuid((request.params as { id?: string }).id))).limit(1);
     if (!row) throw notFound();
     const [account] = await db.select({ lastLoginAt: clientAccounts.lastLoginAt }).from(clientAccounts).where(eq(clientAccounts.clientId, row.id)).limit(1);
-    return { ...toClient(row), onlineAccount: account ? { lastLoginAt: account.lastLoginAt?.toISOString() ?? null } : null };
+    // Solo el detalle trae la fecha de nacimiento (opcional): nunca los listados, búsquedas ni avisos.
+    return { ...toClient(row), birthDate: row.birthDate, onlineAccount: account ? { lastLoginAt: account.lastLoginAt?.toISOString() ?? null } : null };
   });
 
   app.post('/clients', async (request, reply) => {
@@ -100,11 +101,11 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     const businessId = businessOf(request);
     const [row] = await db
       .insert(clients)
-      .values({ businessId, name: input.name, email: input.email ?? null, phone: input.phone ?? null, address: input.address, notes: input.notes })
+      .values({ businessId, name: input.name, email: input.email ?? null, phone: input.phone ?? null, address: input.address, notes: input.notes, birthDate: input.birthDate ?? null })
       .returning();
     // Si fue el propio dueño quien lo registró, no hace falta avisarle a él mismo (`skipUserId`).
     void notifyBusiness(ctx, businessId, 'clients', { titleKey: 'push_client_new_title', bodyKey: 'push_client_new_body', params: { name: row!.name }, dedupeKey: `client_new:${row!.id}`, href: `/client/${row!.id}` }, request.actor.id);
-    return reply.status(201).send(toClient(row!));
+    return reply.status(201).send({ ...toClient(row!), birthDate: row!.birthDate });
   });
 
   app.put('/clients/:id', async (request) => {
@@ -112,11 +113,12 @@ export function clientRoutes(app: FastifyInstance, ctx: Ctx): void {
     const input = parse(clientInputSchema, request.body);
     const [row] = await db
       .update(clients)
-      .set({ name: input.name, email: input.email ?? null, phone: input.phone ?? null, address: input.address, notes: input.notes })
+      // birthDate omitida (un formulario o una app anterior que no la conoce) = se conserva; null = se quita a propósito.
+      .set({ name: input.name, email: input.email ?? null, phone: input.phone ?? null, address: input.address, notes: input.notes, ...(input.birthDate !== undefined ? { birthDate: input.birthDate } : {}) })
       .where(ownedBy(businessOf(request), id))
       .returning();
     if (!row) throw notFound();
-    return toClient(row);
+    return { ...toClient(row), birthDate: row.birthDate };
   });
 
   app.delete('/clients/:id', async (request, reply) => {

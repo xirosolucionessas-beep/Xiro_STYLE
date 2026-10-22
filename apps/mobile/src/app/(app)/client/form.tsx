@@ -5,7 +5,8 @@ import { View } from 'react-native';
 import { api } from '@/lib/api';
 import { apiErrors, issuesToErrors } from '@/lib/forms';
 import { pickFromLibrary, uploadableImage } from '@/lib/images';
-import { useClient, useInvalidateClients } from '@/lib/queries';
+import { useBirthdayProgram, useClient, useInvalidateClients } from '@/lib/queries';
+import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
 import { useDialogs } from '@/ui/Dialogs';
@@ -21,7 +22,10 @@ export default function ClientForm() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const existing = useClient(id).data;
   const invalidate = useInvalidateClients();
-  const [form, setForm] = useState({ name: '', email: '', phone: '', address: '', notes: '' });
+  const { user } = useAuthed();
+  // Solo el dueño puede consultar el programa; para los demás se explica el uso de la fecha sin depender de él.
+  const birthdayProgram = useBirthdayProgram(user.role === 'owner').data;
+  const [form, setForm] = useState({ name: '', email: '', phone: '', address: '', notes: '', birthDate: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -33,7 +37,7 @@ export default function ClientForm() {
   useEffect(() => {
     if (!existing || hydrated.current) return;
     hydrated.current = true;
-    setForm({ name: existing.name, email: existing.email ?? '', phone: existing.phone ?? '', address: existing.address, notes: existing.notes });
+    setForm({ name: existing.name, email: existing.email ?? '', phone: existing.phone ?? '', address: existing.address, notes: existing.notes, birthDate: existing.birthDate ?? '' });
     setPhotoUrl(existing.photoUrl);
   }, [existing]);
 
@@ -117,6 +121,18 @@ export default function ClientForm() {
       <Field label={t('email')} value={form.email} onChangeText={set('email')} error={errors.email} keyboardType="email-address" autoCapitalize="none" />
       <Field label={t('address')} value={form.address} onChangeText={set('address')} maxLength={160} />
       <Field label={t('client_notes')} value={form.notes} onChangeText={set('notes')} multiline maxLength={1000} />
+      {/* Opcional: vacía = el cliente no participa en el programa de cumpleaños. Nunca bloquea guardar la ficha. */}
+      <Field
+        label={t('birth_date')}
+        hint={t(birthdayProgram && !birthdayProgram.enabled ? 'birth_date_hint_off' : 'birth_date_hint_on')}
+        placeholder={t('birth_date_placeholder')}
+        value={form.birthDate}
+        onChangeText={set('birthDate')}
+        error={errors.birthDate}
+        keyboardType="numbers-and-punctuation"
+        maxLength={10}
+        autoComplete="off"
+      />
       {general ? (
         <AppText tone="danger" style={{ marginBottom: 12 }}>
           {general}

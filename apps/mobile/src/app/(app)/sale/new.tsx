@@ -12,13 +12,16 @@ import { actorOf, meets } from '@/lib/access';
 import { dayRange, formatClock, localTime, summarizeItems, todayIn } from '@/lib/agenda';
 import { api } from '@/lib/api';
 import { apiErrors, toInt } from '@/lib/forms';
-import { flatPages, useAppointments, useCategories, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
+import { birthdaySalePreview } from '@/lib/birthdaySale';
+import { describeReward } from '@/lib/birthdayText';
+import { flatPages, useAppointments, useCategories, useClientBirthday, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
 import { useOrderPrefill } from '@/lib/orderPrefill';
 import { changeDue, cartSubtotal, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, type CartLine, type PaymentRow } from '@/lib/sale';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { BancolombiaBadge, NequiBadge } from '@/ui/brand/logos';
 import { Button } from '@/ui/Button';
+import { CheckRow } from '@/ui/CheckRow';
 import { Field } from '@/ui/Field';
 import { Card, Chip, ChipRow, EmptyState, SectionTitle } from '@/ui/Kit';
 import { PopIn } from '@/ui/PopIn';
@@ -200,7 +203,15 @@ export default function SaleNewNative() {
   const [payments, setPayments] = useState<PaymentRow[]>([{ key: 'pay-1', method: 'cash', amount: 0, receivedAmount: null }]);
 
   const subtotal = cartSubtotal(lines);
-  const total = saleTotal(subtotal, toInt(discount), toInt(tip));
+  // Recompensa de cumpleaños del cliente elegido: vista previa con la MISMA regla que el servidor (que la recalcula al cobrar).
+  const birthdayStatus = useClientBirthday(selectedClient?.id, Boolean(selectedClient));
+  // Se guarda PARA QUÉ cliente se marcó: al cambiar de cliente queda desmarcada sola.
+  const [birthdayFor, setBirthdayFor] = useState<string | null>(null);
+  const useBirthday = Boolean(selectedClient) && birthdayFor === selectedClient?.id;
+  const setUseBirthday = (checked: boolean) => setBirthdayFor(checked ? (selectedClient?.id ?? null) : null);
+  const birthday = birthdaySalePreview(birthdayStatus.data, lines, toInt(discount));
+  const birthdayAmount = useBirthday && birthday.kind === 'ready' ? birthday.amount : 0;
+  const total = saleTotal(subtotal, toInt(discount) + birthdayAmount, toInt(tip));
 
   const [totalSyncedTo, setTotalSyncedTo] = useState(total);
   if (total !== totalSyncedTo) {
@@ -220,7 +231,8 @@ export default function SaleNewNative() {
   function validate(): string | undefined {
     if (!selectedClient && !occasional) return t('sale_error_client_required');
     if (lines.length === 0) return t('sale_error_no_lines');
-    if (toInt(discount) > subtotal) return t('sale_error_discount');
+    if (useBirthday && birthday.kind === 'blocked') return t(birthday.reason);
+    if (toInt(discount) + birthdayAmount > subtotal) return t('sale_error_discount');
     if (insufficientStockLines(lines).length > 0) return t('sale_cart_insufficient_stock', { n: insufficientStockLines(lines)[0]!.stock ?? 0 });
     if (paymentsTotal(payments) !== total) return t('sale_error_payments_mismatch');
     return undefined;
@@ -249,6 +261,7 @@ export default function SaleNewNative() {
         })),
         payments: payments.map((p) => ({ method: p.method, amount: p.amount, receivedAmount: p.receivedAmount })),
         ...(orderPrefill.order ? { productOrderId: orderPrefill.order.id } : {}),
+        ...(birthdayAmount > 0 && birthday.kind === 'ready' ? { birthdayRewardId: birthday.reward.id } : {}),
       };
       const created = await api.createSale(body);
       await invalidateAfterSale();
@@ -267,6 +280,7 @@ export default function SaleNewNative() {
     setAppointmentLoaded(false);
     setLines([]);
     setDiscount('');
+    setUseBirthday(false);
     setTip('');
     setPayments([{ key: 'pay-1', method: 'cash', amount: 0, receivedAmount: null }]);
     setError(undefined);
@@ -522,6 +536,15 @@ export default function SaleNewNative() {
         <Field label={t('sale_discount')} value={discount} onChangeText={(v) => setDiscount(v.replace(/\D/g, ''))} keyboardType="number-pad" prefix="$" />
         <Field label={t('sale_tip')} value={tip} onChangeText={(v) => setTip(v.replace(/\D/g, ''))} keyboardType="number-pad" prefix="$" />
       </View>
+      {birthday.kind !== 'none' ? (
+        <CheckRow
+          label={t('birthday_apply', { reward: describeReward(t, birthday.reward, currency) })}
+          hint={birthday.kind === 'ready' ? `${t('birthday_applied')}: -${fmt(birthday.amount)}` : t(birthday.reason)}
+          checked={useBirthday && birthday.kind === 'ready'}
+          disabled={birthday.kind === 'blocked'}
+          onChange={setUseBirthday}
+        />
+      ) : null}
 
       {payments.map((payment) => (
         <Card key={payment.key} style={{ marginBottom: space.sm }}>
@@ -558,6 +581,12 @@ export default function SaleNewNative() {
           <AppText tone="muted">{t('sale_summary_subtotal')}</AppText>
           <AppText>{fmt(subtotal)}</AppText>
         </View>
+        {birthdayAmount > 0 ? (
+          <View style={styles.summaryRow}>
+            <AppText tone="muted">{t('birthday_applied')}</AppText>
+            <AppText>-{fmt(birthdayAmount)}</AppText>
+          </View>
+        ) : null}
         <View style={styles.summaryRow}>
           <AppText tone="muted">{t('sale_summary_total')}</AppText>
           <AppText variant="bodyStrong" tone="gold">

@@ -86,6 +86,7 @@ export async function requirePermission(db: Database, request: FastifyRequest, p
 
 /** Acciones sensibles: el código TOTP debe haberse verificado hace poco (POST /auth/step-up). */
 export function requireRecentMfa(config: Config, request: FastifyRequest, now = new Date()): void {
+  if (config.platform.devSkipTotp) return; // solo desarrollo local; rechazado en producción por loadConfig
   if (now.getTime() - request.platformAdmin.mfaAt.getTime() > config.platform.stepUpMinutes * 60_000) {
     throw new AppError(403, 'step_up_required', 'Confirma tu código de verificación para continuar.');
   }

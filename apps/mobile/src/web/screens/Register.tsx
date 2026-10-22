@@ -193,7 +193,9 @@ export function RegisterView({ t, language, logo, seed, initialDraft, onDraftCha
             name="businessType"
             value={s1.businessType}
             onChange={(businessType) => setS1((current) => ({ ...current, businessType }))}
-            options={BUSINESS_TYPES.map((type) => ({ value: type, label: t(`type_${type}`), icon: <Ico name={BUSINESS_TYPE_ICONS[type]} size={18} /> }))}
+            // Solo Barbería es seleccionable en el registro por ahora; el resto de BUSINESS_TYPES sigue intacto
+            // (negocios existentes, catálogo, settings, etc.) — se ocultan únicamente estas opciones.
+            options={BUSINESS_TYPES.filter((type) => type === 'barbershop').map((type) => ({ value: type, label: t(`type_${type}`), icon: <Ico name={BUSINESS_TYPE_ICONS[type]} size={18} /> }))}
           />
           <Input label={t('email')} value={s1.email} onChange={setField('email')} error={fieldError('email')} type="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} name="email" />
           <PhoneField

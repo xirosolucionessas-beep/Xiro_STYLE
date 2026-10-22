@@ -38,10 +38,11 @@ export function subscriptionRoutes(app: FastifyInstance, ctx: Ctx): void {
     const paid = await toSubscriptionResponse(db, row);
     // Concesión administrativa vigente (panel del fundador): da acceso sin tocar el estado de pago ni al proveedor.
     const grant = await accessGrantStatus(db, request.user.bid);
-    const full: Subscription = grant.coversNow ? { ...paid, hasAccess: true, accessGrantEndsAt: grant.until!.toISOString() } : { ...paid, accessGrantEndsAt: null };
+    const upcoming = grant.upcoming ? { startsAt: grant.upcoming.startsAt.toISOString(), endsAt: grant.upcoming.endsAt.toISOString() } : null;
+    const full: Subscription = grant.coversNow ? { ...paid, hasAccess: true, accessGrantEndsAt: grant.until!.toISOString(), accessGrantUpcoming: null } : { ...paid, accessGrantEndsAt: null, accessGrantUpcoming: upcoming };
     if (request.actor.role === 'owner') return full;
     // Un empleado solo necesita saber si la cuenta tiene acceso: nada de plan, precios, fechas de cobro ni método de pago.
-    return { plan: null, status: full.status, platform: null, paymentMethod: null, trialEndsAt: null, currentPeriodEnd: null, nextBillingAt: null, cancelAtPeriodEnd: false, gracePeriodEndsAt: full.gracePeriodEndsAt, hasAccess: full.hasAccess, accessGrantEndsAt: full.accessGrantEndsAt } satisfies Subscription;
+    return { plan: null, status: full.status, platform: null, paymentMethod: null, trialEndsAt: null, currentPeriodEnd: null, nextBillingAt: null, cancelAtPeriodEnd: false, gracePeriodEndsAt: full.gracePeriodEndsAt, hasAccess: full.hasAccess, accessGrantEndsAt: full.accessGrantEndsAt, accessGrantUpcoming: full.accessGrantUpcoming } satisfies Subscription;
   });
 
   /** Reclama la prueba gratuita de 7 días (sección 2). Un negocio solo puede hacerlo una vez, para siempre. */

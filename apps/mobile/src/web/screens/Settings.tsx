@@ -56,6 +56,9 @@ export interface SettingsViewProps {
   /** Botón flotante del asistente de IA (misma preferencia que en Android/iOS). */
   aiFab?: boolean;
   onAiFab?: (next: boolean) => void;
+  /** Botón flotante de contacto por WhatsApp (misma preferencia que en Android/iOS; hoy solo tiene efecto visible en la web). */
+  whatsappFab?: boolean;
+  onWhatsappFab?: (next: boolean) => void;
   /** null: solo el dueño gestiona las notificaciones del negocio. */
   notifications: NotificationsModel | null;
   supportLinks: SettingsLink[];
@@ -114,7 +117,7 @@ function SwitchRow({ icon, title, sub, checked, onChange, disabled }: { icon: Ic
 }
 
 /** Ajustes: paneles de cuenta y negocio, preferencias, notificaciones y ayuda, con el mismo lenguaje del resto de secciones. */
-export function SettingsView({ t, accountLinks, language, onLanguage, darkMode, onDarkMode, aiFab, onAiFab, notifications, supportLinks, navigate }: SettingsViewProps): ReactNode {
+export function SettingsView({ t, accountLinks, language, onLanguage, darkMode, onDarkMode, aiFab, onAiFab, whatsappFab, onWhatsappFab, notifications, supportLinks, navigate }: SettingsViewProps): ReactNode {
   useWebStyles();
   return (
     <div className="xw-section">
@@ -151,6 +154,7 @@ export function SettingsView({ t, accountLinks, language, onLanguage, darkMode, 
               </li>
               <SwitchRow icon={darkMode ? 'moon' : 'sun'} title={t('dark_mode')} sub={t('sec_set_dark_desc')} checked={darkMode} onChange={onDarkMode} />
               {onAiFab ? <SwitchRow icon="message-circle" title={t('ai_show_fab')} sub={t('sec_set_ai_desc')} checked={aiFab ?? true} onChange={onAiFab} /> : null}
+              {onWhatsappFab ? <SwitchRow icon="phone" title={t('whatsapp_show_fab')} sub={t('whatsapp_show_fab_desc')} checked={whatsappFab ?? true} onChange={onWhatsappFab} /> : null}
             </ul>
           </Panel>
 

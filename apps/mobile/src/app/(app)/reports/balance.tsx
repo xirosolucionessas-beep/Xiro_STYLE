@@ -16,6 +16,7 @@ import { useBalance, useBalanceMovements } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { CalendarPicker } from '@/ui/agenda/CalendarPicker';
+import { useCountUp } from '@/ui/AnimatedCharts';
 import { Button } from '@/ui/Button';
 import { Card, Chip, ChipRow, EmptyState } from '@/ui/Kit';
 import { BalanceCharts } from '@/ui/reports/BalanceCharts';
@@ -76,6 +77,11 @@ export default function BalanceReport() {
   const totals = balance.data?.totals;
   const comparison = balance.data?.comparison;
   const pages = Math.max(1, Math.ceil((movements.data?.total ?? 0) / PAGE_SIZE));
+  // Las 4 cifras principales cuentan progresivamente al cargar o cambiar de periodo, en vez de saltar de golpe.
+  const incomeDisplay = useCountUp(totals?.income);
+  const operatingDisplay = useCountUp(totals?.operating);
+  const payrollDisplay = useCountUp(totals?.payroll);
+  const netDisplay = useCountUp(totals?.net);
 
   /** Variación vs. el periodo anterior; `goodWhenUp` = false en los gastos (subir es malo). */
   const change = (value: number | null | undefined, goodWhenUp: boolean) => {
@@ -190,18 +196,18 @@ export default function BalanceReport() {
           <View style={styles.metrics}>
             {metric(
               t('bal_income'),
-              totals.income,
+              incomeDisplay,
               change(comparison?.income, true),
               'text',
               <AppText variant="small" tone="muted">
                 {t('bal_breakdown', { services: money(totals.services), products: money(totals.products), discounts: money(totals.discounts) })}
               </AppText>,
             )}
-            {metric(t('bal_operating'), totals.operating, change(comparison?.operating, false))}
-            {metric(t('bal_payroll'), totals.payroll, change(comparison?.payroll, false))}
+            {metric(t('bal_operating'), operatingDisplay, change(comparison?.operating, false))}
+            {metric(t('bal_payroll'), payrollDisplay, change(comparison?.payroll, false))}
             {metric(
               t('bal_net'),
-              totals.net,
+              netDisplay,
               change(comparison?.net, true),
               totals.net < 0 ? 'danger' : 'gold',
               <AppText variant="bodyStrong" tone={totals.margin === null ? 'muted' : totals.margin < 0 ? 'danger' : 'text'}>
@@ -216,7 +222,6 @@ export default function BalanceReport() {
           ) : null}
           {balance.data ? (
             <BalanceCharts
-              key={`${range.from}:${range.to}`}
               grouping={balance.data.series.grouping}
               buckets={balance.data.series.buckets}
               breakdown={balance.data.expenseBreakdown}

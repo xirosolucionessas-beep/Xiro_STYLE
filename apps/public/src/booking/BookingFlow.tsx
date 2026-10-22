@@ -1,5 +1,7 @@
 import {
+  birthdayDiscount,
   computeDiscount,
+  eligibleSubtotal,
   formatClock,
   formatDay,
   isValidPhone,
@@ -12,6 +14,7 @@ import {
   translate,
   type BookingSelection,
   type ClientAccountDto,
+  type ClientBirthdayDto,
   type Language,
   type PublicBookingCatalog,
   type PublicBookingProfile,
@@ -23,7 +26,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, publicApi } from '../api';
 import { forgetRememberedCustomer, loadRememberedCustomer, saveRememberedCustomer } from '../lib/rememberCustomer';
-import { errorKey } from '../lib/useAsync';
+import { describeBirthdayReward } from '../lib/birthday';
+import { money } from '../lib/format';
+import { errorKey, useAsync } from '../lib/useAsync';
 import { newUuid } from '../lib/uuid';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
@@ -185,7 +190,27 @@ export function BookingFlow({
   }, [chosen, catalog]);
   // Ahorro estimado del código (el servidor lo vuelve a calcular y lo cuenta al confirmar).
   const discountAmount = discount ? computeDiscount(totals.price, discount) : 0;
-  const discountLine = discount && discountAmount > 0 ? { code: discount.code, amount: discountAmount } : null;
+  // Regalo de cumpleaños: solo con sesión y si el negocio tiene el programa activo. Lo que se ve aquí es una estimación; el
+  // servidor vuelve a validar la recompensa (bloqueándola) y calcula el descuento real al confirmar.
+  const birthdayInfo = useAsync<ClientBirthdayDto>(() => (account ? publicApi.accountBirthday(slug) : Promise.resolve({ active: false })), [slug, account?.id ?? null]);
+  const birthdayReward = birthdayInfo.data?.active && birthdayInfo.data.reward?.state === 'available' ? birthdayInfo.data.reward : null;
+  const [useBirthday, setUseBirthday] = useState(false);
+  const birthdayLines = useMemo(() => {
+    const lines: Array<{ kind: 'service' | 'product' | 'package'; total: number }> = [];
+    for (const s of chosen.services) {
+      const item = catalog.services.find((i) => i.id === s.itemId);
+      const variant = s.variantId ? item?.variants.find((v) => v.id === s.variantId) : undefined;
+      lines.push({ kind: 'service', total: variant?.price ?? item?.price ?? 0 });
+    }
+    for (const id of chosen.packages) lines.push({ kind: 'package', total: catalog.packages.find((p) => p.id === id)?.price ?? 0 });
+    for (const p of chosen.products) lines.push({ kind: 'product', total: (catalog.products.find((i) => i.id === p.itemId)?.price ?? 0) * p.quantity });
+    return lines;
+  }, [chosen, catalog]);
+  const birthdayBlocked = birthdayReward ? (!birthdayReward.combinable && discountAmount > 0 ? 'birthday_not_combinable' : null) : null;
+  const birthdayEstimate = birthdayReward && !birthdayBlocked ? Math.min(birthdayDiscount(eligibleSubtotal(birthdayLines, birthdayReward.scope), birthdayReward), Math.max(0, totals.price - discountAmount)) : 0;
+  const birthdayAmount = useBirthday && birthdayEstimate > 0 ? birthdayEstimate : 0;
+  const totalDiscount = discountAmount + birthdayAmount;
+  const discountLine = totalDiscount > 0 ? { code: discount && discountAmount > 0 ? discount.code : '', amount: totalDiscount, birthday: birthdayAmount > 0 } : null;
 
   // Foto del resumen: la del primer servicio, paquete o producto elegido que tenga foto (cambia con la selección). Sin nada
   // elegido con foto, el resumen no muestra imagen (antes era la portada fija del negocio).
@@ -222,7 +247,7 @@ export function BookingFlow({
     professional: !orderMode && stepIndex > steps.indexOf('professional') && team.length > 0 ? professionalName : null,
     when: slotLabel,
     minutes: totals.minutes,
-    price: totals.price - discountAmount,
+    price: totals.price - totalDiscount,
     currency: profile.currency,
   };
 
@@ -293,6 +318,7 @@ export function BookingFlow({
       captchaToken,
       idempotencyKey,
       ...(discount ? { discountCode: discount.code } : {}),
+      ...(birthdayAmount > 0 ? { useBirthdayReward: true } : {}),
     };
     const parsed = publicBookingInputSchema.safeParse(payload);
     if (!parsed.success) return setSubmitError(t('pub_err_fix'));
@@ -327,6 +353,12 @@ export function BookingFlow({
 
   /** El servidor rechazó el código al confirmar (se agotó, venció o no llega al mínimo): se quita y se dice por qué; nada se creó. */
   function rejectedDiscount(error: unknown): boolean {
+    // La recompensa de cumpleaños ya no se puede usar (vencida, usada en otra compra, no combinable, mínimo): se desmarca.
+    if (error instanceof ApiError && error.code.startsWith('birthday_')) {
+      setSubmitError(t(error.code));
+      setUseBirthday(false);
+      return true;
+    }
     if (!(error instanceof ApiError) || !error.code.startsWith('discount_')) return false;
     setSubmitError(discountErrorText(error, t, profile.currency));
     if (error.code !== 'discount_min_total') setDiscount(null);
@@ -343,6 +375,7 @@ export function BookingFlow({
       captchaToken,
       idempotencyKey,
       ...(discount ? { discountCode: discount.code } : {}),
+      ...(birthdayAmount > 0 ? { useBirthdayReward: true } : {}),
     };
     const parsed = publicProductOrderInputSchema.safeParse(payload);
     if (!parsed.success) return setSubmitError(t('pub_err_fix'));
@@ -492,7 +525,24 @@ export function BookingFlow({
           onWebsite={setWebsite}
           onCaptcha={setCaptchaToken}
           discount={discountLine}
-          discountSlot={profile.features.discountCodes ? <DiscountField slug={slug} subtotal={totals.price} currency={profile.currency} applied={discount} onApplied={setDiscount} t={t} /> : undefined}
+          discountSlot={
+            profile.features.discountCodes || birthdayReward ? (
+              <>
+                {profile.features.discountCodes ? <DiscountField slug={slug} subtotal={totals.price} currency={profile.currency} applied={discount} onApplied={setDiscount} t={t} /> : null}
+                {birthdayReward ? (
+                  <div className="xp-stack">
+                    <label className="xp-check">
+                      <input type="checkbox" checked={useBirthday && birthdayEstimate > 0} disabled={birthdayEstimate === 0} onChange={(e) => setUseBirthday(e.target.checked)} aria-describedby="xp-bday-note" />
+                      <span>{t('pub_birthday_use', { reward: describeBirthdayReward(t, birthdayReward, profile.currency) })}</span>
+                    </label>
+                    <p id="xp-bday-note" className="xp-hint" role="status">
+                      {birthdayBlocked ? t(birthdayBlocked) : birthdayEstimate === 0 ? t('birthday_min_total') : t('pub_birthday_saving', { amount: money(birthdayEstimate, profile.currency) })}
+                    </p>
+                  </div>
+                ) : null}
+              </>
+            ) : undefined
+          }
         />
       ) : null}
     </>

@@ -91,7 +91,9 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
       // el checkout no debe competir con la barra lateral ni con las migas.
       return { titleKey: 'subscription_title', section: null, trail: [{ labelKey: 'subscription_title' }], auth: false, width: 'form', needsHeading: false, hideFloating: true, standalone: true };
     case '/profile':
-      return { titleKey: 'profile', section: 'settings', trail: [HOME, SETTINGS, { labelKey: 'profile' }], auth: false, width: 'form', needsHeading: false };
+      // Ancho normal del panel (como Inicio/Reportes), no el angosto de formulario: ya no es un formulario simple
+      // (foto, datos, cambio de contraseña y zona de peligro) y se veía apretado en pantallas anchas.
+      return { titleKey: 'profile', section: 'settings', trail: [HOME, SETTINGS, { labelKey: 'profile' }], auth: false, width: 'wide', needsHeading: false };
     case '/employees':
       return { titleKey: 'nav_employees', section: 'employees', trail: [HOME, { labelKey: 'nav_employees' }], auth: false, width: 'wide', needsHeading: false };
     case '/loyalty':

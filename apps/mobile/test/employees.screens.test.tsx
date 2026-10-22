@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
 import { EmployeesView, type EmployeesViewProps } from '../src/web/screens/Employees';
+import { employeeQuota } from '@xiro/shared';
+import { quotaView } from '../src/lib/employeesLogic';
 import { tw } from '../src/web/shell/strings';
 
 const t = (key: string, params?: Record<string, string | number>) => tw('es', key, params);
@@ -192,5 +194,30 @@ describe('EmployeesView — actividad', () => {
     view({ logs: [] });
     await userEvent.setup().click(screen.getByRole('tab', { name: 'Actividad' }));
     expect(screen.getByText('Aún no hay actividad de tu equipo.')).toBeTruthy();
+  });
+});
+
+describe('EmployeesView — cupos de empleados activos', () => {
+  it('muestra "3 de 5" y permite agregar', () => {
+    view({ quota: quotaView(t, employeeQuota(3)) });
+    expect(screen.getByRole('status').textContent).toContain('3 de 5 empleados activos');
+    expect(screen.getByRole('status').textContent).toContain('Te quedan 2 cupos.');
+    expect((screen.getByRole('button', { name: /Nuevo empleado|Agregar/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('en el límite: no deja agregar ni reactivar, y lo explica', async () => {
+    const { container } = view({ quota: quotaView(t, employeeQuota(5)) });
+    expect(screen.getByRole('status').textContent).toContain('No quedan cupos');
+    expect((screen.getByRole('button', { name: /Nuevo empleado|Agregar/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Reactivar' }) as HTMLButtonElement).disabled).toBe(true);
+    // Desactivar sigue disponible para liberar un cupo.
+    expect((screen.getByRole('button', { name: 'Desactivar' }) as HTMLButtonElement).disabled).toBe(false);
+    await noViolations(container);
+  });
+
+  it('negocio por encima del límite: se informa sin quitar a nadie', () => {
+    view({ quota: quotaView(t, employeeQuota(7)) });
+    expect(screen.getByRole('status').textContent).toContain('7 de 5 empleados activos');
+    expect(screen.getByRole('status').textContent).toContain('Nadie pierde acceso');
   });
 });

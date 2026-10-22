@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 import {
   deriveEffectiveStatus,
   grantEnd,
@@ -10,18 +10,28 @@ import {
   type BusinessAccessStatus,
   type PlatformAuditEntryDto,
   type PlatformBusinessDetail,
+  type PlatformBusinessListItem,
+  type PlatformBusinessListQuery,
+  type PlatformBusinessListResult,
   type PlatformBusinessSummary,
+  type PlatformCreateBusinessInput,
+  type PlatformCreateBusinessResult,
+  type PlatformDeletedBusinessDto,
   type PlatformGrantInput,
+  type PlatformGrantPreview,
   type PlatformSearchKind,
   type PlatformSearchResult,
   type SubscriptionStatus,
 } from '@xiro/shared';
 import type { FastifyRequest } from 'fastify';
+import { createBusinessWithOwner } from '../accounts';
 import type { Database, DbExecutor } from '../db/client';
 import { businessAccessGrants, businessSlugHistory, businesses, platformAdmins, platformAuditLog, refreshTokens, subscriptions, users } from '../db/schema';
 import { isUniqueViolation } from '../db/errors';
 import { AppError, isUuid, notFound } from '../errors';
+import { mediaUrl } from '../media';
 import { escapeLike } from '../pagination';
+import { hashPassword, randomToken } from '../security';
 import { recordPlatformAudit } from './audit';
 import { accessGrantStatus } from './grants';
 
@@ -31,15 +41,16 @@ const GRANTS_LIMIT = 50;
 
 type BusinessRow = typeof businesses.$inferSelect;
 
-const summary = (b: Pick<BusinessRow, 'id' | 'name' | 'slug' | 'accessStatus' | 'createdAt'>): PlatformBusinessSummary => ({
+const summary = (b: Pick<BusinessRow, 'id' | 'name' | 'slug' | 'accessStatus' | 'createdAt' | 'logoFile'>): PlatformBusinessSummary => ({
   id: b.id,
   name: b.name,
   slug: b.slug,
   accessStatus: b.accessStatus as BusinessAccessStatus,
   createdAt: b.createdAt.toISOString(),
+  logoUrl: b.logoFile ? mediaUrl(b.logoFile) : null,
 });
 
-const summaryColumns = { id: businesses.id, name: businesses.name, slug: businesses.slug, accessStatus: businesses.accessStatus, createdAt: businesses.createdAt };
+const summaryColumns = { id: businesses.id, name: businesses.name, slug: businesses.slug, accessStatus: businesses.accessStatus, createdAt: businesses.createdAt, logoFile: businesses.logoFile };
 
 /** Búsqueda acotada (máx. 20) por correo exacto de cualquier persona del negocio, nombre (contiene), id o slug exactos. */
 export async function searchBusinesses(db: DbExecutor, kind: PlatformSearchKind, rawQuery: string): Promise<PlatformSearchResult> {
@@ -67,6 +78,58 @@ export async function searchBusinesses(db: DbExecutor, kind: PlatformSearchKind,
       .limit(SEARCH_LIMIT + 1);
   }
   return { results: rows.slice(0, SEARCH_LIMIT).map(summary), truncated: rows.length > SEARCH_LIMIT };
+}
+
+const LIST_SORTS: Record<PlatformBusinessListQuery['sort'], SQL> = {
+  name_asc: asc(businesses.name),
+  name_desc: desc(businesses.name),
+  created_asc: asc(businesses.createdAt),
+  created_desc: desc(businesses.createdAt),
+};
+
+/**
+ * Página de TODOS los negocios (pantalla "Ver más" de Negocios registrados), con búsqueda y orden opcionales.
+ * `q` sin "kind" explícito: id exacto (si parece un uuid), correo exacto de cualquier persona del negocio (si trae
+ * "@", mismo alcance que `searchBusinesses(kind: 'email')`), o si no, nombre (contiene) o slug (exacto).
+ */
+export async function listBusinesses(db: DbExecutor, query: PlatformBusinessListQuery): Promise<PlatformBusinessListResult> {
+  const q = query.q?.trim();
+  let where: SQL | undefined;
+  if (q) {
+    // `isUuid` es un type guard hacia `string`; con `q` ya en `string`, TypeScript sigue el alias hasta `q` y reduce el
+    // `else` a `never`, incluso guardando el resultado aparte. Se widening a `unknown` para la comprobación rompe ese alias.
+    if (isUuid(q as unknown)) {
+      where = eq(businesses.id, q.toLowerCase());
+    } else if (q.includes('@')) {
+      const matches = await db.select({ id: users.businessId }).from(users).where(eq(users.email, q.toLowerCase()));
+      const ids = [...new Set(matches.map((m) => m.id))];
+      where = ids.length > 0 ? inArray(businesses.id, ids) : sql`false`;
+    } else {
+      where = or(ilike(businesses.name, `%${escapeLike(q)}%`), eq(businesses.slug, q.toLowerCase()));
+    }
+  }
+
+  const [countRow] = await db.select({ total: sql<number>`count(*)::int` }).from(businesses).where(where);
+  const total = countRow?.total ?? 0;
+  const rows = await db
+    .select(summaryColumns)
+    .from(businesses)
+    .where(where)
+    .orderBy(LIST_SORTS[query.sort], desc(businesses.id))
+    .limit(query.pageSize)
+    .offset((query.page - 1) * query.pageSize);
+
+  // Dueño más antiguo de cada negocio de esta página, en un solo viaje (no uno por fila).
+  const ids = rows.map((r) => r.id);
+  const owners =
+    ids.length === 0 ? [] : await db.select({ businessId: users.businessId, email: users.email, createdAt: users.createdAt }).from(users).where(and(inArray(users.businessId, ids), eq(users.role, 'owner')));
+  const firstOwnerEmail = new Map<string, string | null>();
+  for (const o of [...owners].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+    if (!firstOwnerEmail.has(o.businessId)) firstOwnerEmail.set(o.businessId, o.email);
+  }
+
+  const results: PlatformBusinessListItem[] = rows.map((r) => ({ ...summary(r), ownerEmailMasked: maskEmail(firstOwnerEmail.get(r.id) ?? null) }));
+  return { results, page: query.page, pageSize: query.pageSize, total, totalPages: Math.max(1, Math.ceil(total / query.pageSize)) };
 }
 
 /** Misma regla de acceso que GET /api/subscription (deriveEffectiveStatus + subscriptionHasAccess), SIN escribir nada. */
@@ -121,6 +184,43 @@ export async function loadAuditEntries(db: DbExecutor, where: { businessId?: str
     details: a.details,
     createdAt: a.createdAt.toISOString(),
   }));
+}
+
+/** Acción con la que `accountDeletion.ts` registra la eliminación que hace un dueño de su propio negocio. */
+export const BUSINESS_SELF_DELETE_ACTION = 'business.self_delete';
+
+function detailString(details: Record<string, unknown>, key: string): string | null {
+  const value = details[key];
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+/**
+ * Negocios eliminados por su propio dueño (panel del fundador) — ver accountDeletion.ts. El negocio ya no existe
+ * (se borró de verdad), así que todo lo que se muestra sale de `details` guardado al momento del borrado, NUNCA de
+ * un JOIN a `businesses`; un campo ausente se muestra como tal (`null`), nunca inventado.
+ */
+export async function loadDeletedBusinesses(db: DbExecutor, where: { limit: number; before?: Date }): Promise<PlatformDeletedBusinessDto[]> {
+  const conditions = [eq(platformAuditLog.action, BUSINESS_SELF_DELETE_ACTION), where.before ? sql`${platformAuditLog.createdAt} < ${where.before}` : undefined].filter(Boolean);
+  const rows = await db
+    .select()
+    .from(platformAuditLog)
+    .where(and(...conditions))
+    .orderBy(desc(platformAuditLog.createdAt))
+    .limit(where.limit);
+  return rows.map((row) => {
+    const details = row.details ?? {};
+    return {
+      id: row.id,
+      businessId: row.businessId,
+      businessName: detailString(details, 'businessName'),
+      requestedByUserId: detailString(details, 'requestedByUserId'),
+      requestedByName: detailString(details, 'requestedByName'),
+      requestedByEmail: detailString(details, 'requestedByEmail'),
+      requestedByRole: detailString(details, 'requestedByRole'),
+      outcome: row.outcome === 'error' ? 'error' : 'success',
+      createdAt: row.createdAt.toISOString(),
+    };
+  });
 }
 
 /** Ficha de un negocio. Toda consulta va acotada por `business_id` (el id validado de la URL). */
@@ -270,6 +370,38 @@ export async function changeAccessStatus(
 
 /* ---------- Concesiones de acceso ---------- */
 
+/**
+ * Ventana de una concesión nueva: empieza en lo más tardío entre ahora, el fin de la última concesión vigente y el fin del
+ * período pagado o de prueba vigente. Única fuente de la regla: la usan la concesión real y su vista previa.
+ */
+async function grantWindow(tx: DbExecutor, businessId: string, unit: 'days' | 'months', amount: number, now: Date) {
+  const grants = await accessGrantStatus(tx, businessId, now);
+  const [subRow] = await tx.select().from(subscriptions).where(eq(subscriptions.businessId, businessId)).limit(1);
+  const paid = paidSubscription(subRow, now);
+  const paidEnd = paid.status === 'trial' ? subRow?.trialEndsAt : paid.status === 'active' ? subRow?.currentPeriodEnd : null;
+  const startsAt = grantStart(now, [grants.latestEnd, paidEnd]);
+  const endsAt = grantEnd(startsAt, unit, amount);
+  return { grants, paid, paidEnd: paidEnd ?? null, startsAt, endsAt };
+}
+
+/** Lo que pasaría al conceder `amount` `unit` ahora (no escribe nada). */
+export async function previewAccessGrant(db: DbExecutor, businessId: string, unit: 'days' | 'months', amount: number, now: Date = new Date()): Promise<PlatformGrantPreview> {
+  const [business] = await db.select({ id: businesses.id }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  if (!business) throw notFound();
+  const { grants, paid, paidEnd, startsAt, endsAt } = await grantWindow(db, businessId, unit, amount, now);
+  const hasCurrent = startsAt.getTime() > now.getTime();
+  const source: PlatformGrantPreview['currentAccessSource'] = !hasCurrent
+    ? 'none'
+    : grants.latestEnd && grants.latestEnd.getTime() === startsAt.getTime()
+      ? 'grant'
+      : paidEnd && paidEnd.getTime() === startsAt.getTime()
+        ? paid.status === 'trial'
+          ? 'trial'
+          : 'paid'
+        : 'grant';
+  return { currentAccessEndsAt: hasCurrent ? startsAt.toISOString() : null, currentAccessSource: source, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() };
+}
+
 export async function createAccessGrant(db: Database, request: FastifyRequest, businessId: string, input: PlatformGrantInput, now: Date = new Date()): Promise<{ grant: AccessGrantDto; replayed: boolean }> {
   const run = () =>
     db.transaction(async (tx) => {
@@ -283,12 +415,7 @@ export async function createAccessGrant(db: Database, request: FastifyRequest, b
       }
       if (business.accessStatus === 'deactivated') throw new AppError(409, 'business_deactivated', 'Recupera primero el negocio dado de baja.');
 
-      const grants = await accessGrantStatus(tx, businessId, now);
-      const [subRow] = await tx.select().from(subscriptions).where(eq(subscriptions.businessId, businessId)).limit(1);
-      const paid = paidSubscription(subRow, now);
-      const paidEnd = paid.status === 'trial' ? subRow?.trialEndsAt : paid.status === 'active' ? subRow?.currentPeriodEnd : null;
-      const startsAt = grantStart(now, [grants.latestEnd, paidEnd]);
-      const endsAt = grantEnd(startsAt, input.unit, input.amount);
+      const { grants, paid, startsAt, endsAt } = await grantWindow(tx, businessId, input.unit, input.amount, now);
       const [created] = await tx
         .insert(businessAccessGrants)
         .values({ businessId, adminId: request.platformAdmin.id, unit: input.unit, amount: input.amount, startsAt, endsAt, reason: input.reason, supportRef: input.supportRef || null, idempotencyKey: input.idempotencyKey })
@@ -306,7 +433,13 @@ export async function createAccessGrant(db: Database, request: FastifyRequest, b
           endsAt: endsAt.toISOString(),
           reason: input.reason,
           supportRef: input.supportRef ?? null,
-          before: { grantAccessUntil: grants.until?.toISOString() ?? null, subscriptionStatus: paid.status },
+          before: {
+            grantAccessUntil: grants.until?.toISOString() ?? null,
+            subscriptionStatus: paid.status,
+            // Hasta cuándo tenía acceso antes (fin de prueba, período pagado o cortesía); null = sin acceso vigente.
+            accessEndsAt: startsAt.getTime() > now.getTime() ? startsAt.toISOString() : null,
+          },
+          after: { accessEndsAt: endsAt.toISOString() },
           note: 'Concesión administrativa: no es un pago ni modifica la suscripción o el proveedor.',
         },
       });
@@ -341,4 +474,94 @@ export async function revokeAccessGrant(db: Database, request: FastifyRequest, b
       details: { grantId, reason, before: { endsAt: grant.endsAt.toISOString(), revokedAt: null }, after: { revokedAt: now.toISOString() } },
     });
   });
+}
+
+/* ---------- Alta de un negocio desde el panel (solo el fundador) ---------- */
+
+const CREATE_ACTION = 'business.create';
+
+/** Alta ya procesada con esta clave (reintento, doble clic o respuesta perdida): se devuelve la misma, sin crear otra. */
+async function priorCreation(db: DbExecutor, input: PlatformCreateBusinessInput): Promise<PlatformCreateBusinessResult | null> {
+  const [entry] = await db
+    .select({ businessId: platformAuditLog.businessId, details: platformAuditLog.details })
+    .from(platformAuditLog)
+    .where(and(eq(platformAuditLog.action, CREATE_ACTION), eq(platformAuditLog.outcome, 'success'), sql`${platformAuditLog.details}->>'idempotencyKey' = ${input.idempotencyKey}`))
+    .limit(1);
+  if (!entry?.businessId) return null;
+  const [business] = await db.select(summaryColumns).from(businesses).where(eq(businesses.id, entry.businessId)).limit(1);
+  const [owner] = await db.select({ email: users.email }).from(users).where(and(eq(users.businessId, entry.businessId), eq(users.role, 'owner'))).limit(1);
+  // Misma clave con OTROS datos: no es un reintento de esta alta.
+  if (!business || owner?.email !== input.ownerEmail) throw new AppError(409, 'idempotency_conflict', 'Esa clave ya se usó para otra alta.');
+  const endsAt = entry.details.initialAccessEndsAt;
+  return { business: summary(business), ownerEmailMasked: maskEmail(owner.email), initialAccessEndsAt: typeof endsAt === 'string' ? endsAt : null, replayed: true };
+}
+
+/**
+ * Crea negocio + dueño (+ concesión inicial opcional) + registro en la bitácora, TODO en una transacción: o queda la
+ * cuenta completa con su rastro, o nada. El dueño nace con rol `owner` sin permisos extra, en su propio negocio (nuevo
+ * `business_id`), y con una contraseña aleatoria que nadie conoce ni se muestra: la pone él con la recuperación de acceso.
+ */
+export async function createBusinessAccount(db: Database, request: FastifyRequest, input: PlatformCreateBusinessInput, now: Date = new Date()): Promise<PlatformCreateBusinessResult> {
+  const prior = await priorCreation(db, input);
+  if (prior) return prior;
+  try {
+    const { owner, extra } = await createBusinessWithOwner(
+      db,
+      {
+        businessName: input.businessName,
+        businessType: input.businessType,
+        ownerName: input.ownerName,
+        email: input.ownerEmail,
+        phone: null,
+        passwordHash: await hashPassword(randomToken(32)),
+        language: input.language,
+      },
+      async (tx, created) => {
+        let initialAccessEndsAt: string | null = null;
+        if (input.initialAccess) {
+          const { startsAt, endsAt } = await grantWindow(tx, created.businessId, input.initialAccess.unit, input.initialAccess.amount, now);
+          await tx.insert(businessAccessGrants).values({
+            businessId: created.businessId,
+            adminId: request.platformAdmin.id,
+            unit: input.initialAccess.unit,
+            amount: input.initialAccess.amount,
+            startsAt,
+            endsAt,
+            reason: input.reason,
+            idempotencyKey: input.idempotencyKey,
+          });
+          initialAccessEndsAt = endsAt.toISOString();
+        }
+        await recordPlatformAudit(tx, request, {
+          adminId: request.platformAdmin.id,
+          action: CREATE_ACTION,
+          businessId: created.businessId,
+          outcome: 'success',
+          details: {
+            idempotencyKey: input.idempotencyKey,
+            businessName: input.businessName,
+            businessType: input.businessType,
+            ownerEmailMasked: maskEmail(input.ownerEmail),
+            language: input.language,
+            reason: input.reason,
+            initialAccess: input.initialAccess ?? null,
+            initialAccessEndsAt,
+            accessSetup: 'el dueño define su contraseña con la recuperación de acceso (el panel no la conoce)',
+          },
+        });
+        return initialAccessEndsAt;
+      },
+    );
+    const [business] = await db.select(summaryColumns).from(businesses).where(eq(businesses.id, owner.businessId)).limit(1);
+    return { business: summary(business!), ownerEmailMasked: maskEmail(owner.email), initialAccessEndsAt: extra ?? null, replayed: false };
+  } catch (error) {
+    // Misma clave enviada a la vez: la otra petición ganó con este mismo correo; se devuelve su resultado.
+    if (error instanceof AppError && error.code === 'account_exists') {
+      const raced = await priorCreation(db, input);
+      if (raced) return raced;
+    }
+    // La clave ya la usó otra concesión: la transacción se revirtió entera (no queda cuenta a medias).
+    if (isUniqueViolation(error, 'access_grants_idempotency_uq')) throw new AppError(409, 'idempotency_conflict');
+    throw error;
+  }
 }

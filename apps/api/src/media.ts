@@ -16,7 +16,7 @@ export const MAX_PHOTO_SIDE = 2048;
  * Tope de píxeles al decodificar: una imagen "bomba" (pocos KB que se descomprimen a gigapíxeles) se rechaza antes de
  * agotar la memoria. 40 MP cubre de sobra las fotos de cualquier teléfono.
  */
-const MAX_INPUT_PIXELS = 40_000_000;
+export const MAX_INPUT_PIXELS = 40_000_000;
 
 /** Detecta el formato real por firma; nunca se confía en el nombre ni el Content-Type enviados por el cliente. */
 export function sniffImage(buffer: Buffer): ImageExt | null {

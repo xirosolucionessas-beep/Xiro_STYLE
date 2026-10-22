@@ -20,3 +20,18 @@ apps/mobile/ios/
 
 # Capturas sueltas de pruebas
 undefined/
+
+# Proyecto nativo de Android generado por error en la raíz del monorepo en vez de apps/mobile/android/
+# (y los volcados de una caída de la JVM de Gradle al intentar compilarlo) — ver apps/mobile/android/ arriba.
+/.gradle/
+/.idea/
+/app/
+/gradle/
+/gradlew
+/gradlew.bat
+/build.gradle.kts
+/settings.gradle.kts
+/local.properties
+/gradle.properties
+hs_err_pid*.log
+replay_pid*.log

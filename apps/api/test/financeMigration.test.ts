@@ -36,6 +36,8 @@ describe('migración 0033 sobre gastos existentes', () => {
     const day = '2026-05-10';
     // Volvemos al esquema anterior a Finanzas: primero lo posterior (0037 panel de plataforma, 0036 índices, 0035 RLS de registros,
     // 0034 ajustes), luego 0033.
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0039_birthday_program.down.sql'), 'utf8'));
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0038_notification_sound.down.sql'), 'utf8')); // lo posterior a 0037 se revierte antes
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0037_platform_admin.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0036_finance_covering_indexes.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0035_service_records_rls.down.sql'), 'utf8'));

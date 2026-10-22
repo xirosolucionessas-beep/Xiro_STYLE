@@ -1,4 +1,5 @@
 export * from './agenda';
+export * from './assistant';
 export * from './booking';
 export * from './brand';
 export * from './cash';
@@ -23,3 +24,5 @@ export * from './pagination';
 export * from './http';
 export * from './balance';
 export * from './platform';
+export * from './notificationSound';
+export * from './birthday';

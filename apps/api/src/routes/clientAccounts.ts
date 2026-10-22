@@ -11,12 +11,14 @@ import {
   publicReviewInputSchema,
   type ClientAccountDto,
   type ClientAppointmentDto,
+  type ClientBirthdayDto,
   type ClientSessionDeviceDto,
   type Language,
 } from '@xiro/shared';
 import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { birthdayStatus, getBirthdayProgram } from '../birthday';
 import { assertClientMayChange, submitReview, toPublicAppointment, transitionAppointment } from '../booking/appointments';
 import { loadContext } from '../booking/availability';
 import { withBusiness, type Tx } from '../booking/scope';
@@ -40,7 +42,7 @@ const MAX_RECOVERY_ATTEMPTS = 5;
 
 const slugParams = z.object({ slug: z.string().min(1).max(60) });
 
-function toAccountDto(account: AccountRow): ClientAccountDto {
+function toAccountDto(account: AccountRow, birthDate: string | null): ClientAccountDto {
   return {
     id: account.id,
     name: account.name,
@@ -48,6 +50,7 @@ function toAccountDto(account: AccountRow): ClientAccountDto {
     email: account.email,
     photoUrl: account.photoFile ? mediaUrl(account.photoFile) : null,
     mustChangePassword: account.mustChangePassword,
+    birthDate,
   };
 }
 
@@ -117,6 +120,12 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   const currentAccount = (request: FastifyRequest, business: BusinessRow) => resolveClientAccount(db, config.jwtSecret, parseCookies(request.headers.cookie)[COOKIE_NAME], business);
 
+  /** La fecha de nacimiento vive en la ficha del cliente del negocio (una sola fuente, la misma que ve el negocio). */
+  async function accountDto(account: AccountRow): Promise<ClientAccountDto> {
+    const [client] = await db.select({ birthDate: clients.birthDate }).from(clients).where(and(eq(clients.id, account.clientId), eq(clients.businessId, account.businessId))).limit(1);
+    return toAccountDto(account, client?.birthDate ?? null);
+  }
+
   async function requireAccount(request: FastifyRequest, business: BusinessRow): Promise<AccountRow> {
     const account = await currentAccount(request, business);
     if (!account) throw new AppError(401, 'unauthorized');
@@ -142,8 +151,8 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
         // Si ya existía (lo creó el negocio antes de que el cliente se registrara), se refresca con sus propios datos
         // — nombre y correo que acaba de escribir él mismo —, sin perder lo que el negocio ya tuviera si no mandó correo.
         const client = existingClient
-          ? (await tx.update(clients).set({ name: input.name, email: input.email ?? existingClient.email }).where(eq(clients.id, existingClient.id)).returning())[0]!
-          : (await tx.insert(clients).values({ businessId: business.id, name: input.name, phone: input.phone, email: input.email ?? null }).returning())[0]!;
+          ? (await tx.update(clients).set({ name: input.name, email: input.email ?? existingClient.email, ...(input.birthDate ? { birthDate: input.birthDate } : {}) }).where(eq(clients.id, existingClient.id)).returning())[0]!
+          : (await tx.insert(clients).values({ businessId: business.id, name: input.name, phone: input.phone, email: input.email ?? null, birthDate: input.birthDate ?? null }).returning())[0]!;
         const [created] = await tx
           .insert(clientAccounts)
           .values({ businessId: business.id, clientId: client.id, phoneE164: input.phone, passwordHash, name: input.name, email: input.email ?? null })
@@ -155,7 +164,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       throw error;
     }
     await issueSession(reply, business, account, input.remember);
-    return reply.status(201).send(toAccountDto(account));
+    return reply.status(201).send(await accountDto(account));
   });
 
   app.post('/:slug/account/login', limit(20), async (request, reply) => {
@@ -178,7 +187,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const rehash = needsRehash(account.passwordHash) ? { passwordHash: await hashPassword(input.password) } : {};
     await db.update(clientAccounts).set({ lastLoginAt: new Date(), ...rehash }).where(eq(clientAccounts.id, account.id));
     await issueSession(reply, business, account, input.remember);
-    return toAccountDto(account);
+    return accountDto(account);
   });
 
   app.post('/:slug/account/logout', async (request, reply) => {
@@ -197,7 +206,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     const account = await currentAccount(request, business);
     if (!account) return reply.status(204).send(); // sin sesión: la página sigue para invitados, no es un error
-    return toAccountDto(account);
+    return accountDto(account);
   });
 
   app.put('/:slug/account/me', async (request): Promise<ClientAccountDto> => {
@@ -206,11 +215,13 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const account = await requireAccount(request, business);
     const input = parse(clientUpdateProfileSchema, request.body);
     const changes = { ...(input.name !== undefined ? { name: input.name } : {}), ...(input.email !== undefined ? { email: input.email } : {}) };
-    const [updated] = await db.update(clientAccounts).set(changes).where(eq(clientAccounts.id, account.id)).returning();
+    const [updated] = Object.keys(changes).length > 0 ? await db.update(clientAccounts).set(changes).where(eq(clientAccounts.id, account.id)).returning() : [account];
+    // Fecha de nacimiento (opcional, para el programa de cumpleaños): omitida = sin cambio; null = la quita.
+    if (input.birthDate !== undefined) await db.update(clients).set({ birthDate: input.birthDate }).where(and(eq(clients.id, account.clientId), eq(clients.businessId, business.id)));
     // Mismo cambio en su ficha del directorio del negocio ("Clientes"): el panel nunca debe quedarse con un nombre o
     // correo desactualizado después de que la persona lo corrige ella misma en "Mi perfil".
     if (Object.keys(changes).length > 0) await db.update(clients).set(changes).where(eq(clients.id, account.clientId));
-    return toAccountDto(updated!);
+    return accountDto(updated!);
   });
 
   /**
@@ -235,7 +246,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     await db.update(clients).set({ photoFile: file }).where(eq(clients.id, account.clientId));
     await removeMedia(ctx.media, account.photoFile);
     await removeMedia(ctx.media, clientRow?.photoFile ?? null);
-    return toAccountDto(updated!);
+    return accountDto(updated!);
   });
 
   app.post('/:slug/account/change-password', async (request) => {
@@ -466,5 +477,16 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const [progress] = await db.select().from(loyaltyProgress).where(and(eq(loyaltyProgress.businessId, business.id), eq(loyaltyProgress.clientId, account.clientId))).limit(1);
     const count = progress?.count ?? 0;
     return { active: true as const, count, goal: program.goal, rewardAvailable: count >= program.goal, rewardMessage: program.rewardMessage };
+  });
+
+  /** Programa de cumpleaños del negocio para ESTA cuenta: estado de su recompensa (si el negocio lo activó). */
+  app.get('/:slug/account/birthday', async (request): Promise<ClientBirthdayDto> => {
+    const { slug } = parse(slugParams, request.params);
+    const business = await publishedBusiness(slug);
+    const account = await requireAccount(request, business);
+    const program = await getBirthdayProgram(db, business.id);
+    if (!program.enabled) return { active: false };
+    const status = await birthdayStatus(db, business.id, account.clientId);
+    return { active: true, hasBirthDate: status.hasBirthDate, validDays: program.validDays, message: program.message, currency: business.currency, reward: status.reward };
   });
 }

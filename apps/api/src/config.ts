@@ -90,6 +90,8 @@ export interface PlatformConfig {
   idleMinutes: number;
   /** Las acciones sensibles exigen haber verificado el código TOTP hace menos de esto (minutos). */
   stepUpMinutes: number;
+  /** SOLO desarrollo local: entrar al panel sin código TOTP. La API se niega a arrancar con esto en producción. */
+  devSkipTotp: boolean;
 }
 
 export interface NotificationsConfig {
@@ -278,6 +280,7 @@ const envSchema = z.object({
   PLATFORM_SESSION_HOURS: int('PLATFORM_SESSION_HOURS', 8, 1, 24),
   PLATFORM_IDLE_MINUTES: int('PLATFORM_IDLE_MINUTES', 30, 5, 240),
   PLATFORM_STEP_UP_MINUTES: int('PLATFORM_STEP_UP_MINUTES', 5, 1, 30),
+  PLATFORM_DEV_SKIP_TOTP: z.enum(['true', 'false']).optional(),
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().optional(),
@@ -334,6 +337,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!jwtSecret) jwtSecret = randomBytes(32).toString('hex'); // efímero: solo desarrollo, las sesiones no sobreviven a un reinicio
 
   if (production && e.EXPOSE_DEV_OTP === 'true') throw new Error('EXPOSE_DEV_OTP no puede activarse en producción.');
+  if (production && e.PLATFORM_DEV_SKIP_TOTP === 'true') throw new Error('PLATFORM_DEV_SKIP_TOTP no puede activarse en producción.');
   if (production && e.RATE_LIMIT === 'off') throw new Error('RATE_LIMIT=off no puede usarse en producción.');
   if (production && !e.DATABASE_URL) throw new Error('DATABASE_URL es obligatoria en producción (postgres://usuario:clave@host:5432/base).');
 
@@ -450,6 +454,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       sessionHours: e.PLATFORM_SESSION_HOURS,
       idleMinutes: e.PLATFORM_IDLE_MINUTES,
       stepUpMinutes: e.PLATFORM_STEP_UP_MINUTES,
+      devSkipTotp: e.PLATFORM_DEV_SKIP_TOTP === 'true',
     },
     booking: {
       publicPerMinutePerBusiness: e.BOOKING_PUBLIC_PER_MIN_BUSINESS,

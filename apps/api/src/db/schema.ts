@@ -252,6 +252,8 @@ export const clients = pgTable(
     /** Cliente compartido "de mostrador" para ventas sin ficha (ver ventas.clientLabel para el nombre de cada recibo).
      * Nunca aparece en el directorio de clientes ni cuenta como cliente nuevo; una fila por negocio, creada bajo pedido. */
     isOccasional: boolean('is_occasional').notNull().default(false),
+    /** Opcional (AAAA-MM-DD). Solo se usa para el programa de cumpleaños del negocio; nunca sale en listados ni avisos. */
+    birthDate: date('birth_date', { mode: 'string' }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -541,6 +543,11 @@ export const pushTokens = pgTable(
     token: text('token').notNull(),
     p256dh: text('p256dh'),
     auth: text('auth'),
+    /**
+     * El build nativo de este dispositivo incluye el sonido de Xiro y su canal de Android (lo declara al registrarse). Por
+     * defecto false: los dispositivos registrados antes siguen recibiendo los avisos como siempre.
+     */
+    customSound: boolean('custom_sound').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [
@@ -1625,5 +1632,85 @@ export const businessAccessGrants = pgTable(
     check('access_grants_unit_ck', sql`${t.unit} in ('days','months')`),
     check('access_grants_amount_ck', sql`(${t.unit} = 'days' and ${t.amount} between 1 and 366) or (${t.unit} = 'months' and ${t.amount} between 1 and 24)`),
     check('access_grants_range_ck', sql`${t.endsAt} > ${t.startsAt}`),
+  ],
+);
+
+/* =====================================================================================================================
+ * Programa de cumpleaños (opcional por negocio, apagado por defecto). Ver packages/shared/src/birthday.ts.
+ * ===================================================================================================================== */
+
+export const birthdayPrograms = pgTable(
+  'birthday_programs',
+  {
+    id: id(),
+    businessId: businessRef(),
+    enabled: boolean('enabled').notNull().default(false),
+    rewardKind: text('reward_kind').notNull().default('percent'),
+    rewardValue: integer('reward_value').notNull().default(10),
+    scope: text('scope').notNull().default('all'),
+    validDays: integer('valid_days').notNull().default(7),
+    minTotal: integer('min_total').notNull().default(0),
+    combinable: boolean('combinable').notNull().default(false),
+    message: text('message').notNull().default(''),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('birthday_programs_business_uq').on(t.businessId),
+    check('birthday_programs_kind_ck', sql`${t.rewardKind} in ('percent','fixed')`),
+    check('birthday_programs_value_ck', sql`(${t.rewardKind} = 'percent' and ${t.rewardValue} between 1 and 100) or (${t.rewardKind} = 'fixed' and ${t.rewardValue} between 1 and 1000000000)`),
+    check('birthday_programs_scope_ck', sql`${t.scope} in ('all','services','products')`),
+    check('birthday_programs_days_ck', sql`${t.validDays} between 1 and 60`),
+    check('birthday_programs_min_ck', sql`${t.minTotal} >= 0`),
+  ],
+);
+
+/**
+ * Recompensa de cumpleaños emitida. UNA por negocio, cliente y año (`birthday_rewards_once_uq`): ni un trabajo repetido, ni
+ * dos instancias a la vez, ni cambiar la fecha de nacimiento pueden emitir una segunda ese año. Las condiciones se congelan
+ * al emitirla (cambiar el programa después no altera una ya emitida). `status`: available → claimed (reserva/pedido web) o
+ * redeemed (venta en caja); si esa reserva/pedido se cancela o la venta se anula, vuelve a available. "Vencida" se deriva.
+ */
+export const birthdayRewards = pgTable(
+  'birthday_rewards',
+  {
+    id: id(),
+    businessId: businessRef(),
+    clientId: uuid('client_id').notNull(),
+    year: integer('year').notNull(),
+    /** Día celebrado (29 feb → 28 feb en años no bisiestos) = primer día de vigencia; `endsOn` = último (inclusive). */
+    startsOn: date('starts_on', { mode: 'string' }).notNull(),
+    endsOn: date('ends_on', { mode: 'string' }).notNull(),
+    rewardKind: text('reward_kind').notNull(),
+    rewardValue: integer('reward_value').notNull(),
+    scope: text('scope').notNull(),
+    minTotal: integer('min_total').notNull(),
+    combinable: boolean('combinable').notNull(),
+    status: text('status').notNull().default('available'),
+    amount: integer('amount'),
+    usedAt: ts('used_at'),
+    saleId: uuid('sale_id').references(() => sales.id, { onDelete: 'set null' }),
+    appointmentId: uuid('appointment_id').references(() => appointments.id, { onDelete: 'set null' }),
+    productOrderId: uuid('product_order_id').references(() => productOrders.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'birthday_rewards_client_fk' }).onDelete('cascade'),
+    uniqueIndex('birthday_rewards_once_uq').on(t.businessId, t.clientId, t.year),
+    index('birthday_rewards_business_idx').on(t.businessId, t.startsOn.desc()),
+    index('birthday_rewards_sale_idx').on(t.saleId).where(sql`${t.saleId} is not null`),
+    index('birthday_rewards_appointment_idx').on(t.appointmentId).where(sql`${t.appointmentId} is not null`),
+    index('birthday_rewards_order_idx').on(t.productOrderId).where(sql`${t.productOrderId} is not null`),
+    check('birthday_rewards_status_ck', sql`${t.status} in ('available','claimed','redeemed')`),
+    check('birthday_rewards_kind_ck', sql`${t.rewardKind} in ('percent','fixed')`),
+    check('birthday_rewards_scope_ck', sql`${t.scope} in ('all','services','products')`),
+    check('birthday_rewards_range_ck', sql`${t.endsOn} >= ${t.startsOn}`),
+    // Disponible ⇔ sin uso; usada ⇔ con monto y fecha. El destino (venta/cita/pedido) puede quedar en null si algún día se
+    // borra esa fila (ON DELETE SET NULL): la recompensa sigue contando como usada ese año.
+    check(
+      'birthday_rewards_use_ck',
+      sql`(${t.status} = 'available' and ${t.amount} is null and ${t.usedAt} is null and ${t.saleId} is null and ${t.appointmentId} is null and ${t.productOrderId} is null)
+        or (${t.status} in ('claimed','redeemed') and ${t.amount} >= 0 and ${t.usedAt} is not null)`,
+    ),
   ],
 );

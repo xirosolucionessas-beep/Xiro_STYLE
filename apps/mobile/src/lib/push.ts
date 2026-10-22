@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { api } from './api';
+import { ANDROID_CHANNELS, expoRegistration } from './notificationSound';
 import type { PushAdapter, PushOutcome, PushPermission } from './pushTypes';
 import { prefsStorage } from './storage';
 
@@ -31,6 +32,31 @@ function notifications(): Promise<NotificationsModule> {
 // Deja el aviso en primer plano configurado desde el arranque (fuera de Expo Go).
 if (!inExpoGo) void notifications().catch(() => undefined);
 
+/**
+ * Canales de Android y registro del token (con permiso ya concedido). El canal `default` existente se vuelve a declarar
+ * igual que antes (crearlo de nuevo no cambia lo que la persona haya ajustado); el canal del sonido de Xiro es nuevo. El
+ * token se registra declarando que este build trae el sonido (`customSound`), para que el servidor lo pida en el push.
+ */
+async function registerDevice(Notifications: NotificationsModule): Promise<boolean> {
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync(ANDROID_CHANNELS.legacy.id, { name: ANDROID_CHANNELS.legacy.name, importance: Notifications.AndroidImportance.DEFAULT });
+    await Notifications.setNotificationChannelAsync(ANDROID_CHANNELS.sound.id, { name: ANDROID_CHANNELS.sound.name, importance: Notifications.AndroidImportance.DEFAULT, sound: ANDROID_CHANNELS.sound.sound });
+  }
+
+  const projectId = (Constants.expoConfig?.extra?.eas as { projectId?: string } | undefined)?.projectId;
+  let token: string;
+  try {
+    token = (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined)).data;
+  } catch {
+    // Sin credenciales de FCM/APNs en la compilación (ver guía de configuración) no hay token que registrar.
+    return false;
+  }
+
+  await api.registerPush(expoRegistration(token));
+  await prefsStorage.set(TOKEN_KEY, token);
+  return true;
+}
+
 /** Android/iOS: token de Expo Push, que el servidor entrega a FCM/APNs. Requiere un dispositivo físico y NO funciona en Expo Go. */
 export const push: PushAdapter = {
   async permission(): Promise<PushPermission> {
@@ -47,22 +73,7 @@ export const push: PushAdapter = {
     if (status !== 'granted') status = (await Notifications.requestPermissionsAsync()).status;
     if (status !== 'granted') return 'denied';
 
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', { name: 'Xiro Style', importance: Notifications.AndroidImportance.DEFAULT });
-    }
-
-    const projectId = (Constants.expoConfig?.extra?.eas as { projectId?: string } | undefined)?.projectId;
-    let token: string;
-    try {
-      token = (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined)).data;
-    } catch {
-      // Sin credenciales de FCM/APNs en la compilación (ver guía de configuración) no hay token que registrar.
-      return 'unsupported';
-    }
-
-    await api.registerPush({ platform: 'expo', token });
-    await prefsStorage.set(TOKEN_KEY, token);
-    return 'granted';
+    return (await registerDevice(Notifications)) ? 'granted' : 'unsupported';
   },
 
   async disable(): Promise<void> {
@@ -72,6 +83,28 @@ export const push: PushAdapter = {
     await prefsStorage.remove(TOKEN_KEY);
   },
 };
+
+let refreshed = false;
+
+/**
+ * Una instalación que se ACTUALIZA a este build ya tenía permiso y token: sin volver a registrarse, el servidor seguiría
+ * mandándole los avisos sin el sonido de Xiro. Una vez por arranque (con sesión), si había permiso y un token guardado, se
+ * crean los canales y se re-registra el token. Nunca pide permiso ni registra a quien no activó las notificaciones.
+ */
+export function useNotificationSound(signedIn: boolean): void {
+  useEffect(() => {
+    if (!signedIn || refreshed || inExpoGo || !Device.isDevice) return;
+    refreshed = true;
+    void (async () => {
+      if (!(await prefsStorage.get(TOKEN_KEY))) return;
+      const Notifications = await notifications();
+      if ((await Notifications.getPermissionsAsync()).status !== 'granted') return;
+      await registerDevice(Notifications);
+    })().catch(() => {
+      refreshed = false; // se reintenta en el próximo arranque con sesión
+    });
+  }, [signedIn]);
+}
 
 /**
  * Deep linking al tocar un push (app en segundo plano, cerrada del todo, o recién abierta desde él): navega a la

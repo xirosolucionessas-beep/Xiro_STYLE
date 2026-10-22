@@ -4,17 +4,24 @@
  * Misma lógica/API que la web; solo el dueño la usa. Hermana de cash-close.web.tsx.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { formatMoney, whatsappLink, type CashDaySummary, type Currency, type SalePaymentMethod } from '@xiro/shared';
+import { formatMoney, localDate, whatsappLink, type CashDaySummary, type Currency, type SalePaymentMethod } from '@xiro/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { addDays, formatClock, formatDay, localTime, todayIn } from '@/lib/agenda';
 import { api, errorKey } from '@/lib/api';
+import { breakdownView, liveStatus, liveStatusText } from '@/lib/cashBreakdown';
 import { afterCloseNote, unbilledNote } from '@/lib/cashFlow';
 import { apiErrors } from '@/lib/forms';
-import { useCashClosingDetail, useCashClosings, useCashCloseSummary, useInvalidateCash } from '@/lib/queries';
+import { keys, useCashClosingDetail, useCashClosings, useCashCloseSummary, useInvalidateCash } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
+import { AnimatedHourlyBars, AnimatedShareBar } from '@/ui/AnimatedCharts';
+import { CashBreakdownSection } from '@/ui/CashBreakdown';
+import { CashExpensesDetailSheet, CashSalesDetailSheet } from '@/ui/CashCloseDetail';
+import { useCashDetail, type CashDetailTarget } from '@/lib/useCashDetail';
 import { Button } from '@/ui/Button';
 import { Field } from '@/ui/Field';
 import { Card, Chip, ChipRow, EmptyState, Row, SectionTitle } from '@/ui/Kit';
@@ -41,12 +48,32 @@ export default function CashCloseNative() {
   const isToday = day === todayKey;
   const rangeFrom = addDays(todayKey, -30);
 
+  // Actualización automática SOLO del día de hoy, con la pantalla enfocada y la app en primer plano (ver useLiveRefresh). Al
+  // volver se pide una vez el resumen y la lista de cierres (por si se cerró desde otro dispositivo).
+  const queryClient = useQueryClient();
+  const resume = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: keys.cashCloseSummary });
+    void queryClient.invalidateQueries({ queryKey: keys.cashClosings });
+  }, [queryClient]);
+  const live = useLiveRefresh(isToday && isOwner, resume);
+
   const closingsQuery = useCashClosings({ from: rangeFrom, to: todayKey }, isOwner);
   const closedForDay = (closingsQuery.data ?? []).find((c) => c.day === day && c.status === 'completed') ?? null;
-  const closingDetailQuery = useCashClosingDetail(closedForDay?.id ?? null, Boolean(closedForDay) && isOwner);
-  const liveSummaryQuery = useCashCloseSummary(day, !closedForDay && isOwner);
+  const closingDetailQuery = useCashClosingDetail(closedForDay?.id ?? null, Boolean(closedForDay) && isOwner, live.interval);
+  const liveSummaryQuery = useCashCloseSummary(day, !closedForDay && isOwner, live.interval);
+  const activeQuery = closedForDay ? closingDetailQuery : liveSummaryQuery;
   const summary: CashDaySummary | undefined = closedForDay ? closingDetailQuery.data?.summary : liveSummaryQuery.data;
-  const loading = closedForDay ? closingDetailQuery.isLoading : liveSummaryQuery.isLoading;
+  const loading = activeQuery.isLoading;
+  const status = liveStatus({ live: isToday, active: live.active, hasData: summary !== undefined, isFetching: activeQuery.isFetching, isError: activeQuery.isError, dataUpdatedAt: activeQuery.dataUpdatedAt, now: live.now });
+  const updatedTime = activeQuery.dataUpdatedAt ? formatClock(localTime(new Date(activeQuery.dataUpdatedAt).toISOString(), business.timezone), language) : '';
+  const breakdown = summary?.employeeBreakdown ? breakdownView(t, fmt, summary.employeeBreakdown) : null;
+
+  // "Ver más": la selección (empleado o sin atribuir) se conserva mientras el detalle se actualiza solo.
+  const [detailTarget, setDetailTarget] = useState<CashDetailTarget | null>(null);
+  const [expensesDetailOpen, setExpensesDetailOpen] = useState(false);
+  const detail = useCashDetail({ day, target: detailTarget, expensesOpen: expensesDetailOpen, interval: live.interval, f: { t, fmt, timezone: business.timezone, language }, adjustments: summary?.adjustmentsAfterClose ?? [] });
+  const clockOf = (at: number) => (at ? formatClock(localTime(new Date(at).toISOString(), business.timezone), language) : null);
+  const detailAggregate = detailTarget?.scope === 'employee' ? breakdown?.employees.find((e) => e.id === detailTarget.employeeId) : detailTarget ? breakdown?.unattributed : null;
   const canAct = isToday && !closedForDay && isOwner;
 
   const [voidOpen, setVoidOpen] = useState(false);
@@ -170,6 +197,16 @@ export default function CashCloseNative() {
 
       {loading ? <ActivityIndicator color={colors.gold} style={{ marginTop: 32 }} /> : null}
 
+      {/* Estado de la actualización: cuándo se actualizó, si está actualizando, en pausa o con error (con reintento). */}
+      {status !== 'initial' ? (
+        <View style={styles.liveRow} accessibilityLiveRegion="polite">
+          <AppText variant="small" tone={status === 'error' || status === 'failed' || status === 'stale' ? 'danger' : 'muted'} style={{ flex: 1 }}>
+            {liveStatusText(t, status, updatedTime)}
+          </AppText>
+          {status === 'error' || status === 'failed' || status === 'stale' ? <Button label={t('retry')} variant="secondary" compact onPress={() => void activeQuery.refetch()} /> : null}
+        </View>
+      ) : null}
+
       {!loading && closedForDay ? (
         <Card style={{ marginBottom: space.md }}>
           <AppText tone={closedForDay.status === 'voided' ? 'danger' : 'success'} variant="bodyStrong" style={{ marginBottom: space.sm }}>
@@ -203,7 +240,7 @@ export default function CashCloseNative() {
             </AppText>
           ) : null}
           <AppText variant="small" tone="muted">
-            {t('cash_close_closed_by', { name: closedForDay.closedByName })}
+            {t('cash_close_closed_by_at', { name: closedForDay.closedByName, date: formatDay(localDate(closedForDay.createdAt, business.timezone), language, { day: 'numeric', month: 'short' }), time: formatClock(localTime(closedForDay.createdAt, business.timezone), language) })}
           </AppText>
           <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.md }}>
             <Button label={t('cash_close_whatsapp')} icon="logo-whatsapp" variant="secondary" compact onPress={sendWhatsapp} style={{ flex: 1 }} />
@@ -219,7 +256,7 @@ export default function CashCloseNative() {
         </Card>
       ) : null}
 
-      {!loading ? (
+      {!loading && status !== 'failed' ? (
         <>
           <View style={{ flexDirection: 'row', gap: space.sm, marginBottom: space.md }}>
             <Card style={{ flex: 1 }}>
@@ -248,20 +285,17 @@ export default function CashCloseNative() {
               {t('cash_close_no_sales')}
             </AppText>
           ) : (
-            <View style={styles.chart}>
-              {hourly.map((total, hour) => (
-                <View key={hour} style={styles.chartBarWrap}>
-                  <View style={[styles.chartBar, { height: Math.max((total / peak) * 64, total > 0 ? 4 : 1), backgroundColor: total > 0 ? colors.gold : colors.border }]} />
-                </View>
-              ))}
-            </View>
+            <AnimatedHourlyBars values={hourly} label={t('cash_close_hourly_chart')} />
           )}
 
           {(summary?.salesByMethod ?? []).length > 0 ? (
             <>
               <SectionTitle>{t('cash_close_by_method')}</SectionTitle>
-              {summary!.salesByMethod.map((m) => (
-                <Row key={m.method} label={t(`sale_pay_${m.method}`)} value={times(m.count, t)} right={<AppText variant="bodyStrong">{fmt(m.total)}</AppText>} />
+              {summary!.salesByMethod.map((m, index) => (
+                <View key={m.method}>
+                  <Row label={t(`sale_pay_${m.method}`)} value={times(m.count, t)} right={<AppText variant="bodyStrong">{fmt(m.total)}</AppText>} />
+                  <AnimatedShareBar share={summary!.totalSales > 0 ? m.total / summary!.salesByMethod.reduce((sum, x) => sum + x.total, 0) : 0} delay={index * 90} />
+                </View>
               ))}
             </>
           ) : null}
@@ -284,7 +318,9 @@ export default function CashCloseNative() {
             </>
           ) : null}
 
-          {(summary?.employeeSales ?? []).length > 0 ? (
+          {breakdown ? <CashBreakdownSection t={t} view={breakdown} onSeeMore={setDetailTarget} /> : null}
+
+          {!breakdown && (summary?.employeeSales ?? []).length > 0 ? (
             <>
               <SectionTitle>{t('cash_close_employees')}</SectionTitle>
               {summary!.employeeSales.map((e) => (
@@ -303,6 +339,7 @@ export default function CashCloseNative() {
           </Card>
 
           <SectionTitle>{t('cash_close_expenses_title')}</SectionTitle>
+          <Button label={t('cash_detail_see_more')} accessibilityLabel={t('cash_detail_see_more_expenses')} variant="secondary" compact onPress={() => setExpensesDetailOpen(true)} style={{ alignSelf: 'flex-start', marginBottom: space.sm }} />
           {(summary?.expenses ?? []).length === 0 ? (
             <AppText tone="muted" variant="small" style={{ marginBottom: space.sm }}>
               {t('cash_close_no_expenses')}
@@ -364,6 +401,17 @@ export default function CashCloseNative() {
           ) : null}
         </>
       ) : null}
+      <CashSalesDetailSheet
+        open={detailTarget !== null}
+        onClose={() => setDetailTarget(null)}
+        t={t}
+        title={detailTarget?.scope === 'employee' ? t('cash_detail_title_employee', { name: detailTarget.name, day: dayLabel }) : t('cash_detail_title_unattributed', { day: dayLabel })}
+        note={detailTarget?.scope === 'unattributed' ? t('cash_detail_unattributed_note') : null}
+        aggregate={detailAggregate ? { gross: detailAggregate.gross, discount: detailAggregate.discount, net: detailAggregate.net } : null}
+        updated={clockOf(detail.sales.updatedAt)}
+        model={detail.sales}
+      />
+      <CashExpensesDetailSheet open={expensesDetailOpen} onClose={() => setExpensesDetailOpen(false)} t={t} title={t('cash_exp_title', { day: dayLabel })} updated={clockOf(detail.expenses.updatedAt)} model={detail.expenses} />
     </Screen>
   );
 }
@@ -371,6 +419,7 @@ export default function CashCloseNative() {
 const styles = StyleSheet.create({
   headRow: { flexDirection: 'row', alignItems: 'center', marginBottom: space.md },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: space.xs },
+  liveRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: space.md },
   chart: { flexDirection: 'row', alignItems: 'flex-end', height: 72, marginBottom: space.md, gap: 2 },
   chartBarWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: 64 },
   chartBar: { width: '70%', borderRadius: 3, minHeight: 1 },

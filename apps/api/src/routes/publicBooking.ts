@@ -1,3 +1,4 @@
+import { markBirthdayRewardUsed, reserveBirthdayReward } from '../birthday';
 import {
   availabilityQuerySchema,
   discountCodeSchema,
@@ -34,7 +35,7 @@ import { allSections, loadProfileRow, loadPublicCatalog, loadPublicProfile, load
 import { CLIENT_COOKIE_NAME, resolveClientAccount } from '../clientSession';
 import { parseCookies } from '../cookies';
 import type { Ctx } from '../context';
-import { appointments, businessPublicProfiles, businesses, productOrders, waitlistEntries } from '../db/schema';
+import { appointmentItems, appointments, businessPublicProfiles, businesses, productOrders, waitlistEntries } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
 import { cancelReminder, scheduleAppointmentReminders } from '../jobs/reminders';
 import { verifyReviewToken } from '../booking/reviewRequests';
@@ -289,6 +290,15 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         const discount = await redeemDiscount(tx, business.id, input.discountCode, { subtotal: row.totalPrice, clientId: row.clientId, now });
         [row] = (await tx.update(appointments).set({ discountCodeId: discount.id, discountAmount: discount.amount }).where(and(eq(appointments.id, row.id), eq(appointments.businessId, business.id))).returning()) as [typeof row];
       }
+      // Recompensa de cumpleaños de la cuenta con sesión: el servidor calcula el descuento sobre las líneas de la cita (según
+      // el alcance configurado) y la deja reclamada en ESTA transacción. Sin cuenta no hay recompensa (es de esa persona).
+      if (!replayed && input.useBirthdayReward) {
+        if (!account) throw new AppError(401, 'unauthorized');
+        const lines = await tx.select({ kind: appointmentItems.kind, price: appointmentItems.price, quantity: appointmentItems.quantity }).from(appointmentItems).where(and(eq(appointmentItems.appointmentId, row.id), eq(appointmentItems.businessId, business.id)));
+        const reserved = await reserveBirthdayReward(tx, { businessId: business.id, clientId: row.clientId, lines: lines.map((l) => ({ kind: l.kind as 'service' | 'product' | 'package', total: l.price * l.quantity })), otherDiscount: row.discountAmount, now });
+        await markBirthdayRewardUsed(tx, business.id, reserved, { appointmentId: row.id }, now);
+        [row] = (await tx.update(appointments).set({ discountAmount: row.discountAmount + reserved.amount }).where(and(eq(appointments.id, row.id), eq(appointments.businessId, business.id))).returning()) as [typeof row];
+      }
       // Si otro envío idéntico ganó la carrera por unos milisegundos, esta petición devuelve SU cita y no avisa ni programa nada otra vez.
       repeated = replayed;
       if (!replayed) created = row;
@@ -460,6 +470,7 @@ export function publicBookingRoutes(app: FastifyInstance, ctx: Ctx): void {
         termsIp: request.ip,
         idempotencyKey: input.idempotencyKey,
         discountCode: input.discountCode,
+        useBirthdayReward: input.useBirthdayReward,
       });
       if (!result.replayed) created = result.row;
       return toPublicProductOrder(tx, business, result.row, profile);

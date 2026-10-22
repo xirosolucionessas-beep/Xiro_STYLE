@@ -1,4 +1,4 @@
-import { computeDiscount, type DiscountCodeDto, type DiscountKind, type PublicDiscountDto } from '@xiro/shared';
+import { computeDiscount, type AppliedDiscountDto, type DiscountCodeDto, type DiscountKind, type PublicDiscountDto } from '@xiro/shared';
 import { and, eq, gt, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { appointments, discountCodes, productOrders } from '../db/schema';
 import { AppError } from '../errors';
@@ -81,5 +81,10 @@ export async function discountCodesById(tx: Tx, businessId: string, ids: Array<s
 }
 
 /** El descuento de una cita o pedido tal como lo ven el negocio y el cliente. */
-export const discountOf = (row: { discountCodeId: string | null; discountAmount: number }, codes: Map<string, string>): { code: string; amount: number } | null =>
-  row.discountAmount > 0 ? { code: (row.discountCodeId && codes.get(row.discountCodeId)) || '—', amount: row.discountAmount } : null;
+/** Descuento aplicado. `birthdayIds`: citas/pedidos cuyo descuento incluye la recompensa de cumpleaños (ver birthday.ts). */
+export const discountOf = (row: { id: string; discountCodeId: string | null; discountAmount: number }, codes: Map<string, string>, birthdayIds: Set<string> = new Set()): AppliedDiscountDto | null => {
+  if (row.discountAmount <= 0) return null;
+  const birthday = birthdayIds.has(row.id);
+  const code = row.discountCodeId ? codes.get(row.discountCodeId) || '—' : birthday ? '' : '—';
+  return birthday ? { code, amount: row.discountAmount, birthday: true } : { code, amount: row.discountAmount };
+};

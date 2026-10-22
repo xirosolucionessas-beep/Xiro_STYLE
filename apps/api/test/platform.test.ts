@@ -1,7 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { addCalendarMonthsUtc, grantEnd, grantStart, type AuthSession, type PlatformBusinessDetail, type PlatformOverview, type PlatformSearchResult, type PlatformSeriesDto, type PlatformSessionDto, type Subscription } from '@xiro/shared';
+import {
+  addCalendarMonthsUtc,
+  grantEnd,
+  grantStart,
+  type AuthSession,
+  type PlatformBusinessDetail,
+  type PlatformBusinessListResult,
+  type PlatformOverview,
+  type PlatformSearchResult,
+  type PlatformSeriesDto,
+  type PlatformSessionDto,
+  type Subscription,
+} from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app';
 import { createAdmin } from '../src/platform/admins';
 import { decryptSecret, encryptSecret, totpCode, totpStep, verifyTotp } from '../src/platform/crypto';
@@ -287,6 +299,8 @@ describe('búsqueda, detalle y aislamiento entre negocios', () => {
     expect(await find('slug', owner.business.slug)).toEqual([owner.business.id]);
     expect(await find('id', owner.business.id)).toEqual([owner.business.id]);
     expect(await find('id', 'no-es-un-uuid')).toEqual([]);
+    const withPhoto = (await call(admin, 'GET', `/businesses/search?kind=id&q=${owner.business.id}`)).json<PlatformSearchResult>().results[0]!;
+    expect(withPhoto.logoUrl).toBeNull();
     expect(await find('name', '%')).toEqual([]); // comodines escapados
     const audits = await q<{ details: Record<string, unknown> }>(`select details from platform_audit_log where action = 'business.search'`);
     expect(JSON.stringify(audits)).not.toContain(owner.email);
@@ -318,6 +332,107 @@ describe('búsqueda, detalle y aislamiento entre negocios', () => {
     const views = await q<{ n: number }>(`select count(*)::int as n from platform_audit_log where action = 'business.view' and business_id = $1`, [a.business.id]);
     expect(views[0]!.n).toBe(1);
     expect((await call(admin, 'GET', `/businesses/${randomUUID()}`)).statusCode).toBe(404);
+  });
+
+  it('la búsqueda y la ficha devuelven el logo del negocio resuelto a /media/<archivo> cuando lo tiene', async () => {
+    const owner = await registerBusiness();
+    const file = `${randomUUID()}.webp`;
+    await q(`update businesses set logo_file = $1 where id = $2`, [file, owner.business.id]);
+    const admin = await makeAdmin({ permissions: ['businesses_view'] });
+    const found = (await call(admin, 'GET', `/businesses/search?kind=id&q=${owner.business.id}`)).json<PlatformSearchResult>().results[0]!;
+    expect(found.logoUrl).toBe(`/media/${file}`);
+    const detail = (await call(admin, 'GET', `/businesses/${owner.business.id}`)).json<PlatformBusinessDetail>();
+    expect(detail.logoUrl).toBe(`/media/${file}`);
+  });
+});
+
+describe('listado paginado de negocios ("Ver más" de Negocios registrados)', () => {
+  it('sin el permiso businesses_view, la API lo rechaza (ocultarlo en la interfaz no basta)', async () => {
+    const viewer = await makeAdmin({ permissions: [] });
+    expect((await call(viewer, 'GET', '/businesses')).statusCode).toBe(403);
+  });
+
+  it('busca por nombre, correo del dueño e id; ordena A-Z/Z-A; pagina sin perder ni repetir filas; correo enmascarado', async () => {
+    const tag = `Lote${randomUUID().slice(0, 8)}`;
+    const names = ['Charlie', 'Alfa', 'Bravo']; // creados en este orden: el orden alfabético no debe coincidir con el de alta
+    const created: Array<{ id: string; email: string }> = [];
+    for (const n of names) {
+      const owner = await registerBusiness(`${tag} ${n}`);
+      created.push({ id: owner.business.id, email: owner.email });
+    }
+    const admin = await makeAdmin({ permissions: ['businesses_view'] });
+    const list = async (query: string) => (await call(admin, 'GET', `/businesses?${query}`)).json<PlatformBusinessListResult>();
+
+    // Búsqueda por nombre: solo las 3 de este lote, sin importar cuántos otros negocios existan en la base compartida de pruebas.
+    const byName = await list(`q=${encodeURIComponent(tag)}&pageSize=10`);
+    expect(byName.total).toBe(3);
+    expect(byName.results.map((r) => r.name).sort()).toEqual(names.map((n) => `${tag} ${n}`).sort());
+
+    const asc = await list(`q=${encodeURIComponent(tag)}&sort=name_asc&pageSize=10`);
+    expect(asc.results.map((r) => r.name)).toEqual([`${tag} Alfa`, `${tag} Bravo`, `${tag} Charlie`]);
+    const descOrder = await list(`q=${encodeURIComponent(tag)}&sort=name_desc&pageSize=10`);
+    expect(descOrder.results.map((r) => r.name)).toEqual([`${tag} Charlie`, `${tag} Bravo`, `${tag} Alfa`]);
+
+    // Paginación: dos páginas de 2, ninguna fila se pierde ni se repite.
+    const p1 = await list(`q=${encodeURIComponent(tag)}&sort=name_asc&pageSize=2&page=1`);
+    const p2 = await list(`q=${encodeURIComponent(tag)}&sort=name_asc&pageSize=2&page=2`);
+    expect(p1.results).toHaveLength(2);
+    expect(p2.results).toHaveLength(1);
+    expect(p1.total).toBe(3);
+    expect(p1.totalPages).toBe(2);
+    expect([...p1.results, ...p2.results].map((r) => r.name)).toEqual([`${tag} Alfa`, `${tag} Bravo`, `${tag} Charlie`]);
+
+    // Búsqueda por correo exacto del dueño y por id.
+    const byEmail = await list(`q=${encodeURIComponent(created[0]!.email)}`);
+    expect(byEmail.results.map((r) => r.id)).toEqual([created[0]!.id]);
+    const byId = await list(`q=${created[1]!.id}`);
+    expect(byId.results.map((r) => r.id)).toEqual([created[1]!.id]);
+
+    // El correo del dueño va ENMASCARADO (misma política que la ficha del negocio), nunca completo.
+    for (const r of byName.results) {
+      const owner = created.find((c) => c.id === r.id)!;
+      expect(r.ownerEmailMasked).not.toBeNull();
+      expect(r.ownerEmailMasked).not.toBe(owner.email);
+      expect(r.ownerEmailMasked).toContain('@');
+      expect(r.ownerEmailMasked!.length).toBeLessThan(owner.email.length);
+    }
+
+    // Auditoría: cada página consultada queda registrada; la búsqueda por correo nunca lo guarda en texto plano.
+    const emailAudits = await q<{ details: Record<string, unknown> }>(`select details from platform_audit_log where action = 'business.list' and details->>'queryKind' = 'email'`);
+    expect(emailAudits.length).toBeGreaterThan(0);
+    expect(JSON.stringify(emailAudits)).not.toContain(created[0]!.email);
+    const listAudits = await q<{ n: number }>(`select count(*)::int as n from platform_audit_log where action = 'business.list'`);
+    expect(listAudits[0]!.n).toBeGreaterThan(0);
+  });
+
+  it('incluye el logo del negocio (resuelto a /media/<archivo>) cuando lo tiene, y null cuando no', async () => {
+    const withLogo = await registerBusiness(`Lote${randomUUID().slice(0, 8)} Con logo`);
+    const noLogo = await registerBusiness(`Lote${randomUUID().slice(0, 8)} Sin logo`);
+    const file = `${randomUUID()}.webp`;
+    await q(`update businesses set logo_file = $1 where id = $2`, [file, withLogo.business.id]);
+
+    const admin = await makeAdmin({ permissions: ['businesses_view'] });
+    const find = async (id: string) => (await call(admin, 'GET', `/businesses?q=${id}`)).json<PlatformBusinessListResult>().results[0]!;
+    expect((await find(withLogo.business.id)).logoUrl).toBe(`/media/${file}`);
+    expect((await find(noLogo.business.id)).logoUrl).toBeNull();
+  });
+
+  it('sin coincidencias responde una lista vacía con 200, no un error', async () => {
+    const admin = await makeAdmin({ permissions: ['businesses_view'] });
+    const res = await call(admin, 'GET', `/businesses?q=${encodeURIComponent(`no-existe-${randomUUID()}`)}`);
+    expect(res.statusCode).toBe(200);
+    const body = res.json<PlatformBusinessListResult>();
+    expect(body.results).toEqual([]);
+    expect(body.total).toBe(0);
+    expect(body.totalPages).toBe(1);
+  });
+
+  it('valida los parámetros estrictamente: tamaño de página y página fuera de rango, orden desconocido, campos extra', async () => {
+    const admin = await makeAdmin({ permissions: ['businesses_view'] });
+    expect((await call(admin, 'GET', '/businesses?pageSize=1000')).statusCode).toBe(400);
+    expect((await call(admin, 'GET', '/businesses?page=0')).statusCode).toBe(400);
+    expect((await call(admin, 'GET', '/businesses?sort=random')).statusCode).toBe(400);
+    expect((await call(admin, 'GET', '/businesses?extra=1')).statusCode).toBe(400);
   });
 });
 
@@ -483,5 +598,239 @@ describe('bitácora de la plataforma', () => {
     expect(all).not.toContain(admin.password);
     expect(all).not.toContain(admin.token);
     expect(all).not.toMatch(/xpa_[A-Za-z0-9_-]{20,}/);
+  });
+});
+
+describe('alta de un negocio desde el panel (solo el fundador)', () => {
+  const createPayload = (over: Record<string, unknown> = {}) => {
+    counter += 1;
+    return {
+      businessName: `Estudio Alta ${counter}`,
+      businessType: 'beauty_salon',
+      ownerName: 'Dueña Nueva',
+      ownerEmail: `alta${counter}@correo.com`,
+      language: 'es',
+      reason: 'Alta acordada por soporte comercial',
+      idempotencyKey: randomUUID(),
+      ...over,
+    };
+  };
+  const countBy = async (sqlText: string, value: string) => Number((await q<{ n: string }>(sqlText, [value]))[0]!.n);
+
+  it('solo el fundador: un administrador con TODOS los permisos recibe 403 y el intento queda auditado', async () => {
+    const admin = await makeAdmin({ permissions: ['metrics_view', 'businesses_view', 'business_access_manage', 'business_extend', 'business_deactivate', 'audit_view'] });
+    const payload = createPayload();
+    const res = await call(admin, 'POST', '/businesses', payload);
+    expect([res.statusCode, res.json().code]).toEqual([403, 'forbidden']);
+    expect(await countBy('select count(*) as n from users where email = $1', payload.ownerEmail)).toBe(0);
+    expect(await countBy(`select count(*) as n from platform_audit_log where action = 'business.create' and outcome = 'denied' and details->>'missingRole' = $1`, 'founder')).toBeGreaterThan(0);
+    expect((await app.inject({ method: 'POST', url: '/api/platform/businesses', payload })).statusCode).toBe(401);
+  });
+
+  it('exige reautenticación reciente y rechaza campos extra (rol, permisos, negocio): sin asignación masiva', async () => {
+    const founder = await makeAdmin({ founder: true });
+    for (const extra of [{ role: 'admin' }, { permissions: ['all'] }, { businessId: randomUUID() }, { password: 'Secreta123' }]) {
+      const res = await call(founder, 'POST', '/businesses', createPayload(extra));
+      expect([res.statusCode, res.json().code]).toEqual([400, 'validation_error']);
+    }
+    expect((await call(founder, 'POST', '/businesses', createPayload({ ownerEmail: 'no-es-correo' }))).statusCode).toBe(400);
+    expect((await call(founder, 'POST', '/businesses', createPayload({ initialAccess: { unit: 'days', amount: 0 } }))).statusCode).toBe(400);
+    expect((await call(founder, 'POST', '/businesses', createPayload({ initialAccess: { unit: 'months', amount: 25 } }))).statusCode).toBe(400);
+    await q(`update platform_admin_sessions s set mfa_at = now() - interval '1 hour' from platform_admins a where a.id = s.admin_id and a.email = $1`, [founder.email]);
+    const stale = await call(founder, 'POST', '/businesses', createPayload());
+    expect([stale.statusCode, stale.json().code]).toEqual([403, 'step_up_required']);
+  });
+
+  it('crea negocio + dueño (rol owner, sin permisos extra, contraseña desconocida) + concesión inicial + bitácora, en un solo paso', async () => {
+    const founder = await makeAdmin({ founder: true });
+    const payload = createPayload({ initialAccess: { unit: 'days', amount: 30 } });
+    const before = Date.now();
+    const res = await call(founder, 'POST', '/businesses', payload);
+    expect(res.statusCode).toBe(201);
+    const body = res.json<{ business: { id: string; name: string; accessStatus: string }; ownerEmailMasked: string; initialAccessEndsAt: string; replayed: boolean }>();
+    expect(body).toMatchObject({ replayed: false, ownerEmailMasked: 'a***@correo.com', business: { name: payload.businessName, accessStatus: 'active' } });
+    expect(JSON.stringify(body)).not.toMatch(/password|hash|token/i);
+    const days = (Date.parse(body.initialAccessEndsAt) - before) / 86_400_000;
+    expect(days).toBeGreaterThan(29.99);
+    expect(days).toBeLessThan(30.01);
+
+    const [owner] = await q<{ role: string; permissions: string[]; business_id: string; password_hash: string }>(`select role, permissions, business_id, password_hash from users where email = $1`, [payload.ownerEmail]);
+    expect(owner).toMatchObject({ role: 'owner', permissions: [], business_id: body.business.id });
+    expect(owner!.password_hash.startsWith('$argon2id$')).toBe(true);
+    for (const guess of ['Secreta123', payload.idempotencyKey, payload.ownerEmail]) {
+      expect((await app.inject({ method: 'POST', url: '/api/auth/login', payload: { identifier: payload.ownerEmail, password: guess } })).statusCode).toBe(401);
+    }
+    expect(await countBy('select count(*) as n from categories where business_id = $1', body.business.id)).toBe(3);
+
+    const detail = (await call(founder, 'GET', `/businesses/${body.business.id}`)).json<PlatformBusinessDetail>();
+    expect(detail.effectiveAccess).toBe(true);
+    expect(detail.grantAccessEndsAt).toBe(body.initialAccessEndsAt);
+    expect(detail.subscription.status).toBe('none'); // una cortesía NO es un pago ni crea suscripción
+
+    const [entry] = await q<{ details: Record<string, unknown> }>(`select details from platform_audit_log where action = 'business.create' and outcome = 'success' and business_id = $1`, [body.business.id]);
+    expect(entry!.details).toMatchObject({ idempotencyKey: payload.idempotencyKey, ownerEmailMasked: 'a***@correo.com', initialAccess: { unit: 'days', amount: 30 } });
+    expect(JSON.stringify(entry!.details)).not.toContain(payload.ownerEmail);
+    expect(JSON.stringify(entry!.details)).not.toMatch(/argon2|password/i);
+  });
+
+  it('el dueño pone su contraseña con la recuperación de acceso y solo ve SU negocio', async () => {
+    const founder = await makeAdmin({ founder: true });
+    const other = await registerBusiness('Negocio ajeno al alta');
+    expect((await app.inject({ method: 'POST', url: '/api/clients', headers: bearer(other.accessToken), payload: { name: 'Cliente Ajeno Privado' } })).statusCode).toBe(201);
+    const payload = createPayload();
+    const created = (await call(founder, 'POST', '/businesses', payload)).json<{ business: { id: string } }>();
+
+    // Recuperación con el código de desarrollo expuesto (solo en esta instancia de prueba).
+    const setup = testAppConfig({ platform: { adminKey: ADMIN_KEY }, exposeDevOtp: true });
+    const devApp = await buildApp({ db: testDb.db, config: setup.config });
+    try {
+      const requested = await devApp.inject({ method: 'POST', url: '/api/auth/recover/request', payload: { identifier: payload.ownerEmail, channel: 'email' } });
+      const verified = await devApp.inject({ method: 'POST', url: '/api/auth/recover/verify', payload: { identifier: payload.ownerEmail, code: requested.json().devCode } });
+      expect((await devApp.inject({ method: 'POST', url: '/api/auth/recover/reset', payload: { resetToken: verified.json().resetToken, newPassword: 'MiClave2026' } })).statusCode).toBe(200);
+    } finally {
+      await devApp.close();
+      setup.cleanup();
+    }
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { identifier: payload.ownerEmail, password: 'MiClave2026' } });
+    expect(login.statusCode).toBe(200);
+    const session = login.json<AuthSession>();
+    expect(session.business.id).toBe(created.business.id);
+    const clients = await app.inject({ method: 'GET', url: '/api/clients', headers: bearer(session.accessToken) });
+    expect(clients.statusCode).toBe(200);
+    expect(clients.body).not.toContain('Cliente Ajeno Privado');
+  });
+
+  it('idempotente: repetir (o enviar 3 a la vez) la misma solicitud crea UNA sola cuenta y devuelve la misma', async () => {
+    const founder = await makeAdmin({ founder: true });
+    const payload = createPayload();
+    const first = await call(founder, 'POST', '/businesses', payload);
+    const again = await call(founder, 'POST', '/businesses', payload);
+    expect([first.statusCode, again.statusCode]).toEqual([201, 200]);
+    expect(again.json()).toMatchObject({ replayed: true, business: { id: first.json().business.id } });
+
+    const racePayload = createPayload();
+    const results = await Promise.all(Array.from({ length: 3 }, () => call(founder, 'POST', '/businesses', racePayload)));
+    expect(results.map((r) => r.statusCode).sort()).toEqual([200, 200, 201]);
+    expect(new Set(results.map((r) => r.json().business.id)).size).toBe(1);
+    expect(await countBy('select count(*) as n from users where email = $1', racePayload.ownerEmail)).toBe(1);
+    expect(await countBy('select count(*) as n from businesses where name = $1', racePayload.businessName)).toBe(1);
+  });
+
+  it('duplicados y conflictos: mismo correo con otra clave = 409; misma clave con otros datos = 409; sin cuentas a medias', async () => {
+    const founder = await makeAdmin({ founder: true });
+    const payload = createPayload();
+    expect((await call(founder, 'POST', '/businesses', payload)).statusCode).toBe(201);
+    const dup = await call(founder, 'POST', '/businesses', { ...payload, idempotencyKey: randomUUID(), businessName: 'Otro nombre de alta' });
+    expect([dup.statusCode, dup.json().code]).toEqual([409, 'account_exists']);
+    expect(await countBy('select count(*) as n from businesses where name = $1', 'Otro nombre de alta')).toBe(0);
+    const reused = await call(founder, 'POST', '/businesses', { ...payload, ownerEmail: `distinto${counter}@correo.com` });
+    expect([reused.statusCode, reused.json().code]).toEqual([409, 'idempotency_conflict']);
+
+    // La concesión inicial falla (clave ya usada por OTRA concesión): se revierte TODO, no queda negocio ni dueño.
+    const owner = await registerBusiness();
+    const takenKey = randomUUID();
+    expect((await call(founder, 'POST', `/businesses/${owner.business.id}/grants`, { unit: 'days', amount: 3, reason: 'Concesión que ocupa la clave', idempotencyKey: takenKey, confirmSlug: owner.business.slug })).statusCode).toBe(201);
+    const clash = createPayload({ idempotencyKey: takenKey, initialAccess: { unit: 'days', amount: 7 } });
+    const res = await call(founder, 'POST', '/businesses', clash);
+    expect([res.statusCode, res.json().code]).toEqual([409, 'idempotency_conflict']);
+    expect(await countBy('select count(*) as n from users where email = $1', clash.ownerEmail)).toBe(0);
+    expect(await countBy('select count(*) as n from businesses where name = $1', clash.businessName)).toBe(0);
+  });
+});
+
+describe('ampliar acceso: persistencia, perfil del negocio y notificación', () => {
+  const grantPayload = (slug: string, over: Record<string, unknown> = {}) => ({ unit: 'days', amount: 30, reason: 'Compensación por soporte', idempotencyKey: randomUUID(), confirmSlug: slug, ...over });
+  const notificationsOf = (userId: string) => q<{ business_id: string; title_key: string; body_key: string; params: Record<string, unknown>; dedupe_key: string; href: string; category: string }>(`select business_id, title_key, body_key, params, dedupe_key, href, category from notifications where user_id = $1 and dedupe_key like 'access_grant:%'`, [userId]);
+  const subscriptionOf = (owner: AuthSession) => app.inject({ method: 'GET', url: '/api/subscription', headers: bearer(owner.accessToken) }).then((r) => r.json<Subscription>());
+
+  it('sin plan: el perfil ve la cortesía al instante y SOLO el dueño de ese negocio recibe un aviso (centro de notificaciones)', async () => {
+    const founder = await makeAdmin({ founder: true });
+    const target = await registerBusiness();
+    const other = await registerBusiness();
+    const res = await call(founder, 'POST', `/businesses/${target.business.id}/grants`, grantPayload(target.business.slug));
+    expect(res.statusCode).toBe(201);
+    const { grant } = res.json<{ grant: { id: string; endsAt: string } }>();
+
+    const sub = await subscriptionOf(target);
+    expect(sub).toMatchObject({ status: 'none', hasAccess: true, accessGrantEndsAt: grant.endsAt, accessGrantUpcoming: null });
+    expect((await subscriptionOf(other)).hasAccess).toBe(false); // otro negocio: intacto
+
+    await vi.waitFor(async () => expect(await notificationsOf(target.user.id)).toHaveLength(1));
+    const [n] = await notificationsOf(target.user.id);
+    expect(n).toMatchObject({ business_id: target.business.id, category: 'billing', title_key: 'push_access_extended_title', body_key: 'push_access_extended_days_body', dedupe_key: `access_grant:${grant.id}`, href: '/profile' });
+    expect(n!.params).toMatchObject({ n: 30, date: new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(grant.endsAt)) });
+    expect(await notificationsOf(other.user.id)).toHaveLength(0);
+
+    // Bitácora: quién, a qué negocio, valor anterior, cambio y nuevo vencimiento (sin datos sensibles).
+    const [entry] = await q<{ details: Record<string, unknown> }>(`select details from platform_audit_log where action = 'business.grant_access' and business_id = $1 and outcome = 'success'`, [target.business.id]);
+    expect(entry!.details).toMatchObject({ unit: 'days', amount: 30, before: { accessEndsAt: null }, after: { accessEndsAt: grant.endsAt } });
+  });
+
+  it('en prueba gratis: la cortesía queda PROGRAMADA tras la prueba y el perfil la muestra como tal; meses calendario', async () => {
+    const founder = await makeAdmin({ founder: true });
+    const owner = await registerBusiness();
+    expect((await app.inject({ method: 'POST', url: '/api/subscription/trial', headers: bearer(owner.accessToken), payload: { plan: 'monthly', platform: 'web' } })).statusCode).toBe(201);
+    const trialEnds = (await subscriptionOf(owner)).trialEndsAt!;
+    const res = await call(founder, 'POST', `/businesses/${owner.business.id}/grants`, grantPayload(owner.business.slug, { unit: 'months', amount: 2 }));
+    const { grant } = res.json<{ grant: { startsAt: string; endsAt: string } }>();
+    expect(grant.startsAt).toBe(trialEnds);
+    expect(grant.endsAt).toBe(addCalendarMonthsUtc(new Date(trialEnds), 2).toISOString());
+    expect(await subscriptionOf(owner)).toMatchObject({ status: 'trial', accessGrantEndsAt: null, accessGrantUpcoming: { startsAt: trialEnds, endsAt: grant.endsAt } });
+    await vi.waitFor(async () => expect((await notificationsOf(owner.user.id))[0]?.body_key).toBe('push_access_extended_months_body'));
+  });
+
+  it('reintentos y solicitudes simultáneas: UNA concesión y UNA notificación', async () => {
+    const founder = await makeAdmin({ founder: true });
+    const owner = await registerBusiness();
+    const payload = grantPayload(owner.business.slug);
+    const results = await Promise.all(Array.from({ length: 3 }, () => call(founder, 'POST', `/businesses/${owner.business.id}/grants`, payload)));
+    expect(results.map((r) => r.statusCode).sort()).toEqual([200, 200, 201]);
+    expect((await call(founder, 'POST', `/businesses/${owner.business.id}/grants`, payload)).statusCode).toBe(200);
+    expect(Number((await q<{ n: string }>(`select count(*) as n from business_access_grants where business_id = $1`, [owner.business.id]))[0]!.n)).toBe(1);
+    await vi.waitFor(async () => expect(await notificationsOf(owner.user.id)).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 200)); // margen por si un aviso tardío intentara duplicarse
+    expect(await notificationsOf(owner.user.id)).toHaveLength(1);
+  });
+
+  it('sin permiso, con una sesión de negocio o con datos inválidos: no hay concesión ni aviso', async () => {
+    const viewer = await makeAdmin({ permissions: ['businesses_view'] });
+    const founder = await makeAdmin({ founder: true });
+    const owner = await registerBusiness();
+    expect((await call(viewer, 'POST', `/businesses/${owner.business.id}/grants`, grantPayload(owner.business.slug))).statusCode).toBe(403);
+    // El propio negocio no puede ampliarse el acceso: su token no sirve en el panel.
+    expect((await app.inject({ method: 'POST', url: `/api/platform/businesses/${owner.business.id}/grants`, headers: bearer(owner.accessToken), payload: grantPayload(owner.business.slug) })).statusCode).toBe(401);
+    for (const bad of [{ amount: 0 }, { amount: -5 }, { unit: 'years' }, { amount: 367 }, { confirmSlug: 'otro-negocio' }]) {
+      expect([400, 422]).toContain((await call(founder, 'POST', `/businesses/${owner.business.id}/grants`, grantPayload(owner.business.slug, bad))).statusCode);
+    }
+    expect((await subscriptionOf(owner)).hasAccess).toBe(false);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(await notificationsOf(owner.user.id)).toHaveLength(0);
+  });
+});
+
+describe('vista previa de una concesión', () => {
+  it('muestra el vencimiento actual y la fecha resultante EXACTA que luego aplica la concesión; exige permiso', async () => {
+    const admin = await makeAdmin({ permissions: ['businesses_view', 'business_extend'] });
+    const viewer = await makeAdmin({ permissions: ['businesses_view'] });
+    const owner = await registerBusiness();
+    expect((await call(admin, 'POST', `/businesses/${owner.business.id}/grants`, { unit: 'days', amount: 10, reason: 'Primera cortesía de prueba', idempotencyKey: randomUUID(), confirmSlug: owner.business.slug })).statusCode).toBe(201);
+
+    const preview = await call(admin, 'GET', `/businesses/${owner.business.id}/grants/preview?unit=months&amount=1`);
+    expect(preview.statusCode).toBe(200);
+    const p = preview.json<{ currentAccessEndsAt: string; currentAccessSource: string; startsAt: string; endsAt: string }>();
+    expect(p.currentAccessSource).toBe('grant');
+    expect(p.startsAt).toBe(p.currentAccessEndsAt);
+    expect(p.endsAt).toBe(addCalendarMonthsUtc(new Date(p.startsAt), 1).toISOString());
+
+    const granted = await call(admin, 'POST', `/businesses/${owner.business.id}/grants`, { unit: 'months', amount: 1, reason: 'Mes adicional confirmado', idempotencyKey: randomUUID(), confirmSlug: owner.business.slug });
+    expect(granted.json().grant.endsAt).toBe(p.endsAt);
+
+    const fresh = await registerBusiness();
+    const none = (await call(admin, 'GET', `/businesses/${fresh.business.id}/grants/preview?unit=days&amount=7`)).json<{ currentAccessEndsAt: string | null; currentAccessSource: string }>();
+    expect(none).toMatchObject({ currentAccessEndsAt: null, currentAccessSource: 'none' });
+
+    expect((await call(viewer, 'GET', `/businesses/${owner.business.id}/grants/preview?unit=days&amount=7`)).statusCode).toBe(403);
+    expect((await call(admin, 'GET', `/businesses/${owner.business.id}/grants/preview?unit=days&amount=367`)).statusCode).toBe(400);
+    expect((await call(admin, 'GET', `/businesses/${randomUUID()}/grants/preview?unit=days&amount=7`)).statusCode).toBe(404);
   });
 });

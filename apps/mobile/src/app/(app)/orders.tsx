@@ -5,7 +5,7 @@
  * WhatsApp. En la web se refresca sola por el aviso en tiempo real; en el teléfono, al volver a la pantalla y con el push.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { formatMoney, whatsappLink, type Currency, type ProductOrderDto, type ProductOrdersQuery } from '@xiro/shared';
+import { formatMoney, whatsappLink, type Currency, type ProductOrderDto, type ProductOrdersQuery, appliedDiscountLabel } from '@xiro/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
@@ -109,7 +109,7 @@ export default function Orders() {
           {order.discount && order.discount.amount > 0 ? (
             <View style={styles.line}>
               <AppText tone="success" style={{ flex: 1 }}>
-                {t('pub_summary_discount', { code: order.discount.code })}
+                {appliedDiscountLabel(t, order.discount, 'birthday_applied')}
               </AppText>
               <AppText tone="success">−{formatMoney(order.discount.amount, currency)}</AppText>
             </View>

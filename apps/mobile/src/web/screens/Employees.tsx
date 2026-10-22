@@ -20,6 +20,8 @@ export interface EmployeesViewProps {
   onUpdate: (id: string, input: { name?: string; permissions?: EmployeePermission[]; active?: boolean; password?: string }) => Promise<ActionResult>;
   onUploadPhoto: (id: string, file: File) => Promise<PhotoResult>;
   onRemovePhoto: (id: string) => Promise<PhotoResult>;
+  /** Cupos de empleados activos ("3 de 5…"); null mientras carga. */
+  quota?: { title: string; detail: string; full: boolean } | null;
 }
 
 type Tab = 'team' | 'activity';
@@ -200,7 +202,7 @@ function EmployeeModal({
   );
 }
 
-function TeamTab({ t, employees, onCreate, onUpdate, onUploadPhoto, onRemovePhoto }: Pick<EmployeesViewProps, 't' | 'employees' | 'onCreate' | 'onUpdate' | 'onUploadPhoto' | 'onRemovePhoto'>) {
+function TeamTab({ t, employees, onCreate, onUpdate, onUploadPhoto, onRemovePhoto, quota }: Pick<EmployeesViewProps, 't' | 'employees' | 'onCreate' | 'onUpdate' | 'onUploadPhoto' | 'onRemovePhoto' | 'quota'>) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -216,7 +218,13 @@ function TeamTab({ t, employees, onCreate, onUpdate, onUploadPhoto, onRemovePhot
 
   return (
     <div className="xw-emp-team">
-      <Button onPress={() => setCreating(true)} icon={<Ico name="plus" size={18} />}>
+      {quota ? (
+        <div className="xw-emp-quota" role="status">
+          <strong>{quota.title}</strong>
+          <p className={quota.full ? 'xw-hint is-danger' : 'xw-hint'}>{quota.detail}</p>
+        </div>
+      ) : null}
+      <Button onPress={() => setCreating(true)} icon={<Ico name="plus" size={18} />} disabled={quota?.full ?? false}>
         {t('emp_new_cta')}
       </Button>
       {error ? <FormMessage>{error}</FormMessage> : null}
@@ -241,7 +249,7 @@ function TeamTab({ t, employees, onCreate, onUpdate, onUploadPhoto, onRemovePhot
                 <Button size="sm" variant="secondary" onPress={() => setEditing(employee)}>
                   {t('edit')}
                 </Button>
-                <Button size="sm" variant="ghost" onPress={() => void toggleActive(employee)} loading={busyId === employee.id} loadingLabel={t('loading')}>
+                <Button size="sm" variant="ghost" onPress={() => void toggleActive(employee)} loading={busyId === employee.id} loadingLabel={t('loading')} disabled={!employee.active && (quota?.full ?? false)}>
                   {employee.active ? t('emp_deactivate') : t('emp_reactivate')}
                 </Button>
               </div>
@@ -301,7 +309,7 @@ function ActivityTab({ t, logs }: Pick<EmployeesViewProps, 't' | 'logs'>) {
   );
 }
 
-export function EmployeesView({ t, employees, logs, onCreate, onUpdate, onUploadPhoto, onRemovePhoto }: EmployeesViewProps) {
+export function EmployeesView({ t, employees, logs, onCreate, onUpdate, onUploadPhoto, onRemovePhoto, quota }: EmployeesViewProps) {
   useWebStyles();
   const [tab, setTab] = useState<Tab>('team');
   const activeCount = employees.filter((employee) => employee.active).length;
@@ -326,7 +334,7 @@ export function EmployeesView({ t, employees, logs, onCreate, onUpdate, onUpload
         ))}
       </div>
       <div role="tabpanel" id="xw-emp-panel-team" aria-labelledby="xw-emp-tab-team" hidden={tab !== 'team'}>
-        {tab === 'team' ? <TeamTab t={t} employees={employees} onCreate={onCreate} onUpdate={onUpdate} onUploadPhoto={onUploadPhoto} onRemovePhoto={onRemovePhoto} /> : null}
+        {tab === 'team' ? <TeamTab t={t} employees={employees} onCreate={onCreate} onUpdate={onUpdate} onUploadPhoto={onUploadPhoto} onRemovePhoto={onRemovePhoto} quota={quota} /> : null}
       </div>
       <div role="tabpanel" id="xw-emp-panel-activity" aria-labelledby="xw-emp-tab-activity" hidden={tab !== 'activity'}>
         {tab === 'activity' ? <ActivityTab t={t} logs={logs} /> : null}

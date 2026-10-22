@@ -18,6 +18,8 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:3000',
       '/media': 'http://localhost:3000',
+      // Enlaces de catálogo de la app del negocio (EXPO_PUBLIC_PUBLIC_URL apunta aquí en desarrollo): los atiende la API.
+      '/catalog': 'http://localhost:3000',
     },
   },
 });

@@ -4,7 +4,8 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
 import { api, errorKey } from '@/lib/api';
-import { flatPages, useClient, useInvalidateClients, useServiceRecordsPages, useServiceRecordsSummary } from '@/lib/queries';
+import { birthdayStatusText, birthdayWhatsappUrl, formatDay } from '@/lib/birthdayText';
+import { flatPages, useClient, useClientBirthday, useInvalidateClients, useServiceRecordsPages, useServiceRecordsSummary } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
@@ -46,6 +47,7 @@ export default function ClientDetail() {
   // Historial paginado (50 por página, "Ver más") e indicadores calculados en el servidor sobre TODO el historial.
   const records = useServiceRecordsPages(id, canRecords && Boolean(id));
   const stats = useServiceRecordsSummary({ clientId: id }, canRecords && Boolean(id));
+  const birthday = useClientBirthday(id);
   const invalidate = useInvalidateClients();
   const [busy, setBusy] = useState(false);
   const [anonymizing, setAnonymizing] = useState(false);
@@ -99,7 +101,33 @@ export default function ClientDetail() {
         <Detail label={t('email')} value={client.email ?? ''} />
         <Detail label={t('address')} value={client.address} />
         <Detail label={t('client_notes')} value={client.notes} />
+        {client.birthDate ? <Detail label={t('birth_date')} value={formatDay(client.birthDate)} /> : null}
       </Card>
+
+      {/* Programa de cumpleaños: estado (sin fecha ni edad) y felicitación por WhatsApp preparada para enviar a mano. */}
+      {birthday.data ? (
+        <Card style={{ marginTop: 18, gap: 8 }}>
+          <AppText variant="label" tone="gold">
+            {t('birthday_status_title')}
+          </AppText>
+          <AppText accessibilityLiveRegion="polite">{birthdayStatusText(t, birthday.data, currency)}</AppText>
+          {birthday.data.programEnabled && birthday.data.reward?.state === 'available' && client.phone ? (
+            <>
+              <Button
+                label={t('birthday_whatsapp')}
+                icon="logo-whatsapp"
+                variant="secondary"
+                onPress={() =>
+                  void Linking.openURL(birthdayWhatsappUrl(t, { phone: client.phone!, clientName: client.name, businessName: business.name, reward: birthday.data!.reward!, message: birthday.data!.message, currency })).catch(() => toast(t('unknown_error')))
+                }
+              />
+              <AppText variant="small" tone="muted">
+                {t('birthday_whatsapp_note')}
+              </AppText>
+            </>
+          ) : null}
+        </Card>
+      ) : null}
       {client.phone ? (
         <>
           <Button label="WhatsApp" icon="logo-whatsapp" onPress={() => void Linking.openURL(whatsappLink(client.phone!, ''))} style={{ marginTop: 18 }} />

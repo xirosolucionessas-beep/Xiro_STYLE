@@ -196,10 +196,10 @@ describe('RegisterView', () => {
     await noViolations(container);
   });
 
-  it('business type is a labelled radiogroup with the five types', () => {
+  it('business type is a labelled radiogroup; only Barbería is shown in registration (the other BUSINESS_TYPES stay hidden here on purpose)', () => {
     register();
     const group = screen.getByRole('radiogroup', { name: 'Tipo de negocio' });
-    expect(within(group).getAllByRole('radio').map((r) => r.parentElement!.textContent)).toEqual(['Barbería', 'Salón de belleza', 'Spa', 'Uñas', 'Otro']);
+    expect(within(group).getAllByRole('radio').map((r) => r.parentElement!.textContent)).toEqual(['Barbería']);
     expect((within(group).getByRole('radio', { name: 'Barbería' }) as HTMLInputElement).checked).toBe(true);
   });
 

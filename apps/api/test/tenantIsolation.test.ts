@@ -164,6 +164,12 @@ function queryFor(key: string, s: Seeded): Record<string, string> {
       return { from: isoDay(-30), to: isoDay(-1) };
     case 'GET /cash/close-summary':
       return { day: isoDay(0) };
+    case 'GET /assistant/ask':
+      // Sin período (no la exige) y abierta a "cualquiera" (ver authz.ts): la barrida genérica solo necesita una
+      // pregunta válida para probar que no cruza datos entre negocios, no el catálogo completo.
+      return { question: 'subscription_status' };
+    case 'GET /cash/day-sales':
+      return { day: isoDay(0), scope: 'unattributed' };
     case 'GET /sales':
       return { from: `${isoDay(-30)}T00:00:00.000Z`, to: `${isoDay(1)}T00:00:00.000Z` };
     case 'GET /service-records':
@@ -470,11 +476,16 @@ describe('control de acceso por rol en todas las rutas', () => {
     const { EMPLOYEE_PERMISSIONS } = await import('@xiro/shared');
     const owner = A.biz.session;
     const nobody = (await createEmployee(app, owner, [])).session;
-    const withPermission = new Map<string, { session: { accessToken: string }; id: string }>();
-    for (const permission of EMPLOYEE_PERMISSIONS) {
-      const created = await createEmployee(app, owner, [permission]);
-      withPermission.set(permission, { session: created.session, id: created.employee.id });
-    }
+    // UNA sola cuenta "sonda" reutilizada para cada permiso, en vez de una cuenta por permiso: con el cupo de empleados
+    // activos por negocio (EMPLOYEE_ACTIVE_LIMIT, hoy 5) de por medio, crear una cuenta por cada uno de los ~11 permisos
+    // agotaba el cupo del negocio de prueba (409 employee_limit_reached) antes de terminar. `PATCH /employees/:id`
+    // cambia sus permisos al vuelo y el token sigue sirviendo: el rol se lee de la base en cada petición, nunca del
+    // token (ver Fase 1).
+    const probe = await createEmployee(app, owner, []);
+    const setProbePermissions = async (permissions: string[]) => {
+      const res = await send(owner, 'PATCH', `/api/employees/${probe.employee.id}`, { permissions });
+      expect(res.statusCode, res.body).toBe(200);
+    };
     const everything = (await createEmployee(app, owner, [...EMPLOYEE_PERMISSIONS])).session;
 
     const problems: string[] = [];
@@ -488,16 +499,16 @@ describe('control de acceso por rol en todas las rutas', () => {
       if (rule === 'owner' && (await call(everything, method, path)).statusCode !== 403) problems.push(`${key}: es del dueño y lo abrió a un empleado con TODOS los permisos`);
       if (Array.isArray(rule)) {
         for (const permission of rule) {
-          const employee = withPermission.get(permission)!;
+          await setProbePermissions([permission]);
           // Las rutas de una persona (/professionals/:id/…) se prueban sobre sí misma: con 'agenda_own' solo lo propio.
-          const self = path.startsWith('/professionals/:id') ? employee.id : undefined;
-          if ((await call(employee.session, method, path, self)).statusCode === 403) problems.push(`${key}: negó a un empleado con ${permission}`);
+          const self = path.startsWith('/professionals/:id') ? probe.employee.id : undefined;
+          if ((await call(probe.session, method, path, self)).statusCode === 403) problems.push(`${key}: negó a un empleado con ${permission}`);
         }
         if (rule.length === 1 && rule[0] === 'agenda_own' && path.startsWith('/professionals/:id')) {
-          const own = withPermission.get('agenda_own')!;
+          await setProbePermissions(['agenda_own']);
           // Con un cuerpo VÁLIDO (si no, un 400 de validación ocultaría si la regla de "lo propio" se cumple).
           const body = ['GET', 'DELETE'].includes(method) ? undefined : BODIES[key]?.(A);
-          const res = await send(own.session, method, `/api${path.replace(/:\w+/, A.biz.ownerId)}`, body);
+          const res = await send(probe.session, method, `/api${path.replace(/:\w+/, A.biz.ownerId)}`, body);
           if (res.statusCode !== 403) problems.push(`${key}: con agenda_own, sobre OTRA persona respondió ${res.statusCode} (debía ser 403)`);
         }
       }

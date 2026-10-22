@@ -30,6 +30,8 @@ import type {
   CashClosingDto,
   CashCloseInput,
   CashDaySummary,
+  CashDaySalesPage,
+  CashDaySalesQuery,
   CashOpening,
   CashOpeningDto,
   Category,
@@ -37,6 +39,7 @@ import type {
   ClientInput,
   AuditLogEntry,
   Employee,
+  EmployeeQuotaDto,
   EmployeeCreateInput,
   EmployeeUpdateInput,
   ExpenseDto,
@@ -67,7 +70,8 @@ import type {
   SubscriptionPlatform,
   User,
 } from '@xiro/shared';
-import type { BalanceDto, BalanceExportFormat, BalanceExportQuery, BalanceMovementsPage, BalanceMovementsQuery, BalanceQuery, DiscountCodeDto, DiscountCodeInput, ExpensePayeeDto, ExpensesExportQuery, ExpensesPage, ExpensesPageQuery, ExpensesQuery, ExpenseUpdateInput, ExpenseVoidInput, WaitlistEntryDto } from '@xiro/shared';
+import type { BirthdayProgramDto, BirthdayProgramInput, BirthdayStatusDto, BalanceDto, BalanceExportFormat, BalanceExportQuery, BalanceMovementsPage, BalanceMovementsQuery, BalanceQuery, DiscountCodeDto, DiscountCodeInput, ExpensePayeeDto, ExpensesExportQuery, ExpensesPage, ExpensesPageQuery, ExpensesQuery, ExpenseUpdateInput, ExpenseVoidInput, WaitlistEntryDto } from '@xiro/shared';
+import type { AssistantAnswer, AssistantCatalogEntry, AssistantQuestionKey, ImageMatchResult, ReportPeriod } from '@xiro/shared';
 import { HTTP_TIMEOUT_MS, withRetry, type ClientsQuery, type ClientVisits, type ClientsSummary, type ItemsQuery, type ItemsSummary, type LoyaltySummary, type Page, type PageParams, type ProductOrderDto, type ProductOrdersQuery, type ProductOrdersSummary, type ServiceRecordsQuery, type ServiceRecordsSummary } from '@xiro/shared';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
@@ -312,6 +316,7 @@ export const api = {
   updateMe: (body: Partial<Pick<User, 'name' | 'language' | 'theme'>>) => request<User>('/api/me', { method: 'PATCH', body }),
   uploadMyPhoto: (form: FormData) => request<User>('/api/me/photo', { method: 'PUT', form }),
   deleteMyPhoto: () => request<User>('/api/me/photo', { method: 'DELETE' }),
+  changeMyPassword: (body: { currentPassword: string; newPassword: string }) => request<{ ok: true }>('/api/me/password', { method: 'POST', body }),
 
   /* ---------- Mensajes (chat interno del equipo) ---------- */
   messagePeople: () => request<MessagePerson[]>('/api/messages/people'),
@@ -325,6 +330,8 @@ export const api = {
   confirmPhoneChange: (code: string) => request<User>('/api/me/phone/confirm', { method: 'POST', body: { code } }),
   updateBusiness: (body: BusinessUpdateInput) => request<Business>('/api/business', { method: 'PATCH', body }),
   uploadLogo: (form: FormData) => request<Business>('/api/business/logo', { method: 'PUT', form }),
+  /** Eliminación definitiva del negocio (solo el dueño) — ver la zona de peligro de /profile. */
+  deleteBusiness: (password: string) => request<{ ok: true }>('/api/business', { method: 'DELETE', body: { password } }),
   cashToday: () => request<{ opening: CashOpening | null }>('/api/cash/today'),
   openCash: (body: { amount: number; note?: string }) => request<{ opening: CashOpening }>('/api/cash/opening', { method: 'POST', body }),
   /** Bases de caja registradas en un rango (Reportes: tarjeta "Base inicial"); un día sin apertura no aparece en la lista. */
@@ -348,6 +355,7 @@ export const api = {
   balanceExport: (format: BalanceExportFormat, params: BalanceExportQuery) => requestFile(`/api/reports/balance/export.${format}${query(params)}`),
   expensesExport: (params: ExpensesExportQuery) => requestFile(`/api/expenses/export.xlsx${query(params)}`),
   cashCloseSummary: (day: string) => request<CashDaySummary>(`/api/cash/close-summary?day=${day}`),
+  cashDaySales: (params: CashDaySalesQuery) => request<CashDaySalesPage>(`/api/cash/day-sales${query(params)}`),
   cashClosings: (from: string, to: string) => request<CashClosingDto[]>(`/api/cash/closings?${new URLSearchParams({ from, to }).toString()}`),
   cashClosing: (id: string) => request<CashClosingDto>(`/api/cash/closings/${id}`),
   closeCash: (body: CashCloseInput) => request<CashClosingDto>('/api/cash/close', { method: 'POST', body }),
@@ -383,6 +391,9 @@ export const api = {
   uploadClientPhoto: (id: string, form: FormData) => request<Client>(`/api/clients/${id}/photo`, { method: 'PUT', form }),
   deleteClientPhoto: (id: string) => request<Client>(`/api/clients/${id}/photo`, { method: 'DELETE' }),
 
+  birthdayProgram: () => request<BirthdayProgramDto>('/api/birthday/program'),
+  updateBirthdayProgram: (body: BirthdayProgramInput) => request<BirthdayProgramDto>('/api/birthday/program', { method: 'PUT', body }),
+  clientBirthday: (id: string) => request<BirthdayStatusDto>(`/api/clients/${id}/birthday`),
   loyaltyProgram: () => request<LoyaltyProgram>('/api/loyalty/program'),
   updateLoyaltyProgram: (body: LoyaltyProgramUpdateInput) => request<LoyaltyProgram>('/api/loyalty/program', { method: 'PUT', body }),
   loyaltySummary: () => request<LoyaltySummary>('/api/loyalty/summary'),
@@ -417,6 +428,7 @@ export const api = {
   markAllNotificationsRead: () => request<{ ok: true }>('/api/notifications/read-all', { method: 'POST' }),
 
   employees: () => request<Employee[]>('/api/employees'),
+  employeeQuota: () => request<EmployeeQuotaDto>('/api/employees/quota'),
   createEmployee: (body: EmployeeCreateInput) => request<Employee>('/api/employees', { method: 'POST', body }),
   updateEmployee: (id: string, body: EmployeeUpdateInput) => request<Employee>(`/api/employees/${id}`, { method: 'PATCH', body }),
   /** Foto de cuenta de un empleado, puesta por el dueño (misma columna que `/me/photo`: el propio empleado también puede cambiarla). */
@@ -495,6 +507,12 @@ export const api = {
   checkoutPaypal: (plan: SubscriptionPlan) => request<{ url: string }>('/api/subscription/checkout/paypal', { method: 'POST', body: { plan } }),
   checkoutBankTransfer: (plan: SubscriptionPlan) => request<{ instructions: string; plan: SubscriptionPlan }>('/api/subscription/checkout/bank-transfer', { method: 'POST', body: { plan } }),
   subscriptionInvoices: () => request<{ invoices: SubscriptionInvoiceDto[] }>('/api/subscription/invoices').then((r) => r.invoices),
+
+  /* ---------- Asistente de negocio (catálogo cerrado, Fase A/B) ---------- */
+  assistantCatalog: () => request<AssistantCatalogEntry[]>('/api/assistant/catalog'),
+  assistantAsk: (params: { question: AssistantQuestionKey; period?: ReportPeriod; from?: string; to?: string }) => request<AssistantAnswer>(`/api/assistant/ask${query(params)}`),
+  /** Foto de un producto → comparación LOCAL contra el inventario (nunca sale de nuestro servidor). */
+  assistantImageMatch: (form: FormData) => request<ImageMatchResult>('/api/assistant/image-match', { method: 'POST', form }),
 };
 
 /** Lo elegido para reservar: servicios (con estilo), paquetes y el profesional; viaja como `services=id:estilo,id` y `packages=id,id`. */

@@ -1,4 +1,4 @@
-import type { Currency } from '@xiro/shared';
+import { appliedDiscountLabel, type AppliedDiscountDto, type Currency } from '@xiro/shared';
 import { money } from '../lib/format';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
@@ -16,7 +16,7 @@ export function TotalRows({
   priceClass = 'xp-price xp-price--lg',
 }: {
   total: number;
-  discount: { code: string; amount: number } | null | undefined;
+  discount: AppliedDiscountDto | null | undefined;
   currency: Currency | string;
   t: T;
   rowClass?: string;
@@ -32,7 +32,7 @@ export function TotalRows({
             <span>{money(total, currency)}</span>
           </div>
           <div className={`${rowClass} xp-summary-sub xp-summary-discount`}>
-            <span>{t('pub_summary_discount', { code: discount.code })}</span>
+            <span>{appliedDiscountLabel(t, discount, 'pub_birthday_discount')}</span>
             <span>−{money(amount, currency)}</span>
           </div>
         </>

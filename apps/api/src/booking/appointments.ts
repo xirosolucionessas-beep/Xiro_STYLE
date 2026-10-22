@@ -1,3 +1,4 @@
+import { birthdayTargetIds, releaseBirthdayReward } from '../birthday';
 import { createHash } from 'node:crypto';
 import { canTransition, type AppointmentDto, type AppointmentItemDto, type AppointmentSource, type AppointmentStatus, type BookingSelection, type PublicAppointmentDto } from '@xiro/shared';
 import { and, eq, gt, inArray, sql, type SQL } from 'drizzle-orm';
@@ -227,6 +228,7 @@ export async function loadAppointmentDtos(tx: Tx, businessId: string, where: SQL
     .from(appointmentItems)
     .where(and(eq(appointmentItems.businessId, businessId), inArray(appointmentItems.appointmentId, rows.map((r) => r.a.id))));
   const codes = await discountCodesById(tx, businessId, rows.map((r) => r.a.discountCodeId));
+  const birthdayIds = await birthdayTargetIds(tx, businessId, 'appointment', rows.map((r) => r.a.id));
   return rows.map(({ a, clientName, clientPhone, clientEmail, proName }) => ({
     id: a.id,
     status: a.status as AppointmentStatus,
@@ -235,7 +237,7 @@ export async function loadAppointmentDtos(tx: Tx, businessId: string, where: SQL
     endsAt: a.endsAt.toISOString(),
     durationMinutes: a.durationMinutes,
     totalPrice: a.totalPrice,
-    discount: discountOf(a, codes),
+    discount: discountOf(a, codes, birthdayIds),
     customerNotes: a.customerNotes,
     internalNotes: a.internalNotes,
     modificationCount: a.modificationCount,
@@ -269,7 +271,7 @@ export async function toPublicAppointment(tx: Tx, ctx: BookingContext, businessI
     endsAt: row.endsAt.toISOString(),
     durationMinutes: row.durationMinutes,
     totalPrice: row.totalPrice,
-    discount: discountOf(row, await discountCodesById(tx, businessId, [row.discountCodeId])),
+    discount: discountOf(row, await discountCodesById(tx, businessId, [row.discountCodeId]), await birthdayTargetIds(tx, businessId, 'appointment', [row.id])),
     professionalName: pro?.publicName || pro?.name || '',
     items: lines.map(toItemDto),
     business: {
@@ -345,6 +347,8 @@ export async function transitionAppointment(tx: Tx, businessId: string, id: stri
     .where(and(eq(appointments.id, id), eq(appointments.businessId, businessId)))
     .returning();
   await addEvent(tx, businessId, id, 'status', actor, { from, to });
+  // Cita cancelada: la recompensa de cumpleaños que usó vuelve a estar disponible (la misma del año, nunca una segunda).
+  if (to === 'cancelled') await releaseBirthdayReward(tx, businessId, { appointmentId: id });
   return updated!;
 }
 

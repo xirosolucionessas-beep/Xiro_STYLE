@@ -44,6 +44,8 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
+  // Opcional: solo para el programa de cumpleaños del negocio (si lo tiene). Nunca bloquea el registro.
+  const [birthDate, setBirthDate] = useState('');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -104,7 +106,7 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
     }
     setBusy(true);
     try {
-      let result = await publicApi.accountRegister(slug, { name, phone, password, email: email || undefined, acceptTerms: true, remember });
+      let result = await publicApi.accountRegister(slug, { name, phone, password, email: email || undefined, birthDate: birthDate || undefined, acceptTerms: true, remember });
       if (photo) {
         // Mejor esfuerzo: si la foto falla (red, formato raro), la cuenta ya quedó creada — no se bloquea el registro por esto.
         result = await publicApi.accountUploadPhoto(slug, photo).catch(() => result);
@@ -247,6 +249,12 @@ export function AccountPage({ slug, view, language, account, onAuthenticated }: 
             {field('xp-reg-name', t('pub_account_name_label'), <input id="xp-reg-name" className="xp-input" type="text" autoComplete="name" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />)}
             {field('xp-reg-phone', t('pub_account_phone_label'), <input id="xp-reg-phone" className="xp-input" type="tel" inputMode="tel" autoComplete="username" required value={phone} onChange={(e) => setPhone(e.target.value)} />, t('pub_account_phone_hint'))}
             {field('xp-reg-email', t('pub_account_email_label'), <input id="xp-reg-email" className="xp-input" type="email" autoComplete="email" maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />)}
+            {field(
+              'xp-reg-birth',
+              t('pub_birth_date'),
+              <input id="xp-reg-birth" className="xp-input" type="date" autoComplete="bday" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />,
+              t('pub_birth_date_hint'),
+            )}
             {passwordField('xp-reg-password', t('pub_account_password_label'), password, setPassword, 'new-password')}
             <label className="xp-check">
               <input type="checkbox" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} required />

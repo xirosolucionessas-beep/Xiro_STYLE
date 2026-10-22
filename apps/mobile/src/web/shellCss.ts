@@ -79,6 +79,10 @@ a.xw-nav-item:active { background: var(--xw-accent-tint); }
    entra en juego cuando hay espacio de sobra. */
 .xw-page { display: flex; flex-direction: column; box-sizing: border-box; width: 100%; min-height: 100%; max-width: var(--xw-page-max, ${remOf(layout.maxContent)}); margin: 0 auto; padding: 0 var(--xw-space-6) var(--xw-space-8); }
 [data-mode='mobile'] .xw-page { padding-inline: var(--xw-space-4); }
+/* Centra el contenido (p. ej. una sola tarjeta de acceso) en vez de apilarlo desde arriba; con contenido que no cabe en
+   el alto visible, .xw-scroll ya permite desplazar (no se pierde nada en pantallas chicas). Opt-in: solo la pantalla
+   que lo pida (Screen "center"), el resto de /platform y de la app sigue igual. */
+.xw-page--center { justify-content: center; align-items: center; }
 .xw-head { display: flex; align-items: center; gap: var(--xw-space-3); box-sizing: border-box; width: 100%; max-width: var(--xw-page-max, ${remOf(layout.maxContent)}); margin: 0 auto; padding: var(--xw-space-4) var(--xw-space-6); }
 [data-mode='mobile'] .xw-head { padding-inline: var(--xw-space-4); }
 .xw-head-text { flex: 1; min-width: 0; }

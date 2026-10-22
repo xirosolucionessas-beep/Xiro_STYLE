@@ -13,13 +13,13 @@ import type * as Native from './Screen';
 type ScreenProps = ComponentProps<typeof Native.Screen>;
 type HeaderProps = ComponentProps<typeof Native.Header>;
 
-export function Screen({ children, footer, header }: ScreenProps) {
+export function Screen({ children, footer, header, center }: ScreenProps) {
   useWebStyles();
   return (
     <div className="xw-screen">
       {header}
       <div className="xw-scroll">
-        <div className="xw-page">{children}</div>
+        <div className={center ? 'xw-page xw-page--center' : 'xw-page'}>{children}</div>
       </div>
       {footer ? <div className="xw-foot">{footer}</div> : null}
     </div>

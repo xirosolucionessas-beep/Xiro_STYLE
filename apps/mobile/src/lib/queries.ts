@@ -10,6 +10,8 @@ export const keys = {
   subscription: ['subscription'] as const,
   subscriptionInvoices: ['subscriptionInvoices'] as const,
   loyaltyProgram: ['loyaltyProgram'] as const,
+  birthdayProgram: ['birthdayProgram'] as const,
+  clientBirthday: (id: string) => ['clientBirthday', id] as const,
   loyaltyClients: ['loyaltyClients'] as const,
   loyaltyRedemptions: ['loyaltyRedemptions'] as const,
   serviceRecords: ['serviceRecords'] as const,
@@ -107,6 +109,11 @@ export function useInvalidateClients() {
 }
 
 export const useLoyaltyProgram = (enabled = true) => useQuery({ queryKey: keys.loyaltyProgram, queryFn: api.loyaltyProgram, enabled });
+/** Programa de cumpleaños: solo el dueño lo consulta y lo cambia (el servidor lo exige). */
+export const useBirthdayProgram = (enabled = true) => useQuery({ queryKey: keys.birthdayProgram, queryFn: api.birthdayProgram, enabled });
+/** Estado de cumpleaños de un cliente (sin su fecha): para la ficha y para aplicarlo en caja. */
+export const useClientBirthday = (clientId: string | null | undefined, enabled = true) =>
+  useQuery({ queryKey: keys.clientBirthday(clientId ?? ''), queryFn: () => api.clientBirthday(clientId!), enabled: enabled && Boolean(clientId), staleTime: 15_000 });
 export const useLoyaltySummary = (enabled = true) => useQuery({ queryKey: [...keys.loyaltyClients, 'summary'], queryFn: api.loyaltySummary, enabled });
 export const useLoyaltyClients = (q = '', enabled = true) =>
   useInfiniteQuery({ queryKey: [...keys.loyaltyClients, q], queryFn: ({ pageParam }) => api.loyaltyClients({ q: q || undefined, cursor: pageParam }), initialPageParam: undefined as string | undefined, getNextPageParam: nextPageParam, enabled });
@@ -167,10 +174,39 @@ export function useInvalidateOrders() {
 
 /* ---------- Gastos y cierre de caja ---------- */
 
-export const useCashCloseSummary = (day: string | null, enabled = true) => useQuery({ queryKey: [...keys.cashCloseSummary, day], queryFn: () => api.cashCloseSummary(day!), enabled: enabled && day !== null });
+/** `refetchInterval`: solo para el día de HOY con la pantalla visible (ver useLiveRefresh); los días pasados no se vuelven a pedir solos. */
+export const useCashCloseSummary = (day: string | null, enabled = true, refetchInterval: number | false = false) =>
+  useQuery({ queryKey: [...keys.cashCloseSummary, day], queryFn: () => api.cashCloseSummary(day!), enabled: enabled && day !== null, refetchInterval, refetchIntervalInBackground: false });
 export const useCashClosings = (range: { from: string; to: string } | null, enabled = true) => useQuery({ queryKey: [...keys.cashClosings, range?.from, range?.to], queryFn: () => api.cashClosings(range!.from, range!.to), enabled: enabled && range !== null });
 /** Un cierre puntual, con el resumen del día ya recalculado (`summary`) — para verlo cerrado, no para la lista. */
-export const useCashClosingDetail = (id: string | null, enabled = true) => useQuery({ queryKey: [...keys.cashClosings, 'detail', id], queryFn: () => api.cashClosing(id!), enabled: enabled && id !== null });
+export const useCashClosingDetail = (id: string | null, enabled = true, refetchInterval: number | false = false) =>
+  useQuery({ queryKey: [...keys.cashClosings, 'detail', id], queryFn: () => api.cashClosing(id!), enabled: enabled && id !== null, refetchInterval, refetchIntervalInBackground: false });
+
+/**
+ * "Ver más" del cierre: ventas del día de un empleado (o sin atribución) y gastos del día, paginados. Cuelgan de la clave del
+ * resumen del cierre: lo que lo refresca (venta, gasto, cierre, volver a la pantalla) también los refresca, y comparten el
+ * mismo intervalo automático (solo hoy y con la pantalla visible). Volver a pedir conserva las páginas ya cargadas.
+ */
+export const useCashDaySales = (params: { day: string; scope: 'employee' | 'unattributed'; employeeId?: string } | null, refetchInterval: number | false = false) =>
+  useInfiniteQuery({
+    queryKey: [...keys.cashCloseSummary, 'sales', params?.day, params?.scope, params?.employeeId ?? null],
+    queryFn: ({ pageParam }) => api.cashDaySales({ ...params!, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: nextPageParam,
+    enabled: params !== null,
+    refetchInterval,
+    refetchIntervalInBackground: false,
+  });
+export const useCashDayExpenses = (day: string | null, employeeId: string | null, refetchInterval: number | false = false) =>
+  useInfiniteQuery({
+    queryKey: [...keys.cashCloseSummary, 'expenses', day, employeeId],
+    queryFn: ({ pageParam }) => api.expensesPage({ from: day!, to: day!, status: 'all', ...(employeeId ? { employeeId } : {}), cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: nextPageParam,
+    enabled: day !== null,
+    refetchInterval,
+    refetchIntervalInBackground: false,
+  });
 
 export function useInvalidateCash() {
   const queryClient = useQueryClient();
@@ -184,6 +220,8 @@ export function useInvalidateCash() {
 }
 
 export const useEmployees = (enabled = true) => useQuery({ queryKey: keys.employees, queryFn: api.employees, enabled });
+/** Cupos de empleados activos ("3 de 5"); comparte prefijo con `employees`, así cualquier cambio de empleados lo refresca. */
+export const useEmployeeQuota = (enabled = true) => useQuery({ queryKey: [...keys.employees, 'quota'], queryFn: api.employeeQuota, enabled });
 export const useAuditLogs = (enabled = true) => useQuery({ queryKey: keys.auditLogs, queryFn: () => api.auditLogs(), enabled });
 export const useNotificationSettings = () => useQuery({ queryKey: keys.notificationSettings, queryFn: api.notificationSettings });
 
@@ -205,6 +243,12 @@ export function useMarkAllNotificationsRead() {
 }
 
 /** Config, progreso y canjes se invalidan juntos: registrar un servicio o canjear un premio puede cambiar los tres a la vez. */
+/** Tras guardar el programa o canjear una recompensa: programa y estados de cumpleaños de los clientes. */
+export function useInvalidateBirthdayProgram() {
+  const queryClient = useQueryClient();
+  return () => Promise.all([queryClient.invalidateQueries({ queryKey: keys.birthdayProgram }), queryClient.invalidateQueries({ queryKey: ['clientBirthday'] })]);
+}
+
 export function useInvalidateLoyalty() {
   const queryClient = useQueryClient();
   return () =>

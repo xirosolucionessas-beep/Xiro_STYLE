@@ -191,6 +191,8 @@ describe('migración 0024: reversible y sin cambiar resultados', () => {
 
     // Las reversiones van en ORDEN INVERSO: el migrador solo aplica lo posterior a la ÚLTIMA migración registrada, así que
     // para revertir 0024 primero se revierte lo que vino después, de la más nueva a la más vieja (0036 índices del balance, 0035 RLS de registros de servicio, 0034 ajustes de gastos, 0033 finanzas, 0032 opciones de la página, 0031 índices de códigos, 0030 lista de espera, 0029 códigos, 0028 opciones de la Fase 4, 0027 especialidad, 0026 marca, 0025 pedidos).
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0039_birthday_program.down.sql'), 'utf8'));
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0038_notification_sound.down.sql'), 'utf8')); // lo posterior a 0037 se revierte antes
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0037_platform_admin.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0036_finance_covering_indexes.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0035_service_records_rls.down.sql'), 'utf8'));
@@ -211,8 +213,11 @@ describe('migración 0024: reversible y sin cambiar resultados', () => {
     // ausencia a propósito (fallaría abierta). Para comparar resultados con el esquema anterior a 0024 se agrega solo esa
     // columna mientras dura la comparación y se quita antes de volver a migrar (0037 la crea de nuevo).
     await testDb.pool.query(`alter table businesses add column access_status text not null default 'active'`);
+    // Igual con clients.birth_date (0039, programa de cumpleaños): la API lee la ficha completa del cliente.
+    await testDb.pool.query(`alter table clients add column birth_date date`);
     expect(await snapshot()).toEqual(before);
     await testDb.pool.query(`alter table businesses drop column access_status`);
+    await testDb.pool.query(`alter table clients drop column birth_date`);
 
     await runMigrations(testDb);
     expect(await existing()).toEqual([...INDEXES].sort());

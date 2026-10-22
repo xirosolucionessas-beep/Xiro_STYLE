@@ -31,6 +31,10 @@ export interface Notifier {
   sendWaitlistAvailable?(message: WaitlistAvailableMessage): Promise<void>;
   /** Fase 4: pedir una reseña después de una cita completada. */
   sendReviewRequest?(message: ReviewRequestMessage): Promise<void>;
+  /** Aviso a XIRO (no al negocio) por un evento operativo, p. ej. un dueño eliminó su cuenta (ver accountDeletion.ts).
+   * Pendiente de credenciales reales de WhatsApp Cloud API/Twilio; opcional para que un notificador que aún no lo
+   * implemente no rompa nada. El registro de auditoría (platform_audit_log) NUNCA depende de que este aviso se entregue. */
+  sendAdminAlert?(message: AdminAlertMessage): Promise<void>;
 }
 
 export interface WaitlistAvailableMessage {
@@ -51,6 +55,17 @@ export interface ReviewRequestMessage {
   businessName: string;
   /** Enlace de gestión de la cita (ahí está el formulario de reseña). */
   reviewPath: string;
+}
+
+export interface AdminAlertMessage {
+  /** Número fijo de XIRO, nunca el de un negocio (ver accountDeletion.ts). */
+  to: string;
+  event: 'business_self_deleted';
+  businessName: string;
+  businessId: string;
+  requestedByName: string;
+  /** Instante ya formateado (igual criterio que el resto de mensajes al cliente: el proveedor real lo incrusta tal cual). */
+  at: string;
 }
 
 /**
@@ -74,6 +89,10 @@ export class ConsoleNotifier implements Notifier {
 
   async sendReviewRequest(message: ReviewRequestMessage): Promise<void> {
     this.log(`[reseña] (solo desarrollo) canal=${message.channel} destino=${maskDestination(message.to)} negocio=${message.businessName}`);
+  }
+
+  async sendAdminAlert(message: AdminAlertMessage): Promise<void> {
+    this.log(`[aviso a xiro] (solo desarrollo) destino=${maskDestination(message.to)} evento=${message.event} negocio=${message.businessName} (${message.businessId})`);
   }
 }
 

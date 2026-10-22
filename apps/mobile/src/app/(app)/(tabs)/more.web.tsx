@@ -109,7 +109,7 @@ function useNotificationsModel(enabled: boolean, t: (key: string) => string): No
 export default function MoreWeb() {
   const router = useRouter();
   const { t, language } = useWebText();
-  const { setLanguage, theme, setTheme, aiFab, setAiFab } = useSettings();
+  const { setLanguage, theme, setTheme, aiFab, setAiFab, whatsappFab, setWhatsappFab } = useSettings();
   const { user, business, signOut } = useSession();
   const { confirm } = useDialogs();
   const subscription = useSubscription();
@@ -166,6 +166,8 @@ export default function MoreWeb() {
         onDarkMode={changeTheme}
         aiFab={aiFab}
         onAiFab={setAiFab}
+        whatsappFab={whatsappFab}
+        onWhatsappFab={setWhatsappFab}
         notifications={notifications}
         supportLinks={supportLinks}
         navigate={(href) => router.push(href as never)}

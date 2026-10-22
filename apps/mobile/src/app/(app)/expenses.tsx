@@ -31,6 +31,7 @@ import { CalendarPicker } from '@/ui/agenda/CalendarPicker';
 import { Button } from '@/ui/Button';
 import { useDialogs } from '@/ui/Dialogs';
 import { Field } from '@/ui/Field';
+import { FilterSelect, type FilterSelectOption } from '@/ui/FilterSelect';
 import { FormModal } from '@/ui/FormModal';
 import { Card, Chip, ChipRow, EmptyState, ToggleRow } from '@/ui/Kit';
 import { DownloadButton } from '@/ui/reports/DownloadButton';
@@ -48,13 +49,17 @@ export default function Expenses() {
   const currency = business.currency as Currency;
   const today = todayIn(business.timezone);
   const [period, setPeriod] = useState<Period>('this_month');
+  const [customFrom, setCustomFrom] = useState(today);
+  const [customTo, setCustomTo] = useState(today);
+  const [showCustomFrom, setShowCustomFrom] = useState(false);
+  const [showCustomTo, setShowCustomTo] = useState(false);
   const [type, setType] = useState<ExpenseType | 'all'>('all');
   const [category, setCategory] = useState<ExpenseCategory | 'all'>('all');
   const [employeeId, setEmployeeId] = useState<string | 'all'>('all');
   const [showVoided, setShowVoided] = useState(false);
   const [editing, setEditing] = useState<ExpenseDto | 'new' | null>(null);
   const [voiding, setVoiding] = useState<ExpenseDto | null>(null);
-  const range = periodRange(period, today);
+  const range = periodRange(period, today, { from: customFrom, to: customTo > customFrom ? customTo : customFrom });
   const query = {
     ...range,
     ...(type !== 'all' ? { type } : {}),
@@ -79,6 +84,11 @@ export default function Expenses() {
   const total = totals?.activeTotal ?? 0;
   const activeCount = totals?.activeCount ?? 0;
   const categories: ExpenseCategory[] = type === 'all' ? [...EXPENSE_CATEGORIES.operating, ...EXPENSE_CATEGORIES.payroll] : [...EXPENSE_CATEGORIES[type]];
+
+  const periodOptions: FilterSelectOption<Period>[] = PERIODS.map((p) => ({ value: p, label: t(`exp_period_${p}`) }));
+  const typeOptions: FilterSelectOption<ExpenseType | 'all'>[] = (['all', 'operating', 'payroll'] as const).map((value) => ({ value, label: t(`exp_type_${value}`) }));
+  const categoryOptions: FilterSelectOption<ExpenseCategory | 'all'>[] = [{ value: 'all' as const, label: t('exp_type_all') }, ...categories.map((c) => ({ value: c, label: t(`exp_cat_${c}`) }))];
+  const employeeOptions: FilterSelectOption<string>[] = [{ value: 'all', label: t('exp_type_all') }, ...(payees.data ?? []).map((p) => ({ value: p.id, label: p.active ? p.name : `${p.name} (${t('exp_employee_inactive')})` }))];
 
   const renderExpense = ({ item: expense }: { item: ExpenseDto }) => {
     const voided = expense.status === 'voided';
@@ -131,38 +141,73 @@ export default function Expenses() {
         contentContainerStyle={styles.list}
         ListHeaderComponent={
           <View style={styles.filters}>
-            <ChipRow label={t('exp_period_this_month')}>
-              {PERIODS.map((p) => (
-                <Chip key={p} label={t(`exp_period_${p}`)} selected={period === p} onPress={() => setPeriod(p)} />
-              ))}
-            </ChipRow>
-            <ChipRow label={t('exp_type')}>
-              {(['all', 'operating', 'payroll'] as const).map((value) => (
-                <Chip
-                  key={value}
-                  label={t(`exp_type_${value}`)}
-                  selected={type === value}
-                  onPress={() => {
-                    setType(value);
-                    setCategory('all');
-                    if (value !== 'payroll') setEmployeeId('all');
-                  }}
-                />
-              ))}
-            </ChipRow>
-            <ChipRow label={t('exp_category')}>
-              <Chip label={t('exp_type_all')} selected={category === 'all'} onPress={() => setCategory('all')} />
-              {categories.map((c) => (
-                <Chip key={c} label={t(`exp_cat_${c}`)} selected={category === c} onPress={() => setCategory(c)} />
-              ))}
-            </ChipRow>
-            {type === 'payroll' && (payees.data ?? []).length > 0 ? (
-              <ChipRow label={t('exp_employee')}>
-                <Chip label={t('exp_type_all')} selected={employeeId === 'all'} onPress={() => setEmployeeId('all')} />
-                {(payees.data ?? []).map((p) => (
-                  <Chip key={p.id} label={p.active ? p.name : `${p.name} (${t('exp_employee_inactive')})`} selected={employeeId === p.id} onPress={() => setEmployeeId(p.id)} />
-                ))}
-              </ChipRow>
+            {/* Tres selectores compactos (en vez de una fila de chip por cada una de las ~20 opciones combinadas):
+                en pantallas anchas caben en una sola fila (flexWrap los acomoda en varias si no caben). */}
+            <View style={styles.filterRow}>
+              <FilterSelect
+                label={t('exp_period')}
+                value={period}
+                options={periodOptions}
+                onChange={(p) => {
+                  setPeriod(p);
+                  if (p === 'custom') {
+                    setCustomFrom(today);
+                    setCustomTo(today);
+                  }
+                }}
+              />
+              <FilterSelect
+                label={t('exp_type')}
+                value={type}
+                options={typeOptions}
+                onChange={(value) => {
+                  setType(value);
+                  setCategory('all');
+                  if (value !== 'payroll') setEmployeeId('all');
+                }}
+              />
+              <FilterSelect label={t('exp_category')} value={category} options={categoryOptions} onChange={setCategory} />
+              {type === 'payroll' && (payees.data ?? []).length > 0 ? <FilterSelect label={t('exp_employee')} value={employeeId} options={employeeOptions} onChange={setEmployeeId} /> : null}
+            </View>
+            {period === 'custom' ? (
+              <View style={styles.filterRow}>
+                <View style={{ flexGrow: 1, flexBasis: 150 }}>
+                  <AppText variant="label" tone="muted" style={{ marginBottom: 4 }}>
+                    {t('exp_date_from')}
+                  </AppText>
+                  <Chip label={upperFirst(formatDay(customFrom, language, { day: 'numeric', month: 'short', year: 'numeric' }))} selected={showCustomFrom} onPress={() => setShowCustomFrom((v) => !v)} />
+                  {showCustomFrom ? (
+                    <CalendarPicker
+                      value={customFrom}
+                      onChange={(d) => {
+                        setCustomFrom(d);
+                        setShowCustomFrom(false);
+                      }}
+                      today={today}
+                      allowPast
+                      maxDate={today}
+                    />
+                  ) : null}
+                </View>
+                <View style={{ flexGrow: 1, flexBasis: 150 }}>
+                  <AppText variant="label" tone="muted" style={{ marginBottom: 4 }}>
+                    {t('exp_date_to')}
+                  </AppText>
+                  <Chip label={upperFirst(formatDay(customTo, language, { day: 'numeric', month: 'short', year: 'numeric' }))} selected={showCustomTo} onPress={() => setShowCustomTo((v) => !v)} />
+                  {showCustomTo ? (
+                    <CalendarPicker
+                      value={customTo}
+                      onChange={(d) => {
+                        setCustomTo(d);
+                        setShowCustomTo(false);
+                      }}
+                      today={today}
+                      allowPast
+                      maxDate={today}
+                    />
+                  ) : null}
+                </View>
+              </View>
             ) : null}
             <ToggleRow label={t('exp_show_voided')} value={showVoided} onChange={setShowVoided} />
             <Card style={styles.summary}>
@@ -459,6 +504,7 @@ function VoidForm({ expense, onClose }: { expense: ExpenseDto; onClose: () => vo
 const styles = StyleSheet.create({
   list: { padding: space.lg, gap: space.md, paddingBottom: 120 },
   filters: { gap: space.sm, marginBottom: space.sm },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   summary: { gap: 2, marginTop: space.sm },
   download: { alignItems: 'flex-start', marginTop: space.sm },
   more: { alignItems: 'center', gap: space.sm, paddingVertical: space.lg },

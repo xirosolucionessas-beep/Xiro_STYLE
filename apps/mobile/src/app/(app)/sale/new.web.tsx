@@ -11,7 +11,9 @@ import { actorOf, meets } from '@/lib/access';
 import { dayRange, formatClock, formatDay, localDate, localTime, summarizeItems, todayIn } from '@/lib/agenda';
 import { api, errorKey, resolveMedia } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
-import { flatPages, useAppointments, useCategories, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
+import { birthdaySalePreview } from '@/lib/birthdaySale';
+import { describeReward } from '@/lib/birthdayText';
+import { flatPages, useAppointments, useCategories, useClientBirthday, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
 import { useOrderPrefill } from '@/lib/orderPrefill';
 import { changeDue, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, cartSubtotal, type CartLine, type PaymentRow } from '@/lib/sale';
 import { useAuthed } from '@/lib/session';
@@ -206,7 +208,15 @@ export default function SaleNewWeb() {
   const [payments, setPayments] = useState<PaymentRow[]>([{ key: 'pay-1', method: 'cash', amount: 0, receivedAmount: null }]);
 
   const subtotal = cartSubtotal(lines);
-  const total = saleTotal(subtotal, discount, tip);
+  // Recompensa de cumpleaños del cliente elegido: vista previa con la MISMA regla que el servidor (que la recalcula al cobrar).
+  const birthdayStatus = useClientBirthday(selectedClient?.id, Boolean(selectedClient));
+  // Se guarda PARA QUÉ cliente se marcó: al cambiar de cliente queda desmarcada sola.
+  const [birthdayFor, setBirthdayFor] = useState<string | null>(null);
+  const useBirthday = Boolean(selectedClient) && birthdayFor === selectedClient?.id;
+  const setUseBirthday = (checked: boolean) => setBirthdayFor(checked ? (selectedClient?.id ?? null) : null);
+  const birthday = birthdaySalePreview(birthdayStatus.data, lines, discount);
+  const birthdayAmount = useBirthday && birthday.kind === 'ready' ? birthday.amount : 0;
+  const total = saleTotal(subtotal, discount + birthdayAmount, tip);
 
   // Con un solo pago (el caso normal: cliente + un servicio + efectivo) el monto sigue siempre al total, así que en la
   // mayoría de las ventas no hace falta tocar el pago para nada. En cuanto se agrega un segundo pago (venta partida),
@@ -245,7 +255,8 @@ export default function SaleNewWeb() {
   function validate(): string | undefined {
     if (!selectedClient && !occasional) return t('sale_error_client_required');
     if (lines.length === 0) return t('sale_error_no_lines');
-    if (discount > subtotal) return t('sale_error_discount');
+    if (useBirthday && birthday.kind === 'blocked') return t(birthday.reason);
+    if (discount + birthdayAmount > subtotal) return t('sale_error_discount');
     if (insufficientStockLines(lines).length > 0) return t('sale_cart_insufficient_stock', { n: insufficientStockLines(lines)[0]!.stock ?? 0 });
     if (paymentsTotal(payments) !== total) return t('sale_error_payments_mismatch');
     return undefined;
@@ -274,6 +285,7 @@ export default function SaleNewWeb() {
         })),
         payments: payments.map((p) => ({ method: p.method, amount: p.amount, receivedAmount: p.receivedAmount })),
         ...(orderPrefill.order ? { productOrderId: orderPrefill.order.id } : {}),
+        ...(birthdayAmount > 0 && birthday.kind === 'ready' ? { birthdayRewardId: birthday.reward.id } : {}),
       };
       const created = await api.createSale(body);
       await invalidateAfterSale();
@@ -292,6 +304,7 @@ export default function SaleNewWeb() {
     setAppointmentLoaded(false);
     setLines([]);
     setDiscount(0);
+    setUseBirthday(false);
     setTip(0);
     setPayments([{ key: 'pay-1', method: 'cash', amount: 0, receivedAmount: null }]);
     setError(undefined);
@@ -455,6 +468,17 @@ export default function SaleNewWeb() {
       onRemoveLine={(key) => setLines((prev) => prev.filter((l) => l.key !== key))}
       discount={discount}
       onDiscount={(raw) => setDiscount(parseAmountInput(raw))}
+      birthday={
+        birthday.kind === 'none'
+          ? null
+          : {
+              label: t('birthday_apply', { reward: describeReward(t, birthday.reward, currency) }),
+              amount: birthday.kind === 'ready' ? birthday.amount : 0,
+              checked: useBirthday && birthday.kind === 'ready',
+              blockedReason: birthday.kind === 'blocked' ? t(birthday.reason) : undefined,
+              onChange: setUseBirthday,
+            }
+      }
       tip={tip}
       onTip={(raw) => setTip(parseAmountInput(raw))}
       payments={payments}

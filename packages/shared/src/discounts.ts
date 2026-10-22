@@ -67,3 +67,20 @@ export function computeDiscount(subtotal: number, discount: Pick<PublicDiscountD
   const amount = discount.kind === 'percent' ? Math.round((subtotal * discount.value) / 100) : discount.value;
   return Math.max(0, Math.min(subtotal, amount));
 }
+
+/**
+ * Descuento aplicado a una cita o pedido (lo que ve el cliente y el negocio). `code` = código usado ('—' si se borró;
+ * vacío si no hubo código); `birthday` = el monto incluye la recompensa de cumpleaños del cliente.
+ */
+export interface AppliedDiscountDto {
+  code: string;
+  amount: number;
+  birthday?: boolean;
+}
+
+/** Texto del descuento aplicado: "Descuento (CODIGO)", "Descuento de cumpleaños" o ambos. */
+export function appliedDiscountLabel(t: (key: string, params?: Record<string, string | number>) => string, discount: AppliedDiscountDto, birthdayKey: string): string {
+  if (discount.birthday && !discount.code) return t(birthdayKey);
+  const base = t('pub_summary_discount', { code: discount.code });
+  return discount.birthday ? `${base} + ${t(birthdayKey)}` : base;
+}

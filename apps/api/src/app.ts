@@ -25,6 +25,7 @@ import { createNotifier, type Notifier } from './notifier';
 import { loggerOptions } from './logging';
 import { accountRoutes } from './routes/account';
 import { authRoutes } from './routes/auth';
+import { assistantRoutes } from './routes/assistant';
 import { bookingRoutes } from './routes/booking';
 import { bookingConfigRoutes } from './routes/bookingConfig';
 import { cashRoutes } from './routes/cash';
@@ -34,6 +35,7 @@ import { catalogRoutes } from './routes/catalog';
 import { clientRoutes } from './routes/clients';
 import { employeeRoutes } from './routes/employees';
 import { loyaltyRoutes } from './routes/loyalty';
+import { birthdayRoutes } from './routes/birthday';
 import { messagesRoutes } from './routes/messages';
 import { notificationRoutes } from './routes/notifications';
 import { placesRoutes } from './routes/places';
@@ -48,6 +50,7 @@ import { salesRoutes } from './routes/sales';
 import { serviceRecordRoutes } from './routes/serviceRecords';
 import type { RealtimeBus } from './realtime';
 import { adminSubscriptionRoutes, subscriptionRoutes } from './routes/subscriptions';
+import { isAccessBlocked } from './subscriptions';
 import { platformRoutes } from './routes/platform';
 import { webRoutes } from './routes/web';
 import { webhookRoutes } from './routes/webhooks';
@@ -320,6 +323,13 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     if (!row || !row.active || row.businessId !== bid || iat * 1000 + 1000 <= row.changedAt.getTime()) throw new AppError(401, 'unauthorized');
     // Negocio suspendido o dado de baja desde el panel de plataforma: ninguna sesión abierta sigue funcionando.
     if (row.businessAccess !== 'active') throw new AppError(403, 'business_suspended');
+    // Suscripción vencida más allá del período de gracia, sin concesión del fundador vigente: el servidor corta el
+    // acceso (antes solo lo "sugería" la interfaz — ver subscriptionNotice en packages/shared — sin que la API lo
+    // exigiera). Deja siempre disponibles las rutas para consultar la cuenta, ver/pagar/cancelar la suscripción: quien
+    // queda bloqueado tiene que poder arreglarlo sin que nadie del equipo tenga que intervenir por él.
+    const url = request.routeOptions.url ?? '';
+    const exemptFromBilling = url === '/api/me' || url.startsWith('/api/subscription');
+    if (!exemptFromBilling && (await isAccessBlocked(db, bid))) throw new AppError(402, 'subscription_required');
     // Rol y permisos se leen de la base de datos en CADA petición (nunca del token): un cambio del dueño aplica de inmediato.
     request.actor = { id: sub, role: row.role === 'employee' ? 'employee' : 'owner', permissions: normalizePermissions(row.permissions) };
     authorize(request.actor, request.method, request.routeOptions.url ?? '');
@@ -440,12 +450,14 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
       balanceRoutes(scope, ctx);
       serviceRecordRoutes(scope, ctx);
       loyaltyRoutes(scope, ctx);
+      birthdayRoutes(scope, ctx);
       notificationRoutes(scope, ctx);
       employeeRoutes(scope, ctx);
       bookingRoutes(scope, ctx);
       bookingConfigRoutes(scope, ctx);
       placesRoutes(scope, ctx);
       messagesRoutes(scope, ctx);
+      assistantRoutes(scope, ctx);
     },
     { prefix: '/api' },
   );

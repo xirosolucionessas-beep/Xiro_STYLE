@@ -50,6 +50,8 @@ export const saleInputSchema = z.object({
   payments: z.array(salePaymentInputSchema).min(1).max(6),
   /** Pedido de productos de la página pública que se entrega con esta venta (queda "Entregado" en la misma transacción). */
   productOrderId: uuidString.optional(),
+  /** Recompensa de cumpleaños del cliente a canjear en esta venta: el servidor la valida y calcula el descuento (se suma a `discount`). */
+  birthdayRewardId: uuidString.optional(),
 });
 export type SaleInput = z.input<typeof saleInputSchema>;
 

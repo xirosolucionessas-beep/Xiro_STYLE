@@ -61,8 +61,10 @@ export function StepAccount({ draft, secrets, errors, onChange, onSecrets, onOpe
 
       <Label>{t('business_type')}</Label>
       <View style={{ marginBottom: 14 }}>
+        {/* Solo Barbería es seleccionable en el registro por ahora; el resto de BUSINESS_TYPES sigue intacto
+           (negocios existentes, catálogo, settings, etc.) — se ocultan únicamente estos botones. */}
         <ChipRow label={t('business_type')}>
-          {BUSINESS_TYPES.map((type) => (
+          {BUSINESS_TYPES.filter((type) => type === 'barbershop').map((type) => (
             <Chip key={type} label={t(`type_${type}`)} selected={draft.businessType === type} onPress={() => onChange({ businessType: type })} />
           ))}
         </ChipRow>

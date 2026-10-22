@@ -15,9 +15,11 @@ interface ButtonProps {
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
   compact?: boolean;
+  /** Texto para el lector de pantalla cuando la etiqueta visible sola es ambigua (p. ej. "Ver más" de quién). */
+  accessibilityLabel?: string;
 }
 
-export function Button({ label, onPress, variant = 'primary', icon, loading, disabled, style, compact }: ButtonProps) {
+export function Button({ label, onPress, variant = 'primary', icon, loading, disabled, style, compact, accessibilityLabel }: ButtonProps) {
   const { colors } = useSettings();
   const inactive = disabled || loading;
   const palette = {
@@ -31,6 +33,7 @@ export function Button({ label, onPress, variant = 'primary', icon, loading, dis
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled: !!inactive, busy: !!loading }}
       onPress={inactive ? undefined : onPress}
       style={({ pressed }) => [

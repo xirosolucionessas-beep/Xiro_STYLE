@@ -1,9 +1,10 @@
 import { formatMoney, type BalanceBucket, type BalanceCategorySlice, type BalanceGrouping, type Currency } from '@xiro/shared';
-import { useState } from 'react';
-import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Animated, Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Svg, { Circle, G, Line, Path, Polyline, Rect, Text as SvgText } from 'react-native-svg';
 import { arcPath, bucketLabel, compactMoney, donutSlices, labelIndexes, niceScale } from '@/lib/balance';
 import { useSettings } from '@/lib/settings';
+import { useReduceMotion } from '../AnimatedCharts';
 import { Card } from '../Kit';
 import { AppText } from '../Text';
 import { space } from '../theme';
@@ -31,9 +32,21 @@ interface ChartsProps {
 
 export function BalanceCharts({ grouping, buckets, breakdown, currency }: ChartsProps) {
   const { t, colors, language } = useSettings();
+  const reduceMotion = useReduceMotion();
   const [lineW, setLineW] = useState(0);
   const [barW, setBarW] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
+  const [fade] = useState(() => new Animated.Value(1));
+  // Clave del conjunto de grupos (cambia al elegir otro periodo, aunque el ancho medido se conserve): al cambiar,
+  // se quita la selección previa (ya no corresponde a estos datos) y se desvanece/aparece el contenido en vez de
+  // que las gráficas salten de golpe al nuevo rango.
+  const bucketsKey = buckets.map((b) => b.key).join(',');
+  useEffect(() => {
+    setSelected(null);
+    if (reduceMotion) return;
+    fade.setValue(0.35);
+    Animated.timing(fade, { toValue: 1, duration: 320, useNativeDriver: false }).start();
+  }, [bucketsKey, fade, reduceMotion]);
   const measure = (set: (w: number) => void) => (e: LayoutChangeEvent) => set(Math.round(e.nativeEvent.layout.width));
   const money = (amount: number) => formatMoney(amount, currency);
   const empty = buckets.every((b) => b.income === 0 && b.expenses === 0);
@@ -198,7 +211,7 @@ export function BalanceCharts({ grouping, buckets, breakdown, currency }: Charts
   );
 
   return (
-    <View style={styles.wrap}>
+    <Animated.View style={[styles.wrap, { opacity: fade }]}>
       <View style={styles.grid}>
         <Card style={styles.card}>
           <AppText variant="heading">{t('bal_chart_net')}</AppText>
@@ -234,7 +247,7 @@ export function BalanceCharts({ grouping, buckets, breakdown, currency }: Charts
         <AppText variant="heading">{t('bal_chart_donut')}</AppText>
         {donut()}
       </Card>
-    </View>
+    </Animated.View>
   );
 }
 

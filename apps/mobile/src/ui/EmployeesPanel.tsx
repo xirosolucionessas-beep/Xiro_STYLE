@@ -4,10 +4,10 @@ import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/lib/api';
-import { ACTION_LABELS, isRequiredByAnother, togglePermission, validateEmployeeForm, type EmployeeFormErrors } from '@/lib/employeesLogic';
+import { ACTION_LABELS, isRequiredByAnother, quotaView, togglePermission, validateEmployeeForm, type EmployeeFormErrors } from '@/lib/employeesLogic';
 import { apiErrors } from '@/lib/forms';
 import { pickFromLibrary, uploadableImage } from '@/lib/images';
-import { keys, useAuditLogs, useEmployees } from '@/lib/queries';
+import { keys, useAuditLogs, useEmployeeQuota, useEmployees } from '@/lib/queries';
 import { useSettings } from '@/lib/settings';
 import { Button } from './Button';
 import { CheckRow } from './CheckRow';
@@ -29,6 +29,8 @@ export function EmployeesPanel() {
   const queryClient = useQueryClient();
   const employees = useEmployees();
   const logs = useAuditLogs();
+  const quotaQuery = useEmployeeQuota();
+  const quota = quotaQuery.data ? quotaView(t, quotaQuery.data) : null;
   const [tab, setTab] = useState<Tab>('team');
   const [form, setForm] = useState<{ employee?: Employee } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -59,7 +61,17 @@ export function EmployeesPanel() {
 
       {tab === 'team' ? (
         <View style={styles.list}>
-          <Button label={t('emp_new_cta')} icon="add" onPress={() => setForm({})} />
+          {quota ? (
+            <Card>
+              <AppText variant="bodyStrong" accessibilityRole="header">
+                {quota.title}
+              </AppText>
+              <AppText variant="small" tone={quota.full ? 'danger' : 'muted'}>
+                {quota.detail}
+              </AppText>
+            </Card>
+          ) : null}
+          <Button label={t('emp_new_cta')} icon="add" onPress={() => setForm({})} disabled={quota?.full ?? false} />
           {error ? (
             <AppText tone="danger" accessibilityLiveRegion="polite">
               {error}
@@ -87,7 +99,7 @@ export function EmployeesPanel() {
               </AppText>
               <View style={styles.actions}>
                 <Button label={t('edit')} variant="secondary" compact onPress={() => setForm({ employee })} />
-                <Button label={employee.active ? t('emp_deactivate') : t('emp_reactivate')} variant="ghost" compact loading={busyId === employee.id} onPress={() => void toggleActive(employee)} />
+                <Button label={employee.active ? t('emp_deactivate') : t('emp_reactivate')} variant="ghost" compact loading={busyId === employee.id} disabled={!employee.active && (quota?.full ?? false)} onPress={() => void toggleActive(employee)} />
               </View>
             </Card>
           ))}
