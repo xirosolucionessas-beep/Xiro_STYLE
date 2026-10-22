@@ -200,6 +200,24 @@ export default function SubscriptionScreen() {
       <AppText tone="muted" variant="small" style={styles.legal}>
         {t('subscription_auto_renew_notice', { store: STORE_NAME })}
       </AppText>
+      {/* Exigido por la revisión de Apple (guía 3.1.2): enlaces a Términos y Privacidad visibles en la propia
+          pantalla de compra, no solo en el registro. Misma pantalla /terms para ambos (ver su propio comentario:
+          terms_body ya cubre los dos temas), igual que el resto de la app nativa. */}
+      <View style={styles.legalLinks}>
+        <Pressable accessibilityRole="link" onPress={() => router.push('/terms')} style={styles.legalLink}>
+          <AppText tone="gold" variant="small">
+            {t('terms_link')}
+          </AppText>
+        </Pressable>
+        <AppText tone="muted" variant="small">
+          ·
+        </AppText>
+        <Pressable accessibilityRole="link" onPress={() => router.push('/terms')} style={styles.legalLink}>
+          <AppText tone="gold" variant="small">
+            {t('cookies_privacy')}
+          </AppText>
+        </Pressable>
+      </View>
       <PlanCelebration
         open={celebrateInfo !== null}
         onClose={() => {
@@ -225,4 +243,6 @@ const styles = StyleSheet.create({
   trialLine: { marginBottom: space.lg },
   restore: { alignSelf: 'center', minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.lg, marginTop: space.sm },
   legal: { marginTop: space.xl, textAlign: 'center' },
+  legalLinks: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, marginTop: space.sm },
+  legalLink: { minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xs },
 });

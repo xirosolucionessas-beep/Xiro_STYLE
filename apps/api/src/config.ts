@@ -92,21 +92,43 @@ export interface PlatformConfig {
   stepUpMinutes: number;
   /** SOLO desarrollo local: entrar al panel sin código TOTP. La API se niega a arrancar con esto en producción. */
   devSkipTotp: boolean;
+  /** SOLO desarrollo local: además del código TOTP real, también vale "123456". La API se niega a arrancar con
+   * esto en producción (igual que `devSkipTotp`); a diferencia de antes, esto ya no depende solo de NODE_ENV: hay
+   * que activarlo explícitamente, para que ningún análisis estático o build accidental lo deje habilitado. */
+  devMasterTotp: boolean;
 }
 
-export interface NotificationsConfig {
-  /**
-   * Proveedor de los mensajes al usuario (códigos de verificación, recordatorios). `console` solo los escribe en el log:
-   * vale para desarrollo, NUNCA para producción (la API no arranca así: imprimiría códigos de verificación en los logs).
-   */
-  provider: NotifierProvider;
-  /** Par de claves VAPID para Web Push (genéralas una vez con `npx web-push generate-vapid-keys` y no las cambies:
-   * cambiar la clave pública invalida todas las suscripciones ya guardadas). Sin esto, el push en la Web queda apagado. */
+/** Par de claves VAPID para Web Push (genéralas una vez con `npx web-push generate-vapid-keys` y no las cambies:
+ * cambiar la clave pública invalida todas las suscripciones ya guardadas). Sin esto, el push en la Web queda apagado. */
+export interface VapidConfig {
   vapidPublicKey: string | null;
   vapidPrivateKey: string | null;
   /** Contacto "mailto:" exigido por el protocolo Web Push (para que el proveedor del navegador pueda escribirte si abusas del envío). */
   vapidSubject: string | null;
 }
+
+/**
+ * Proveedor de los mensajes al usuario (códigos de verificación, recordatorios de cita, lista de espera, reseñas).
+ * `console` solo los escribe en el log: vale para desarrollo, NUNCA para producción (la API no arranca así:
+ * imprimiría códigos de verificación en los logs). Con un proveedor real, cada variante trae las credenciales que
+ * ese proveedor necesita (validadas en `loadConfig`: sin ellas, la API no arranca en vez de fallar en silencio al
+ * primer envío — ver notifier.ts `createNotifier`).
+ */
+export type NotificationsConfig = VapidConfig &
+  (
+    | { provider: 'console' }
+    | { provider: 'resend'; resendApiKey: string; notifierFromEmail: string }
+    | { provider: 'twilio'; twilioAccountSid: string; twilioAuthToken: string; twilioWhatsappFrom: string; twilioSmsFrom: string }
+    | {
+        provider: 'resend+twilio';
+        resendApiKey: string;
+        notifierFromEmail: string;
+        twilioAccountSid: string;
+        twilioAuthToken: string;
+        twilioWhatsappFrom: string;
+        twilioSmsFrom: string;
+      }
+  );
 
 export interface BookingConfig {
   /** Peticiones por minuto a la página pública de UN negocio (todas las IP juntas): frena el abuso dirigido a un solo negocio. */
@@ -141,8 +163,9 @@ export interface ObservabilityConfig {
   keepAliveTimeoutMs: number;
 }
 
-/** Proveedores disponibles. Los reales (Resend, WhatsApp Cloud API…) se agregan aquí cuando haya cuentas. */
-export const NOTIFIER_PROVIDERS = ['console'] as const;
+/** Proveedores disponibles: `resend` (correo), `twilio` (sms + whatsapp, una sola cuenta cubre los dos canales de
+ * teléfono de RECOVERY_CHANNELS) o ambos a la vez (`resend+twilio`). */
+export const NOTIFIER_PROVIDERS = ['console', 'resend', 'twilio', 'resend+twilio'] as const;
 export type NotifierProvider = (typeof NOTIFIER_PROVIDERS)[number];
 
 export interface Config {
@@ -273,6 +296,12 @@ const envSchema = z.object({
   BANK_TRANSFER_INSTRUCTIONS: z.string().optional(),
   ADMIN_SECRET: z.string().optional(),
   NOTIFIER_PROVIDER: z.enum(NOTIFIER_PROVIDERS).default('console'),
+  RESEND_API_KEY: z.string().optional(),
+  NOTIFIER_FROM_EMAIL: z.string().email().default('no-reply@xirostyle.com'),
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_WHATSAPP_FROM: z.string().optional(),
+  TWILIO_SMS_FROM: z.string().optional(),
   /** IPs (separadas por coma) desde las que se aceptan las rutas /api/admin; vacío = cualquiera (con secreto y límite estricto). */
   ADMIN_ALLOWED_IPS: z.string().optional(),
   PLATFORM_ADMIN_KEY: z.string().optional(),
@@ -281,10 +310,13 @@ const envSchema = z.object({
   PLATFORM_IDLE_MINUTES: int('PLATFORM_IDLE_MINUTES', 30, 5, 240),
   PLATFORM_STEP_UP_MINUTES: int('PLATFORM_STEP_UP_MINUTES', 5, 1, 30),
   PLATFORM_DEV_SKIP_TOTP: z.enum(['true', 'false']).optional(),
+  PLATFORM_DEV_TOTP_MOCK: z.enum(['true', 'false']).optional(),
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().optional(),
 });
+
+type Env = z.infer<typeof envSchema>;
 
 function parseTrustProxy(value: string | undefined): boolean | number {
   if (!value || value === 'false') return false;
@@ -323,6 +355,31 @@ export function assertStartupReady(config: Config): void {
   }
 }
 
+/** Arma `NotificationsConfig` según `NOTIFIER_PROVIDER`, exigiendo (fail-closed) las credenciales que ese proveedor
+ * necesita: sin ellas, `loadConfig` lanza aquí mismo en vez de que `notifier.ts` falle en silencio al primer envío. */
+function buildNotificationsConfig(e: Env): NotificationsConfig {
+  const vapid: VapidConfig = { vapidPublicKey: e.VAPID_PUBLIC_KEY ?? null, vapidPrivateKey: e.VAPID_PRIVATE_KEY ?? null, vapidSubject: e.VAPID_SUBJECT ?? null };
+  const resend = () => {
+    if (!e.RESEND_API_KEY) throw new Error('NOTIFIER_PROVIDER incluye Resend pero falta RESEND_API_KEY.');
+    return { resendApiKey: e.RESEND_API_KEY, notifierFromEmail: e.NOTIFIER_FROM_EMAIL };
+  };
+  const twilio = () => {
+    const missing = (['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM', 'TWILIO_SMS_FROM'] as const).filter((key) => !e[key]);
+    if (missing.length > 0) throw new Error(`NOTIFIER_PROVIDER incluye Twilio pero faltan: ${missing.join(', ')}.`);
+    return { twilioAccountSid: e.TWILIO_ACCOUNT_SID!, twilioAuthToken: e.TWILIO_AUTH_TOKEN!, twilioWhatsappFrom: e.TWILIO_WHATSAPP_FROM!, twilioSmsFrom: e.TWILIO_SMS_FROM! };
+  };
+  switch (e.NOTIFIER_PROVIDER) {
+    case 'console':
+      return { provider: 'console', ...vapid };
+    case 'resend':
+      return { provider: 'resend', ...resend(), ...vapid };
+    case 'twilio':
+      return { provider: 'twilio', ...twilio(), ...vapid };
+    case 'resend+twilio':
+      return { provider: 'resend+twilio', ...resend(), ...twilio(), ...vapid };
+  }
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
@@ -338,6 +395,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   if (production && e.EXPOSE_DEV_OTP === 'true') throw new Error('EXPOSE_DEV_OTP no puede activarse en producción.');
   if (production && e.PLATFORM_DEV_SKIP_TOTP === 'true') throw new Error('PLATFORM_DEV_SKIP_TOTP no puede activarse en producción.');
+  if (production && e.PLATFORM_DEV_TOTP_MOCK === 'true') throw new Error('PLATFORM_DEV_TOTP_MOCK no puede activarse en producción.');
   if (production && e.RATE_LIMIT === 'off') throw new Error('RATE_LIMIT=off no puede usarse en producción.');
   if (production && !e.DATABASE_URL) throw new Error('DATABASE_URL es obligatoria en producción (postgres://usuario:clave@host:5432/base).');
 
@@ -455,6 +513,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       idleMinutes: e.PLATFORM_IDLE_MINUTES,
       stepUpMinutes: e.PLATFORM_STEP_UP_MINUTES,
       devSkipTotp: e.PLATFORM_DEV_SKIP_TOTP === 'true',
+      devMasterTotp: e.PLATFORM_DEV_TOTP_MOCK === 'true',
     },
     booking: {
       publicPerMinutePerBusiness: e.BOOKING_PUBLIC_PER_MIN_BUSINESS,
@@ -463,11 +522,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       googleServerKey: e.GOOGLE_MAPS_SERVER_KEY || null,
       googleBrowserKey: e.GOOGLE_MAPS_BROWSER_KEY || null,
     },
-    notifications: {
-      provider: e.NOTIFIER_PROVIDER,
-      vapidPublicKey: e.VAPID_PUBLIC_KEY ?? null,
-      vapidPrivateKey: e.VAPID_PRIVATE_KEY ?? null,
-      vapidSubject: e.VAPID_SUBJECT ?? null,
-    },
+    notifications: buildNotificationsConfig(e),
   };
 }

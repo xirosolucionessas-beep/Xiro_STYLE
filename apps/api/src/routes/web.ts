@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Ctx } from '../context';
@@ -12,7 +11,8 @@ import { isUuid } from '../errors';
 import { loadItems } from '../serializers';
 import { MEDIA_NAME } from '../storage';
 
-const catalogDir = fileURLToPath(new URL('../../public/catalog/', import.meta.url));
+// Relativo al directorio de trabajo del proceso (apps/api/), no a este archivo: ver la misma nota en db/migrate.ts.
+const catalogDir = path.join(process.cwd(), 'public/catalog/');
 
 const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);

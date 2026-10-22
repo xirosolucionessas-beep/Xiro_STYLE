@@ -59,6 +59,27 @@ RUN npm ci --workspace @xiro/api --workspace @xiro/shared --include-workspace-ro
 # Las que npm no puede subir a la raíz quedan dentro de cada paquete: se garantiza que existan para copiarlas.
 RUN mkdir -p apps/api/node_modules packages/shared/node_modules
 
+# ---------- 3b. Compilado de la API (esbuild) ----------
+# dist/server.js corre con "node" liso en producción: sin tsx (compilador JIT de TypeScript) ni el código fuente
+# crudo en la imagen final. --packages=external deja TODAS las dependencias de npm (incluida @node-rs/argon2 y sharp,
+# que traen binarios nativos) tal cual en node_modules; solo se agrupa el código propio (src/ + packages/shared/src),
+# que es donde vivían los imports relativos sin extensión (válidos para tsx/el bundler, no para "node" con módulos
+# ESM planos). dist/worker.js es el hilo de exportaciones (ver src/exports/pool.ts): entrypoint aparte porque
+# worker_threads necesita un archivo cargable por su cuenta, no algo inlineado dentro de server.js.
+FROM ${NODE_IMAGE} AS api-build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/api/package.json apps/api/
+COPY apps/mobile/package.json apps/mobile/
+COPY apps/public/package.json apps/public/
+RUN npm ci --workspace @xiro/api --workspace @xiro/shared --include-workspace-root=false --no-audit --no-fund
+COPY tsconfig.json ./
+COPY packages/shared/src packages/shared/src
+COPY apps/api/src apps/api/src
+COPY apps/api/scripts/build.mjs apps/api/scripts/build.mjs
+RUN npm run build --workspace @xiro/api
+
 # ---------- 4. Imagen final ----------
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production \
@@ -72,13 +93,14 @@ COPY --from=api-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=api-deps --chown=node:node /app/package.json ./package.json
 COPY --from=api-deps --chown=node:node /app/apps/api/node_modules apps/api/node_modules
 COPY --from=api-deps --chown=node:node /app/packages/shared/node_modules packages/shared/node_modules
-COPY --chown=node:node packages/shared/package.json packages/shared/package.json
-COPY --chown=node:node packages/shared/src packages/shared/src
-COPY --chown=node:node apps/api/package.json apps/api/tsconfig.json apps/api/
-COPY --chown=node:node apps/api/src apps/api/src
+# apps/api/package.json: SOLO para que Node sepa que dist/server.js es ESM ("type":"module"); ya no se lee nada más
+# de él en runtime. Ni packages/shared/src ni apps/api/src van en esta imagen: @xiro/shared y todo el código propio
+# quedaron agrupados DENTRO de dist/*.js en la etapa "api-build" (ver scripts/build.mjs) — el resto de node_modules
+# de arriba son las dependencias de npm reales (externas al empaquetado: sharp, @node-rs/argon2, fastify…).
+COPY --chown=node:node apps/api/package.json apps/api/package.json
+COPY --from=api-build --chown=node:node /app/apps/api/dist apps/api/dist
 COPY --chown=node:node apps/api/drizzle apps/api/drizzle
 COPY --chown=node:node apps/api/public apps/api/public
-COPY --chown=node:node apps/api/scripts apps/api/scripts
 COPY --from=web-build --chown=node:node /app/apps/mobile/dist apps/mobile/dist
 COPY --from=public-build --chown=node:node /app/apps/public/dist apps/public/dist
 # Única carpeta escribible (imágenes en modo local; en producción van a S3/R2).
@@ -90,4 +112,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 # Node como PID 1 atiende SIGTERM (server.ts cierra ordenadamente). `--init` en `docker run` agrega un init mínimo si se quiere.
-CMD ["node", "--import", "tsx", "src/server.ts"]
+# dist/server.js: empaquetado en la etapa "api-build" (sin tsx ni TypeScript crudo en esta imagen — ver scripts/build.mjs).
+CMD ["node", "dist/server.js"]

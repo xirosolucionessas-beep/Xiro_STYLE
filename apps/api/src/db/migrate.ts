@@ -1,9 +1,11 @@
-import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import type { DatabaseHandle } from './client';
 
-export const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../drizzle', import.meta.url));
+/** Relativo al directorio de trabajo del proceso (apps/api/), no a este archivo: así vale igual corriendo desde
+ * src/ (tsx, desarrollo/pruebas) que desde el empaquetado de producción (dist/server.js, otra profundidad). */
+export const MIGRATIONS_FOLDER = path.join(process.cwd(), 'drizzle');
 const LOCK_KEY = 7_262_026; // clave arbitraria y estable del advisory lock de migraciones
 
 /**

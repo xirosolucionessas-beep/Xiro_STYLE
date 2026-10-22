@@ -7,9 +7,11 @@ import { totpCode, totpStep } from '../src/platform/crypto';
 import { createTestDatabase, testAppConfig, type TestDatabase } from './helpers/db';
 
 /**
- * Código TOTP maestro "123456" para /platform/auth/login: SOLO fuera de producción (facilita probar el panel en
- * local sin tener la app autenticadora a mano). En producción, el formato de 6 dígitos lo sigue exigiendo el esquema
- * de siempre, pero el valor "123456" en sí nunca vale si no es el código real de la cuenta.
+ * Código TOTP maestro "123456" para /platform/auth/login: SOLO fuera de producción Y con PLATFORM_DEV_TOTP_MOCK=true
+ * (facilita probar el panel en local sin tener la app autenticadora a mano, sin dejarlo habilitado por defecto con
+ * solo NODE_ENV !== 'production'). En producción, loadConfig rechaza PLATFORM_DEV_TOTP_MOCK=true de entrada; el
+ * formato de 6 dígitos lo sigue exigiendo el esquema de siempre, pero el valor "123456" en sí nunca vale si no es
+ * el código real de la cuenta.
  */
 const ADMIN_KEY = 'clave-de-prueba-para-el-totp-maestro-0123456789';
 let testDb: TestDatabase;
@@ -25,12 +27,12 @@ async function makeAdmin() {
   return createAdmin(testDb.db, ADMIN_KEY, { email: `admin-${Date.now()}-${Math.random()}@xiro.test`, name: 'Admin de prueba', founder: true });
 }
 
-describe('fuera de producción: "123456" siempre entra, sea o no el código real', () => {
+describe('fuera de producción CON PLATFORM_DEV_TOTP_MOCK=true: "123456" siempre entra, sea o no el código real', () => {
   let app: FastifyInstance;
   let cleanupConfig: () => void;
 
   beforeAll(async () => {
-    const { config, cleanup } = testAppConfig({ platform: { adminKey: ADMIN_KEY } });
+    const { config, cleanup } = testAppConfig({ platform: { adminKey: ADMIN_KEY, devMasterTotp: true } });
     cleanupConfig = cleanup;
     app = await buildApp({ db: testDb.db, config }); // testAppConfig no fija production: hereda NODE_ENV=test → production=false
   });
@@ -65,6 +67,33 @@ describe('fuera de producción: "123456" siempre entra, sea o no el código real
   });
 });
 
+describe('fuera de producción pero SIN PLATFORM_DEV_TOTP_MOCK: "123456" ya no entra (antes bastaba con no estar en producción)', () => {
+  let app: FastifyInstance;
+  let cleanupConfig: () => void;
+
+  beforeAll(async () => {
+    const { config, cleanup } = testAppConfig({ platform: { adminKey: ADMIN_KEY, devMasterTotp: false } });
+    cleanupConfig = cleanup;
+    app = await buildApp({ db: testDb.db, config });
+  });
+  afterAll(async () => {
+    await app.close();
+    cleanupConfig();
+  });
+
+  it('"123456" se rechaza igual que cualquier código inventado', async () => {
+    const enrollment = await makeAdmin();
+    const res = await app.inject({ method: 'POST', url: '/api/platform/auth/login', payload: { email: enrollment.email, password: enrollment.password, totp: '123456' } });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('el código real de la cuenta sigue siendo el único camino', async () => {
+    const enrollment = await makeAdmin();
+    const res = await app.inject({ method: 'POST', url: '/api/platform/auth/login', payload: { email: enrollment.email, password: enrollment.password, totp: totpCode(enrollment.totpSecret, totpStep()) } });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
 describe('en producción: el código maestro nunca vale', () => {
   let app: FastifyInstance;
   let cleanupConfig: () => void;
@@ -89,5 +118,26 @@ describe('en producción: el código maestro nunca vale', () => {
     const enrollment = await makeAdmin();
     const res = await app.inject({ method: 'POST', url: '/api/platform/auth/login', payload: { email: enrollment.email, password: enrollment.password, totp: totpCode(enrollment.totpSecret, totpStep()) } });
     expect(res.statusCode).toBe(200);
+  });
+});
+
+describe('defensa en profundidad: aunque devMasterTotp quedara en true en un Config construido a mano (saltándose loadConfig), production=true lo sigue bloqueando', () => {
+  let app: FastifyInstance;
+  let cleanupConfig: () => void;
+
+  beforeAll(async () => {
+    const { config, cleanup } = testAppConfig({ platform: { adminKey: ADMIN_KEY, devMasterTotp: true }, production: true });
+    cleanupConfig = cleanup;
+    app = await buildApp({ db: testDb.db, config });
+  });
+  afterAll(async () => {
+    await app.close();
+    cleanupConfig();
+  });
+
+  it('"123456" se rechaza: la ruta vuelve a comprobar config.production, no confía solo en el flag', async () => {
+    const enrollment = await makeAdmin();
+    const res = await app.inject({ method: 'POST', url: '/api/platform/auth/login', payload: { email: enrollment.email, password: enrollment.password, totp: '123456' } });
+    expect(res.statusCode).toBe(401);
   });
 });

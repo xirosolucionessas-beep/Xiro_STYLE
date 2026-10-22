@@ -93,12 +93,29 @@ docker run --env-file .env.production -e RELEASE=$(git rev-parse --short HEAD) -
 2. **Respaldo** antes de migrar (§5) si el despliegue trae migraciones nuevas (`apps/api/drizzle/`).
 3. **Migraciones** como paso único (un solo proceso, con candado: es seguro aunque se lance dos veces):
    ```bash
-   docker run --rm --env-file .env.production xiro-api:<tag> node --import tsx src/db/migrate-cli.ts
+   docker run --rm --env-file .env.production xiro-api:<tag> node dist/migrate-cli.js
    ```
    Cada migración tiene su reversión manual en `apps/api/drizzle/rollback/` cuando aplica.
    - **0036** (índices del balance) usa `CREATE INDEX`, que bloquea las escrituras de `service_records` y `sales` mientras
      se construye (segundos en tablas grandes). Aplícala en un horario de poco uso, o crea antes los índices con
-     `CREATE INDEX CONCURRENTLY` (mismos nombres; el `IF NOT EXISTS` de la migración los deja tal cual).
+     `CREATE INDEX CONCURRENTLY` (mismos nombres; el `IF NOT EXISTS` de la migración los deja tal cual) — conéctate
+     directo a PostgreSQL (nunca a través de un pooler en modo transacción: `CONCURRENTLY` necesita su propia sesión,
+     sin transacción envolvente) y ejecuta cada `CREATE INDEX` como una sentencia suelta, no dentro de un `BEGIN`:
+     ```sql
+     CREATE INDEX CONCURRENTLY IF NOT EXISTS "service_records_balance_idx" ON "service_records"
+       USING btree ("business_id", "created_at") INCLUDE ("amount", "kind") WHERE "voided" = false;
+
+     CREATE INDEX CONCURRENTLY IF NOT EXISTS "sales_balance_idx" ON "sales"
+       USING btree ("business_id", "created_at") INCLUDE ("discount", "tip") WHERE "status" = 'completed';
+     ```
+     Verifica que los dos quedaron válidos antes de desplegar la migración (un `CONCURRENTLY` interrumpido deja un
+     índice `INVALID`, inválido pero presente — la migración 0036 fallaría con "ya existe" al toparse con él):
+     ```sql
+     SELECT indexrelid::regclass, indisvalid FROM pg_index
+       WHERE indexrelid IN ('service_records_balance_idx'::regclass, 'sales_balance_idx'::regclass);
+     ```
+     Si alguno sale `indisvalid = false`, bórralo (`DROP INDEX CONCURRENTLY "<nombre>"`) y repite su `CREATE INDEX
+     CONCURRENTLY` antes de aplicar la migración 0036 (que entonces solo confirma que ya existen, sin bloquear nada).
    - Las migraciones solo pueden usar caracteres de Windows-1252 (`test/migrationFiles.test.ts`): un "→" en un comentario
      hizo fallar una.
 4. Desplegar la nueva imagen (rolling: el balanceador solo manda tráfico a instancias con readiness en 200).

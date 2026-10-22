@@ -73,11 +73,14 @@ export function platformRoutes(app: FastifyInstance, ctx: Ctx, deps: PlatformRou
   if (skipTotp) app.log.warn('PLATFORM_DEV_SKIP_TOTP activo: el panel /platform acepta solo correo y contraseña (SOLO desarrollo local)');
   const loginSchema = skipTotp ? platformLoginSchema.extend({ totp: z.string().optional().default('') }) : platformLoginSchema;
 
-  // Código maestro SOLO fuera de producción (config.production viene de NODE_ENV — ver config.ts): facilita probar el
-  // panel en local sin tener la app autenticadora a mano. El formato (6 dígitos) lo sigue exigiendo el esquema igual
+  // Código maestro SOLO con PLATFORM_DEV_TOTP_MOCK=true (loadConfig lo rechaza en producción igual que devSkipTotp —
+  // ver config.ts): facilita probar el panel en local sin tener la app autenticadora a mano. Ya no basta con
+  // NODE_ENV !== 'production' para habilitarlo: hay que activarlo a propósito, para que ningún análisis estático o
+  // build accidental deje esta vía de acceso abierta. El formato (6 dígitos) lo sigue exigiendo el esquema igual
   // que siempre; esto solo añade UN código más que también vale, nunca relaja nada en producción.
   const DEV_MASTER_TOTP = '123456';
-  if (!config.production) app.log.warn(`Código TOTP maestro "${DEV_MASTER_TOTP}" habilitado para /platform (NODE_ENV !== 'production', SOLO desarrollo local)`);
+  const devMasterTotp = config.platform.devMasterTotp;
+  if (devMasterTotp) app.log.warn(`Código TOTP maestro "${DEV_MASTER_TOTP}" habilitado para /platform (PLATFORM_DEV_TOTP_MOCK=true, SOLO desarrollo local)`);
 
   /** Valida contraseña y código TOTP; devuelve el administrador solo si TODO es correcto (mismo error en cualquier fallo). */
   async function verifyCredentials(email: string, password: string, totp: string) {
@@ -86,7 +89,10 @@ export function platformRoutes(app: FastifyInstance, ctx: Ctx, deps: PlatformRou
     const passwordOk = await verifyPassword(password, admin?.passwordHash ?? DUMMY_HASH);
     if (!admin || !passwordOk || !admin.active) return { admin: admin ?? null, ok: false as const };
     if (skipTotp) return { admin, ok: true as boolean };
-    if (!config.production && totp === DEV_MASTER_TOTP) return { admin, ok: true as boolean };
+    // Las dos condiciones, no solo una: aunque loadConfig ya rechaza PLATFORM_DEV_TOTP_MOCK=true en producción (config.ts),
+    // esta comprobación directa de config.production es una segunda barrera independiente (defensa en profundidad)
+    // por si algún día un Config se construyera a mano sin pasar por loadConfig (p. ej. en una prueba).
+    if (!config.production && devMasterTotp && totp === DEV_MASTER_TOTP) return { admin, ok: true as boolean };
     const step = verifyTotp(decryptSecret(adminKey, admin.totpSecretEnc), totp, admin.totpLastStep);
     if (step === null) return { admin, ok: false as const };
     // Consumo ATÓMICO del paso TOTP: dos inicios de sesión simultáneos con el mismo código, solo uno gana.

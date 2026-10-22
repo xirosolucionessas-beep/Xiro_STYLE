@@ -29,9 +29,21 @@ interface Slot {
 
 type Pending = { resolve: (bytes: Buffer) => void; reject: (error: unknown) => void };
 
-/** Los hilos necesitan el cargador de TypeScript (tsx) igual que el proceso principal. */
+/**
+ * __BUNDLED__ lo define esbuild en tiempo de compilación (ver apps/api/package.json → "build" y Dockerfile): true
+ * SOLO en dist/server.js, el empaquetado de producción, donde worker.ts ya es worker.js plano y no existe tsx en
+ * la imagen. En desarrollo/pruebas (tsx watch, vitest) queda en false y el hilo sigue necesitando el cargador de
+ * TypeScript (tsx), igual que el proceso principal.
+ */
+declare const __BUNDLED__: boolean;
+
 function workerExecArgv(): string[] {
+  if (typeof __BUNDLED__ !== 'undefined' && __BUNDLED__) return process.execArgv;
   return process.execArgv.some((arg) => arg.includes('tsx')) ? process.execArgv : [...process.execArgv, '--import', 'tsx'];
+}
+
+function workerUrl(): URL {
+  return typeof __BUNDLED__ !== 'undefined' && __BUNDLED__ ? new URL('./worker.js', import.meta.url) : new URL('./worker.ts', import.meta.url);
 }
 
 export class ExportPool {
@@ -70,7 +82,7 @@ export class ExportPool {
   private slot(): Slot {
     const free = this.slots.find((s) => !s.busy);
     if (free) return free;
-    const slot: Slot = { worker: new Worker(new URL('./worker.ts', import.meta.url), { execArgv: workerExecArgv(), resourceLimits: { maxOldGenerationSizeMb: this.options.workerMemoryMb ?? 256 } }), busy: false };
+    const slot: Slot = { worker: new Worker(workerUrl(), { execArgv: workerExecArgv(), resourceLimits: { maxOldGenerationSizeMb: this.options.workerMemoryMb ?? 256 } }), busy: false };
     // Un hilo inactivo no mantiene vivo el proceso (el cierre ordenado no lo espera).
     slot.worker.unref();
     this.slots.push(slot);

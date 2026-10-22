@@ -14,7 +14,7 @@ const tabs: Array<{ name: string; label: 'home' | 'inventory' | 'catalog' | 'cli
   { name: 'inventory', label: 'inventory', icon: 'cube-outline', active: 'cube', requires: ['catalog_view'] },
   { name: 'catalog', label: 'catalog', icon: 'book-outline', active: 'book', requires: ['catalog_view'] },
   { name: 'clients', label: 'clients', icon: 'people-outline', active: 'people', requires: ['clients_view'] },
-  { name: 'more', label: 'more', icon: 'menu-outline', active: 'menu' },
+  { name: 'more', label: 'more', icon: 'settings-outline', active: 'settings' },
 ];
 
 export default function TabsLayout() {
