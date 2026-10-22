@@ -13,8 +13,10 @@
 # Corre como el usuario sin privilegios `node` (uid 1000), nunca como root.
 #
 # Debian slim (glibc), no Alpine: sharp y @node-rs/argon2 traen binarios precompilados para glibc.
-# En producción conviene fijar la imagen base por digest (node:24-bookworm-slim@sha256:…) y actualizarla a propósito.
-ARG NODE_IMAGE=node:24-bookworm-slim
+# Fijada por versión y digest (no una etiqueta flotante): actualizar ambos a propósito, nunca solo el tag, para que un
+# `docker build` repetido no cambie de runtime sin que alguien lo decida. Versión alineada con el aviso oficial de
+# seguridad de Node del 21 oct 2026 (TLS, Brotli OOB write/RCE, CA eMudhra comprometida) — ver https://nodejs.org/en/blog/vulnerability/october-2026-security-releases
+ARG NODE_IMAGE=node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 
 # ---------- 1. Página pública de reservas (Vite) ----------
 FROM ${NODE_IMAGE} AS public-build
