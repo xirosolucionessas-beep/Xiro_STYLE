@@ -8,9 +8,10 @@ const { withAppBuildGradle } = require('@expo/config-plugins');
  * cambio EN CADA prebuild, de forma determinista y revisable en el historial.
  *
  * Nunca lee ni genera el keystore real: eso lo provee el equipo (o EAS: `eas credentials`, más seguro todavía porque
- * ni siquiera toca el disco local) por estas 4 variables de entorno al compilar. Sin ellas, cae al keystore de debug
- * (igual que hoy) PERO con una advertencia clara al compilar: nunca falla en silencio dejando una build sin firma
- * real, pero tampoco bloquea un `expo prebuild`/build local de alguien que aún no tiene las credenciales de subida.
+ * ni siquiera toca el disco local) por estas 4 variables de entorno al compilar. Sin ellas, en una máquina de
+ * desarrollo cae al keystore de debug con una advertencia clara (no bloquea el `prebuild`/build local de alguien que
+ * aún no tiene las credenciales de subida), pero en CI/EAS (que siempre exportan `CI`) falla cerrado: una tubería de
+ * release nunca debe poder publicar un .aab/.apk firmado con la clave de depuración pública sin que nadie lo note.
  *
  *   XIRO_UPLOAD_STORE_FILE      ruta absoluta al archivo .keystore/.jks (nunca dentro del repo)
  *   XIRO_UPLOAD_STORE_PASSWORD
@@ -38,6 +39,8 @@ function withAndroidReleaseSigning(config) {
                 storePassword System.getenv("XIRO_UPLOAD_STORE_PASSWORD")
                 keyAlias System.getenv("XIRO_UPLOAD_KEY_ALIAS")
                 keyPassword System.getenv("XIRO_UPLOAD_KEY_PASSWORD")
+            } else if (System.getenv("CI") != null) {
+                throw new GradleException("XIRO_UPLOAD_STORE_FILE no está definida en un entorno CI/EAS (CI=" + System.getenv("CI") + "): una build 'release' no puede firmarse con la clave de depuración pública. Configura XIRO_UPLOAD_STORE_FILE/STORE_PASSWORD/KEY_ALIAS/KEY_PASSWORD (o 'eas credentials').")
             } else {
                 logger.warn("XIRO_UPLOAD_STORE_FILE no está definida: la build 'release' queda firmada con la clave de depuración (NUNCA publicar así).")
                 storeFile file('debug.keystore')

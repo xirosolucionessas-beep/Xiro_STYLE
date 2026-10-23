@@ -18,6 +18,7 @@ describe('migración 0039 (programa de cumpleaños)', () => {
     expect(await q(`select birth_date from clients where business_id = '${biz.id}'`)).toEqual([{ birth_date: null }]);
     expect(await q(`select count(*)::int as n from birthday_programs`)).toEqual([{ n: 0 }]);
 
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0040_catalog_clients_rls.down.sql'), 'utf8')); // lo posterior a 0039 se revierte antes
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0039_birthday_program.down.sql'), 'utf8'));
     expect((await q(`select column_name from information_schema.columns where table_name = 'clients'`)).map((r) => r.column_name)).not.toContain('birth_date');
     expect(await q(`select table_name from information_schema.tables where table_name like 'birthday_%'`)).toEqual([]);
@@ -36,6 +37,7 @@ describe('migración 0038 (sonido de notificación)', () => {
     await q(`insert into push_tokens (business_id, user_id, platform, token) values ('${biz.id}', '${user.id}', 'expo', 'ExponentPushToken[antes]')`);
     expect(await q(`select custom_sound from push_tokens where token = 'ExponentPushToken[antes]'`)).toEqual([{ custom_sound: false }]);
 
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0040_catalog_clients_rls.down.sql'), 'utf8')); // lo posterior a 0038 se revierte antes
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0039_birthday_program.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0038_notification_sound.down.sql'), 'utf8'));
     expect((await q(`select column_name from information_schema.columns where table_name = 'push_tokens'`)).map((r) => r.column_name)).not.toContain('custom_sound');
@@ -52,6 +54,7 @@ describe('migración 0037 (panel de plataforma)', () => {
     await q(`insert into businesses (name, slug, type, hours) values ('Antes', 'antes-del-panel', 'barbershop', '{}'::jsonb)`);
     expect(await q(`select access_status from businesses where slug = 'antes-del-panel'`)).toEqual([{ access_status: 'active' }]);
 
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0040_catalog_clients_rls.down.sql'), 'utf8')); // lo posterior a 0037 se revierte antes
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0039_birthday_program.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0038_notification_sound.down.sql'), 'utf8')); // lo posterior a 0037 se revierte antes
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0037_platform_admin.down.sql'), 'utf8'));

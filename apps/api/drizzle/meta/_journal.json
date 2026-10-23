@@ -281,6 +281,13 @@
       "when": 1792386006530,
       "tag": "0039_birthday_program",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792724768877,
+      "tag": "0040_catalog_clients_rls",
+      "breakpoints": true
     }
   ]
 }

@@ -190,7 +190,10 @@ describe('migración 0024: reversible y sin cambiar resultados', () => {
     const dataBefore = await counts();
 
     // Las reversiones van en ORDEN INVERSO: el migrador solo aplica lo posterior a la ÚLTIMA migración registrada, así que
-    // para revertir 0024 primero se revierte lo que vino después, de la más nueva a la más vieja (0036 índices del balance, 0035 RLS de registros de servicio, 0034 ajustes de gastos, 0033 finanzas, 0032 opciones de la página, 0031 índices de códigos, 0030 lista de espera, 0029 códigos, 0028 opciones de la Fase 4, 0027 especialidad, 0026 marca, 0025 pedidos).
+    // para revertir 0024 primero se revierte lo que vino después, de la más nueva a la más vieja (0040 RLS de catálogo/clientes,
+    // 0036 índices del balance, 0035 RLS de registros de servicio, 0034 ajustes de gastos, 0033 finanzas, 0032 opciones de la página,
+    // 0031 índices de códigos, 0030 lista de espera, 0029 códigos, 0028 opciones de la Fase 4, 0027 especialidad, 0026 marca, 0025 pedidos).
+    await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0040_catalog_clients_rls.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0039_birthday_program.down.sql'), 'utf8'));
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0038_notification_sound.down.sql'), 'utf8')); // lo posterior a 0037 se revierte antes
     await testDb.pool.query(readFileSync(path.join(__dirname, '../drizzle/rollback/0037_platform_admin.down.sql'), 'utf8'));

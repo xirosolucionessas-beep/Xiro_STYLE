@@ -21,6 +21,10 @@ apps/mobile/ios/
 # Capturas sueltas de pruebas
 undefined/
 
+# Respaldos manuales/puntuales de apps/mobile/android/ (nunca se suben: binarios de Gradle, debug.keystore,
+# rutas absolutas de disco en local.properties).
+apps/android-backup-*/
+
 # Proyecto nativo de Android generado por error en la raíz del monorepo en vez de apps/mobile/android/
 # (y los volcados de una caída de la JVM de Gradle al intentar compilarlo) — ver apps/mobile/android/ arriba.
 /.gradle/
