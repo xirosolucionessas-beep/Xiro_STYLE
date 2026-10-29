@@ -59,6 +59,31 @@ async function seed(businessId: string, clients: number, items: number, tag: str
 
 beforeAll(async () => {
   testDb = await createTestDatabase();
+  // El Postgres embebido de las pruebas arranca con los valores de costo de fábrica (random_page_cost=4, pensado para
+  // disco mecánico de los 90). Con eso, el planificador subestima sistemáticamente el escaneo GIN de confianza
+  // (items_search_trgm_idx) frente a un recorrido completo + filtro, aunque en la realidad el índice sea ~30-40× más
+  // rápido (medido con EXPLAIN ANALYZE: 1-2 ms contra 40-60 ms para el mismo patrón) — confirmado también subiendo el
+  // STATISTICS del índice de expresión a 1000, que SÍ mejora la estimación de filas pero no cambia el costo del plan,
+  // porque el costo de un Seq Scan depende del tamaño de la tabla, no de cuántas filas termine devolviendo.
+  // Cualquier Postgres real de producción corre en SSD/NVMe (nunca en disco mecánico — ver docs/deploy.md), así que
+  // random_page_cost=1.1 (el valor que la propia documentación de PostgreSQL recomienda para SSD) es la estimación de
+  // costo correcta para este entorno, no un parche para forzar un resultado: con ella el planificador elige el índice
+  // de trigramas por sí solo, sin deshabilitar nada (`enable_seqscan`, etc.), exactamente como pasaría en producción.
+  // `ALTER DATABASE ... SET` solo afecta a sesiones NUEVAS, no a la que la ejecuta: no basta, porque createTestDatabase()
+  // ya usó el pool para correr las migraciones, así que al menos una conexión queda abierta (y el pool la reutiliza al
+  // azar) desde ANTES de poder aplicar el ALTER. En vez de depender de ese orden, se fija la sesión con SET (no SET
+  // LOCAL, que sobrevive mientras dure la conexión) en cada conexión física del pool — tantas como poolMax — así da
+  // igual cuál de ellas reutilice una consulta más abajo.
+  await Promise.all(
+    Array.from({ length: testDb.config.poolMax }, async () => {
+      const client = await testDb.pool.connect();
+      try {
+        await client.query('set random_page_cost = 1.1');
+      } finally {
+        client.release();
+      }
+    }),
+  );
   const created = testAppConfig();
   cleanup = created.cleanup;
   app = await buildApp({ db: testDb.db, notifier, config: created.config });
