@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
 import { AppError, parse } from '../errors';
+import type { RealtimeKind } from '../realtime';
 import { consumeSseTicket } from '../sseTickets';
 
 const ticketQuery = z.object({ ticket: z.string().min(10).max(80) });
@@ -29,7 +30,8 @@ export function realtimeRoutes(app: FastifyInstance, ctx: Ctx): void {
     });
     res.write(':ok\n\n');
 
-    const send = () => res.write('event: appointments\ndata: {}\n\n');
+    // `appointments` (lo que la Agenda ya escucha) o `orders` (Pedidos): cada cliente solo atiende los eventos que conoce.
+    const send = (kind: RealtimeKind) => res.write(`event: ${kind}\ndata: {}\n\n`);
     const unsubscribe = ctx.realtime?.onBusiness(businessId, send) ?? (() => undefined);
     // Sin esto, un proxy intermedio (o el propio navegador) corta una conexión que no ve tráfico por un rato.
     const heartbeat = setInterval(() => res.write(':hb\n\n'), 25_000);

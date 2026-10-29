@@ -16,8 +16,9 @@ export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 export async function withBusiness<T>(db: Database, businessId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
   if (!isUuid(businessId)) throw new AppError(500, 'internal_error', 'business scope without a valid id');
   return db.transaction(async (tx) => {
-    await tx.execute(sql`set local role xiro_app`);
-    await tx.execute(sql`select set_config('app.business_id', ${businessId.toLowerCase()}, true)`);
+    // Rol y negocio en UNA sola ida a la base (Fase 5): set_config('role', …, true) es exactamente SET LOCAL ROLE (mismo
+    // GUC, mismas comprobaciones de pertenencia, se revierte al terminar la transacción).
+    await tx.execute(sql`select set_config('role', 'xiro_app', true), set_config('app.business_id', ${businessId.toLowerCase()}, true)`);
     return fn(tx);
   });
 }

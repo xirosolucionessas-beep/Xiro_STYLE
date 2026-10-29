@@ -3,12 +3,15 @@
  * fidelización, ver resumen de la Fase 2). Configuración del programa, progreso por cliente y canjes.
  * Presentación en src/web/screens/Loyalty.tsx.
  */
+import type { BirthdayProgramInput } from '@xiro/shared';
 import { api } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
-import { useInvalidateLoyalty, useItems, useLoyaltyClients, useLoyaltyProgram, useLoyaltyRedemptions } from '@/lib/queries';
+import { errorKey } from '@/lib/api';
+import { flatPages, useBirthdayProgram, useInvalidateBirthdayProgram, useAllItems, useInvalidateLoyalty, useLoyaltyClients, useLoyaltyProgram, useLoyaltyRedemptions, useLoyaltySummary } from '@/lib/queries';
 import { actorOf, meets } from '@/lib/access';
 import { useAuthed } from '@/lib/session';
 import { Header, Screen } from '@/ui/Screen';
+import { BirthdayProgramView } from '@/web/screens/BirthdayProgram';
 import { LoyaltyView } from '@/web/screens/Loyalty';
 import { useWebText } from '@/web/services/useWebText';
 
@@ -17,10 +20,16 @@ export default function LoyaltyWeb() {
   const { user, business } = useAuthed();
   const canRedeem = meets(actorOf(user), ['loyalty_redeem']);
   const program = useLoyaltyProgram();
-  const items = useItems();
+  // Configuración y registro de servicios: catálogo completo. Progreso e historial: paginados; indicadores del servidor.
+  const items = useAllItems();
   const clients = useLoyaltyClients();
+  const summary = useLoyaltySummary();
   const redemptions = useLoyaltyRedemptions(undefined, canRedeem);
   const invalidateLoyalty = useInvalidateLoyalty();
+  // Programa de cumpleaños: solo el dueño lo configura (el servidor lo exige; aquí ni se consulta para empleados).
+  const isOwner = user.role === 'owner';
+  const birthday = useBirthdayProgram(isOwner);
+  const invalidateBirthday = useInvalidateBirthdayProgram();
 
   if (!program.data) return null;
 
@@ -32,6 +41,17 @@ export default function LoyaltyWeb() {
     } catch (error) {
       const result = apiErrors(error, t);
       return { ok: false as const, error: result.fields.goal ?? result.fields.rewardMessage ?? result.general ?? t('unknown_error') };
+    }
+  }
+
+  async function saveBirthday(input: BirthdayProgramInput) {
+    try {
+      await api.updateBirthdayProgram(input);
+      await invalidateBirthday();
+      return { ok: true as const };
+    } catch (error) {
+      const result = apiErrors(error, t);
+      return { ok: false as const, error: result.general ?? Object.values(result.fields)[0] ?? t('unknown_error') };
     }
   }
 
@@ -65,14 +85,18 @@ export default function LoyaltyWeb() {
       businessName={business.name}
       program={program.data}
       items={items.data ?? []}
-      clientsProgress={clients.data ?? []}
-      redemptions={redemptions.data ?? []}
+      clientsProgress={flatPages(clients.data)}
+      redemptions={flatPages(redemptions.data)}
+      summary={summary.data}
+      clientsPagination={{ hasMore: Boolean(clients.hasNextPage), loading: clients.isFetchingNextPage, error: clients.isFetchNextPageError ? t(errorKey(clients.error)) : undefined, onLoadMore: () => void clients.fetchNextPage() }}
+      redemptionsPagination={{ hasMore: Boolean(redemptions.hasNextPage), loading: redemptions.isFetchingNextPage, error: redemptions.isFetchNextPageError ? t(errorKey(redemptions.error)) : undefined, onLoadMore: () => void redemptions.fetchNextPage() }}
       onSaveProgram={saveProgram}
       onRecordService={recordService}
       onRedeem={redeem}
       canConfigure={user.role === 'owner'}
       canRedeem={canRedeem}
     />
+    {isOwner && birthday.data ? <BirthdayProgramView t={t} program={birthday.data} onSave={saveBirthday} /> : null}
     </Screen>
   );
 }

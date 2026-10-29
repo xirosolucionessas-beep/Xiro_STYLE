@@ -1,13 +1,15 @@
 import { eq } from 'drizzle-orm';
+import { z } from 'zod';
 import type { PaymentMethod, SubscriptionPlan, SubscriptionStatus } from '@xiro/shared';
 import { GRACE_PERIOD_DAYS } from '@xiro/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import Stripe from 'stripe';
 import type { Ctx } from '../context';
-import { subscriptions } from '../db/schema';
-import { AppError } from '../errors';
+import { businesses, subscriptions } from '../db/schema';
+import { AppError, isUuid } from '../errors';
 import { verifyPayPalWebhook } from '../paypal';
 import { notifyBusiness } from '../push';
+import { safeEqualSecret } from '../security';
 import { addDays, addPlanInterval, applyProviderEvent, recordProviderEventOnce, recordSubscriptionInvoice, type ProviderPatch } from '../subscriptions';
 
 /**
@@ -28,16 +30,43 @@ function planFromProductId(productId: string): SubscriptionPlan | null {
   return null;
 }
 
-interface RevenueCatEvent {
-  event: {
-    id: string;
-    type: string;
-    app_user_id: string; // = nuestro businessId (así se inicializa el SDK cliente)
-    product_id?: string;
-    store?: 'APP_STORE' | 'PLAY_STORE' | string;
-    expiration_at_ms?: number;
-    purchased_at_ms?: number;
-  };
+/**
+ * Cuerpo del webhook de RevenueCat, validado (antes se usaba tal cual: un campo con otro tipo terminaba en error 500 y
+ * RevenueCat reintentaba sin fin). Los campos que no usamos se conservan (`passthrough`) para el registro de auditoría.
+ */
+const revenueCatSchema = z
+  .object({
+    event: z
+      .object({
+        id: z.string().min(1).max(200),
+        type: z.string().min(1).max(80),
+        app_user_id: z.string().min(1).max(200), // = nuestro businessId (así se inicializa el SDK cliente)
+        product_id: z.string().max(200).nullish(),
+        store: z.string().max(40).nullish(),
+        expiration_at_ms: z.number().int().nonnegative().nullish(),
+        purchased_at_ms: z.number().int().nonnegative().nullish(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
+/** JSON del proveedor: uno malformado es un 400 (no un 500 que el proveedor reintentaría sin fin). */
+function parseJson(raw: unknown): unknown {
+  try {
+    return JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw));
+  } catch {
+    throw new AppError(400, 'invalid_payload');
+  }
+}
+
+/**
+ * El negocio que dice el proveedor existe. Un id que no es nuestro (p. ej. un usuario anónimo de RevenueCat, o datos de
+ * otro entorno) se ignora con 200 en vez de reventar con la llave foránea y provocar reintentos infinitos.
+ */
+async function knownBusiness(ctx: Ctx, id: unknown): Promise<string | null> {
+  if (!isUuid(id)) return null;
+  const [row] = await ctx.db.select({ id: businesses.id }).from(businesses).where(eq(businesses.id, id.toLowerCase())).limit(1);
+  return row?.id ?? null;
 }
 
 /**
@@ -48,12 +77,15 @@ interface RevenueCatEvent {
 async function handleRevenueCat(request: FastifyRequest, ctx: Ctx) {
   const { config, db } = ctx;
   if (!config.subscriptions.revenueCatWebhookAuth) throw new AppError(503, 'revenuecat_not_configured');
-  if (request.headers.authorization !== config.subscriptions.revenueCatWebhookAuth) throw new AppError(401, 'unauthorized');
+  // Comparación en tiempo constante: `!==` deja medir cuántos caracteres del secreto coinciden.
+  if (!safeEqualSecret(request.headers.authorization ?? '', config.subscriptions.revenueCatWebhookAuth)) throw new AppError(401, 'unauthorized');
 
-  const body = request.body as RevenueCatEvent;
-  const event = body?.event;
-  if (!event?.app_user_id || !event.type) throw new AppError(400, 'invalid_payload');
-  const businessId = event.app_user_id;
+  const parsed = revenueCatSchema.safeParse(request.body);
+  if (!parsed.success) throw new AppError(400, 'invalid_payload');
+  const body = parsed.data;
+  const event = body.event;
+  const businessId = await knownBusiness(ctx, event.app_user_id);
+  if (!businessId) return { ok: true, ignored: 'unknown app_user_id' };
   const platform = event.store === 'APP_STORE' ? ('ios' as const) : ('android' as const);
   const plan = event.product_id ? planFromProductId(event.product_id) : null;
   const expiresAt = event.expiration_at_ms ? new Date(event.expiration_at_ms) : undefined;
@@ -80,14 +112,19 @@ async function handleRevenueCat(request: FastifyRequest, ctx: Ctx) {
     default:
       return { ok: true, ignored: event.type }; // p. ej. TRANSFER, TEST — no cambian el estado de acceso
   }
-  const result = await applyProviderEvent(db, businessId, 'revenuecat', event.type, patch, event.id, body);
+  const applied = patch;
+  // Evento, cambio de estado y comprobante en UNA transacción: o queda todo, o nada (y el reintento lo rehace).
+  const result = await db.transaction(async (tx) => {
+    const outcome = await applyProviderEvent(tx, businessId, 'revenuecat', event.type, applied, event.id, body);
+    // Comprobante solo en los eventos que SÍ representan un cobro real — no al reactivar ni al cambiar de plan,
+    // que solo tomarán efecto (y cobrarán) en la próxima renovación.
+    if (outcome === 'applied' && plan && (event.type === 'INITIAL_PURCHASE' || event.type === 'RENEWAL')) {
+      const periodStart = event.purchased_at_ms ? new Date(event.purchased_at_ms) : new Date();
+      await recordSubscriptionInvoice(tx, { businessId, plan, paymentMethod: 'card', periodStart, periodEnd: expiresAt, externalPaymentId: event.id });
+    }
+    return outcome;
+  });
   if (result === 'applied') void notifyBillingIfNeeded(ctx, businessId, patch, event.id);
-  // Comprobante solo en los eventos que SÍ representan un cobro real — no al reactivar ni al cambiar de plan,
-  // que solo tomarán efecto (y cobrarán) en la próxima renovación.
-  if (result === 'applied' && plan && (event.type === 'INITIAL_PURCHASE' || event.type === 'RENEWAL')) {
-    const periodStart = event.purchased_at_ms ? new Date(event.purchased_at_ms) : new Date();
-    await recordSubscriptionInvoice(db, { businessId, plan, paymentMethod: 'card', periodStart, periodEnd: expiresAt, externalPaymentId: event.id });
-  }
   return { ok: true, result };
 }
 
@@ -123,8 +160,8 @@ async function handleStripe(request: FastifyRequest, ctx: Ctx) {
 
   if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
     const sub = event.data.object as Stripe.Subscription;
-    const businessId = sub.metadata?.businessId;
-    if (!businessId) return { ok: true, ignored: 'no businessId in metadata' };
+    const businessId = await knownBusiness(ctx, sub.metadata?.businessId);
+    if (!businessId) return { ok: true, ignored: 'unknown businessId in metadata' };
     const plan = (sub.metadata?.plan as SubscriptionPlan | undefined) ?? null;
     // Estado no reconocido (p. ej. Stripe agrega uno nuevo): trata como "vencido con gracia" — ni bloquea de golpe
     // ni deja acceso indefinido sin saber qué está pasando de verdad.
@@ -161,12 +198,13 @@ async function handleStripe(request: FastifyRequest, ctx: Ctx) {
     if (!subscriptionId) return { ok: true, ignored: 'no subscription on invoice' };
     const [row] = await db.select().from(subscriptions).where(eq(subscriptions.externalSubscriptionId, subscriptionId)).limit(1);
     if (!row?.plan) return { ok: true, ignored: 'unknown subscription' };
-    const result = await recordProviderEventOnce(db, row.businessId, 'stripe', event.type, event.id, event);
-    if (result === 'applied') {
+    // Evento y comprobante en UNA transacción (si el comprobante fallara, el reintento de Stripe lo vuelve a intentar).
+    await db.transaction(async (tx) => {
+      if ((await recordProviderEventOnce(tx, row.businessId, 'stripe', event.type, event.id, event)) !== 'applied') return;
       const line = invoice.lines.data[0];
       const periodStart = line ? new Date(line.period.start * 1000) : new Date();
       const periodEnd = line ? new Date(line.period.end * 1000) : addPlanInterval(periodStart, row.plan as SubscriptionPlan);
-      await recordSubscriptionInvoice(db, {
+      await recordSubscriptionInvoice(tx, {
         businessId: row.businessId,
         plan: row.plan as SubscriptionPlan,
         paymentMethod: 'card',
@@ -176,7 +214,7 @@ async function handleStripe(request: FastifyRequest, ctx: Ctx) {
         currency: invoice.currency.toUpperCase(),
         externalPaymentId: invoice.id,
       });
-    }
+    });
   }
   return { ok: true };
 }
@@ -207,7 +245,10 @@ async function handlePayPal(request: FastifyRequest, ctx: Ctx) {
     request.log.warn('Webhook de PayPal recibido pero PAYPAL_WEBHOOK_ID no está configurado — ignorado.');
     return { ok: true, configured: false };
   }
-  const body = JSON.parse((request.body as Buffer).toString('utf8')) as PayPalEvent;
+  const body = parseJson(request.body) as PayPalEvent;
+  if (!body || typeof body !== 'object' || typeof body.id !== 'string' || typeof body.event_type !== 'string' || !body.resource || typeof body.resource !== 'object') {
+    throw new AppError(400, 'invalid_payload');
+  }
   const headers = request.headers;
   const verified = await verifyPayPalWebhook(config.subscriptions, {
     transmissionId: String(headers['paypal-transmission-id'] ?? ''),
@@ -229,12 +270,14 @@ async function handlePayPal(request: FastifyRequest, ctx: Ctx) {
     if (!subscriptionId) return { ok: true, ignored: 'no billing_agreement_id' };
     const [row] = await db.select().from(subscriptions).where(eq(subscriptions.externalSubscriptionId, subscriptionId)).limit(1);
     if (!row?.plan) return { ok: true, ignored: 'unknown subscription' };
-    const result = await recordProviderEventOnce(db, row.businessId, 'paypal', body.event_type, body.id, body);
-    if (result === 'applied') {
+    // Evento y comprobante en UNA transacción (si el comprobante fallara, el reintento de PayPal lo vuelve a intentar).
+    const result = await db.transaction(async (tx) => {
+      const outcome = await recordProviderEventOnce(tx, row.businessId, 'paypal', body.event_type, body.id, body);
+      if (outcome !== 'applied') return outcome;
       const plan = row.plan as SubscriptionPlan;
       const parsedTotal = body.resource.amount?.total ? Math.round(parseFloat(body.resource.amount.total)) : NaN;
       const periodStart = new Date();
-      await recordSubscriptionInvoice(db, {
+      await recordSubscriptionInvoice(tx, {
         businessId: row.businessId,
         plan,
         paymentMethod: 'paypal',
@@ -244,12 +287,13 @@ async function handlePayPal(request: FastifyRequest, ctx: Ctx) {
         ...(body.resource.amount?.currency ? { currency: body.resource.amount.currency } : {}),
         externalPaymentId: body.resource.id,
       });
-    }
+      return outcome;
+    });
     return { ok: true, result };
   }
 
-  const businessId = body.resource.custom_id;
-  if (!businessId) return { ok: true, ignored: 'no businessId in custom_id' };
+  const businessId = await knownBusiness(ctx, body.resource.custom_id);
+  if (!businessId) return { ok: true, ignored: 'unknown businessId in custom_id' };
   const plan = body.resource.plan_id === config.subscriptions.paypalPlanYearly ? 'yearly' : body.resource.plan_id === config.subscriptions.paypalPlanMonthly ? 'monthly' : null;
   const nextBillingAt = body.resource.billing_info?.next_billing_time ? new Date(body.resource.billing_info.next_billing_time) : undefined;
 
@@ -280,7 +324,7 @@ export function webhookRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   app.post('/revenuecat', async (request, reply) => {
     // Único endpoint de este archivo que SÍ necesita el body ya parseado como JSON (no lleva firma sobre bytes crudos).
-    request.body = JSON.parse((request.body as Buffer).toString('utf8'));
+    request.body = parseJson(request.body);
     return reply.send(await handleRevenueCat(request, ctx));
   });
   app.post('/stripe', async (request, reply) => reply.send(await handleStripe(request, ctx)));

@@ -7,16 +7,16 @@ import { api } from '@/lib/api';
 import { blocksFromHours, blocksProblem, timeOffRange } from '@/lib/bookingPage';
 import { toInt } from '@/lib/forms';
 import { pickFromLibrary, uploadableImage } from '@/lib/images';
-import { keys, useBookingSettings, useItems } from '@/lib/queries';
+import { keys, useAllItems, useBookingSettings } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { CalendarPicker } from '../agenda/CalendarPicker';
-import { Button } from '../Button';
 import { CheckRow } from '../CheckRow';
 import { useDialogs } from '../Dialogs';
 import { Field } from '../Field';
 import { FormModal } from '../FormModal';
-import { Card, Chip, ChipRow, Photo, SectionTitle, ToggleRow } from '../Kit';
+import { Photo } from '../Kit';
+import { Button, Card, Chip, ChipRow, SectionTitle, ToggleRow } from './PanelKit';
 import { AppText } from '../Text';
 import { TimeField } from './TimeField';
 import { useAction } from './useAction';
@@ -36,8 +36,9 @@ export function ProfessionalEditor({ professional, onClose }: { professional: Pr
   const timezone = business?.timezone ?? 'America/Bogota';
   const currency = business?.currency ?? 'COP';
   const settings = useBookingSettings();
-  const items = useItems();
-  const services = (items.data ?? []).filter((i) => i.kind === 'service');
+  // Servicios que puede atender (solo servicios: el servidor ya los filtra).
+  const items = useAllItems({ kind: 'service' });
+  const services = items.data ?? [];
 
   const profileAction = useAction();
   const scheduleAction = useAction();
@@ -47,6 +48,7 @@ export function ProfessionalEditor({ professional, onClose }: { professional: Pr
 
   const [name, setName] = useState(professional.publicName);
   const [bio, setBio] = useState(professional.bio);
+  const [specialty, setSpecialty] = useState(professional.specialty);
   const [ownSchedule, setOwnSchedule] = useState(professional.schedule.length > 0);
   const [blocks, setBlocks] = useState<ScheduleBlock[]>(professional.schedule);
   const [all, setAll] = useState(professional.serviceIds.length === 0);
@@ -64,7 +66,7 @@ export function ProfessionalEditor({ professional, onClose }: { professional: Pr
   const businessBlocks = settings.data?.settings.hoursBlocks ?? blocksFromHours(business?.hours);
 
   async function saveProfile() {
-    const saved = await profileAction.run(() => api.updateProfessional(professional.id, { publicName: name.trim(), bio: bio.trim() }));
+    const saved = await profileAction.run(() => api.updateProfessional(professional.id, { publicName: name.trim(), bio: bio.trim(), specialty: specialty.trim() }));
     if (!saved) return;
     await refresh();
     toast(t('saved'));
@@ -141,6 +143,7 @@ export function ProfessionalEditor({ professional, onClose }: { professional: Pr
         </View>
       </View>
       <Field label={t('prof_public_name')} value={name} onChangeText={setName} hint={t('prof_public_name_hint')} maxLength={60} error={profileAction.fields.publicName} />
+      <Field label={t('prof_specialty')} value={specialty} onChangeText={setSpecialty} hint={t('prof_specialty_hint')} maxLength={60} error={profileAction.fields.specialty} />
       <Field label={t('prof_bio')} value={bio} onChangeText={setBio} multiline maxLength={400} error={profileAction.fields.bio} />
       {profileAction.error ? (
         <AppText tone="danger" style={{ marginBottom: 8 }} accessibilityLiveRegion="polite">

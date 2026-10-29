@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { translate, type Language, type NotificationCategory, type TranslationKey } from '@xiro/shared';
+import { isAllowedPushEndpoint, NOTIFICATION_SOUND_CHANNEL_ID, NOTIFICATION_SOUND_FILE, translate, type Language, type NotificationCategory, type TranslationKey } from '@xiro/shared';
 import webpush from 'web-push';
 import type { Config } from './config';
 import type { Database } from './db/client';
@@ -42,7 +42,7 @@ interface ExpoTicket {
 }
 
 /** Envía hasta 100 mensajes por lote (límite de Expo). Un `DeviceNotRegistered` marca el token para borrarlo. */
-async function sendExpoBatch(messages: Array<{ to: string; title: string; body: string; data?: Record<string, string> }>): Promise<Array<{ token: string; ok: boolean; shouldRemove: boolean }>> {
+async function sendExpoBatch(messages: ExpoMessage[]): Promise<Array<{ token: string; ok: boolean; shouldRemove: boolean }>> {
   if (messages.length === 0) return [];
   let tickets: ExpoTicket[] = [];
   try {
@@ -66,6 +66,8 @@ async function sendExpoBatch(messages: Array<{ to: string; title: string; body: 
 
 /** Una suscripción Web Push ya cancelada por el navegador responde 404/410: se borra en vez de reintentar para siempre. */
 async function sendWebOne(sub: { token: string; p256dh: string; auth: string }, payload: { title: string; body: string; data?: Record<string, string> }): Promise<{ token: string; ok: boolean; shouldRemove: boolean }> {
+  // Defensa en profundidad (SSRF): solo servicios de push reales, aunque la fila venga de antes de validar al registrar.
+  if (!isAllowedPushEndpoint(sub.token)) return { token: sub.token, ok: false, shouldRemove: true };
   try {
     await webpush.sendNotification({ endpoint: sub.token, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(payload));
     return { token: sub.token, ok: true, shouldRemove: false };
@@ -76,6 +78,29 @@ async function sendWebOne(sub: { token: string; p256dh: string; auth: string }, 
 }
 
 type TokenRow = typeof pushTokens.$inferSelect;
+
+export interface ExpoMessage {
+  to: string;
+  title: string;
+  body: string;
+  data?: Record<string, string>;
+  sound?: string;
+  channelId?: string;
+}
+
+/**
+ * Mensaje de Expo para UN dispositivo. Solo los builds que declararon traer el sonido de Xiro (`customSound`) lo reciben,
+ * junto con su canal de Android (el sonido en Android 8+ es del canal). Los demás reciben el mensaje de siempre: sin
+ * `sound` (iOS no suena, como hasta ahora) y en el canal por defecto de Android.
+ */
+export function expoMessage(row: Pick<TokenRow, 'token' | 'customSound'>, text: { title: string; body: string }, data?: Record<string, string>): ExpoMessage {
+  const message: ExpoMessage = { to: row.token, ...text, data };
+  if (row.customSound) {
+    message.sound = NOTIFICATION_SOUND_FILE;
+    message.channelId = NOTIFICATION_SOUND_CHANNEL_ID;
+  }
+  return message;
+}
 
 async function sendToTokens(ctx: PushCtx, rows: TokenRow[], event: PushEvent): Promise<{ sent: number; pruned: number }> {
   const { db, config } = ctx;
@@ -97,7 +122,7 @@ async function sendToTokens(ctx: PushCtx, rows: TokenRow[], event: PushEvent): P
 
   const expoRows = rows.filter((r) => r.platform === 'expo');
   for (const batch of chunk(expoRows, 90)) {
-    const messages = batch.map((r) => ({ to: r.token, ...textFor(r), data }));
+    const messages = batch.map((r) => expoMessage(r, textFor(r), data));
     const results = await sendExpoBatch(messages);
     for (const r of results) {
       if (r.ok) sent += 1;
@@ -191,6 +216,11 @@ export async function notifyBusiness(ctx: PushCtx, businessId: string, category:
  * a diferencia del resto del texto (que sí se traduce por dispositivo en `sendToTokens`). */
 export function formatPushMoment(iso: string, timezone: string): string {
   return new Intl.DateTimeFormat('es-CO', { timeZone: timezone, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
+}
+
+/** Fecha en formato fijo día/mes/año en la zona del negocio (mismo criterio que `formatPushMoment`: no depende del idioma). */
+export function formatPushDate(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat('es-CO', { timeZone: timezone, day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(iso));
 }
 
 /**

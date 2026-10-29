@@ -75,6 +75,8 @@ export function notificationRoutes(app: FastifyInstance, ctx: Ctx): void {
     const userId = request.user.sub;
     const input = parse(pushRegisterSchema, request.body);
     const token = input.platform === 'expo' ? input.token : input.endpoint;
+    // Solo un build nativo puede traer el sonido empaquetado; en la web el sonido lo reproduce la página (ver sw.js).
+    const customSound = input.platform === 'expo' && input.customSound === true;
     await db
       .insert(pushTokens)
       .values({
@@ -84,8 +86,10 @@ export function notificationRoutes(app: FastifyInstance, ctx: Ctx): void {
         token,
         p256dh: input.platform === 'web' ? input.keys.p256dh : null,
         auth: input.platform === 'web' ? input.keys.auth : null,
+        customSound,
       })
-      .onConflictDoUpdate({ target: [pushTokens.userId, pushTokens.token], set: { p256dh: input.platform === 'web' ? input.keys.p256dh : null, auth: input.platform === 'web' ? input.keys.auth : null } });
+      // Re-registrar el mismo token (p. ej. tras actualizar la app) actualiza también si su build trae el sonido de Xiro.
+      .onConflictDoUpdate({ target: [pushTokens.userId, pushTokens.token], set: { p256dh: input.platform === 'web' ? input.keys.p256dh : null, auth: input.platform === 'web' ? input.keys.auth : null, customSound } });
     return { ok: true };
   });
 

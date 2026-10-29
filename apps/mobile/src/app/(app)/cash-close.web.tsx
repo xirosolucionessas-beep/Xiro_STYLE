@@ -4,17 +4,24 @@
  * contado físicamente, anular con motivo, e historial de días anteriores. Presentación en src/web/screens/CashClose.tsx.
  */
 import type { CashDaySummary, Currency, SalePaymentMethod } from '@xiro/shared';
-import { formatMoney, whatsappLink } from '@xiro/shared';
+import { formatMoney, localDate, whatsappLink } from '@xiro/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { addDays, formatClock, formatDay, localTime, todayIn } from '@/lib/agenda';
 import { api } from '@/lib/api';
+import { breakdownView, liveStatus, liveStatusText } from '@/lib/cashBreakdown';
+import { afterCloseNote, unbilledNote } from '@/lib/cashFlow';
 import { apiErrors } from '@/lib/forms';
-import { useCashClosingDetail, useCashClosings, useCashCloseSummary, useInvalidateCash } from '@/lib/queries';
+import { keys, useCashClosingDetail, useCashClosings, useCashCloseSummary, useInvalidateCash } from '@/lib/queries';
+import { useCashDetail, type CashDetailTarget } from '@/lib/useCashDetail';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
+import { CashExpensesDetailModal, CashSalesDetailModal } from '@/web/screens/CashCloseDetail';
 import { useAuthed } from '@/lib/session';
 import { Header, Screen } from '@/ui/Screen';
 import { CashCloseView, type CashCloseHistoryRow, type CashCloseRankRow } from '@/web/screens/CashClose';
 import { parseAmountInput } from '@/web/money';
+import { printTicket } from '@/web/services/print';
 import { useWebText } from '@/web/services/useWebText';
 import { VoidCashClosingModal } from '@/web/ui/VoidCashClosingModal';
 
@@ -36,14 +43,34 @@ export default function CashCloseWeb() {
   const isToday = day === todayKey;
 
   const rangeFrom = useMemo(() => addDays(todayKey, -30), [todayKey]);
+  // Actualización automática SOLO de hoy, con la ruta enfocada, la pestaña visible y conexión (ver useLiveRefresh.web.ts).
+  const queryClient = useQueryClient();
+  const resume = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: keys.cashCloseSummary });
+    void queryClient.invalidateQueries({ queryKey: keys.cashClosings });
+  }, [queryClient]);
+  const live = useLiveRefresh(isToday && isOwner, resume);
+
   const closingsQuery = useCashClosings({ from: rangeFrom, to: todayKey }, isOwner);
   const closedForDay = (closingsQuery.data ?? []).find((c) => c.day === day && c.status === 'completed') ?? null;
 
-  const closingDetailQuery = useCashClosingDetail(closedForDay?.id ?? null, Boolean(closedForDay) && isOwner);
-  const liveSummaryQuery = useCashCloseSummary(day, !closedForDay && isOwner);
+  const closingDetailQuery = useCashClosingDetail(closedForDay?.id ?? null, Boolean(closedForDay) && isOwner, live.interval);
+  const liveSummaryQuery = useCashCloseSummary(day, !closedForDay && isOwner, live.interval);
+  const activeQuery = closedForDay ? closingDetailQuery : liveSummaryQuery;
   const summary: CashDaySummary | undefined = closedForDay ? closingDetailQuery.data?.summary : liveSummaryQuery.data;
-  const loading = closedForDay ? closingDetailQuery.isLoading : liveSummaryQuery.isLoading;
-  const isError = closedForDay ? closingDetailQuery.isError : liveSummaryQuery.isError;
+  const loading = activeQuery.isLoading;
+  // Error SIN datos = panel de error; con datos válidos se conservan y el aviso va en la línea de estado.
+  const isError = activeQuery.isError && summary === undefined;
+  const status = liveStatus({ live: isToday, active: live.active, hasData: summary !== undefined, isFetching: activeQuery.isFetching, isError: activeQuery.isError, dataUpdatedAt: activeQuery.dataUpdatedAt, now: live.now });
+  const updatedTime = activeQuery.dataUpdatedAt ? formatClock(localTime(new Date(activeQuery.dataUpdatedAt).toISOString(), business.timezone), language) : '';
+  const breakdownViewModel = summary?.employeeBreakdown ? breakdownView(t, money, summary.employeeBreakdown) : null;
+
+  // "Ver más": la selección (empleado o sin atribuir) se conserva mientras el detalle se actualiza solo.
+  const [detailTarget, setDetailTarget] = useState<CashDetailTarget | null>(null);
+  const [expensesDetailOpen, setExpensesDetailOpen] = useState(false);
+  const detail = useCashDetail({ day, target: detailTarget, expensesOpen: expensesDetailOpen, interval: live.interval, f: { t, fmt: money, timezone: business.timezone, language }, adjustments: summary?.adjustmentsAfterClose ?? [] });
+  const clockOf = (at: number) => (at ? formatClock(localTime(new Date(at).toISOString(), business.timezone), language) : null);
+  const detailAggregate = detailTarget?.scope === 'employee' ? breakdownViewModel?.employees.find((e) => e.id === detailTarget.employeeId) : detailTarget ? breakdownViewModel?.unattributed : null;
 
   const [voidOpen, setVoidOpen] = useState(false);
   const [countedAmount, setCountedAmount] = useState(0);
@@ -119,6 +146,32 @@ export default function CashCloseWeb() {
     return lines.join('\n');
   }
 
+  /** Imprimir el cierre: comprobante vertical propio (ver web/services/print.ts), no la pantalla con gráficas y botones. */
+  function printClosing() {
+    if (!summary) return;
+    printTicket({
+      title: `${t('nav_cash_close')} ${dayLabel}`,
+      lang: language,
+      header: [business.name, t('nav_cash_close'), dayLabel],
+      meta: closedForDay ? [{ label: t('cash_close_closed_by', { name: closedForDay.closedByName }), value: '' }] : [],
+      lines: (summary.salesByMethod ?? []).map((m) => ({ name: t(`sale_pay_${m.method}`), detail: times(m.count, t), amount: money(m.total) })),
+      totals: [
+        { label: t('cash_close_kpi_sales'), value: money(summary.totalSales), strong: true },
+        { label: t('cash_close_kpi_expenses'), value: money(summary.totalExpenses) },
+        ...(closedForDay
+          ? [
+              { label: t('cash_close_expected'), value: money(closedForDay.expectedAmount) },
+              { label: t('cash_close_counted'), value: money(closedForDay.countedAmount) },
+              { label: t(closedForDay.difference >= 0 ? 'cash_close_surplus' : 'cash_close_shortfall'), value: money(Math.abs(closedForDay.difference)), strong: true },
+            ]
+          : summary.expectedCash !== null
+            ? [{ label: t('cash_close_expected'), value: money(summary.expectedCash) }]
+            : []),
+      ],
+      footer: closedForDay?.note || undefined,
+    });
+  }
+
   const hourly = Array.from({ length: 24 }, (_, hour) => summary?.hourly.find((h) => h.hour === hour)?.total ?? 0);
   const peak = Math.max(0, ...hourly);
   const bars = hourly.map((total, hour) => ({
@@ -130,7 +183,12 @@ export default function CashCloseWeb() {
     empty: total === 0,
   }));
 
-  const rank = (entries: Array<{ name: string; total: number; count: number }>, idPrefix: string): CashCloseRankRow[] => entries.map((e) => ({ id: `${idPrefix}:${e.name}`, name: e.name, value: money(e.total), sub: times(e.count, t) }));
+  // Ranking con barra de proporción respecto del primero (el más vendido = barra llena).
+  const rank = (entries: Array<{ name: string; total: number; count: number }>, idPrefix: string): CashCloseRankRow[] => {
+    const top = Math.max(0, ...entries.map((e) => e.total));
+    return entries.map((e) => ({ id: `${idPrefix}:${e.name}`, name: e.name, value: money(e.total), sub: times(e.count, t), share: top > 0 ? e.total / top : 0 }));
+  };
+  const methodTotal = (summary?.salesByMethod ?? []).reduce((sum, m) => sum + m.total, 0);
 
   const history: CashCloseHistoryRow[] = (closingsQuery.data ?? [])
     .slice()
@@ -154,17 +212,23 @@ export default function CashCloseWeb() {
         todayHref="/cash-close"
         navigate={(href) => router.push(href as never)}
         state={loading ? 'loading' : isError ? 'error' : 'ready'}
-        onRetry={() => void (closedForDay ? closingDetailQuery.refetch() : liveSummaryQuery.refetch())}
+        onRetry={() => void activeQuery.refetch()}
+        errorMessage={t('cash_close_load_error')}
+        unbilledNote={unbilledNote(summary?.unbilledRecords, money, t)}
         kpis={[
           { id: 'sales', icon: 'coins', label: t('cash_close_kpi_sales'), value: summary ? money(summary.totalSales) : '—', loading },
           { id: 'expenses', icon: 'receipt', label: t('cash_close_kpi_expenses'), value: summary ? money(summary.totalExpenses) : '—', loading },
           { id: 'expected', icon: 'wallet', label: t('cash_close_kpi_expected'), value: summary?.expectedCash != null ? money(summary.expectedCash) : '—', loading },
         ]}
         bars={bars}
-        paymentRows={(summary?.salesByMethod ?? []).map((m) => ({ id: m.method, name: t(`sale_pay_${m.method}`), value: money(m.total), sub: times(m.count, t) }))}
+        paymentRows={(summary?.salesByMethod ?? []).map((m) => ({ id: m.method, name: t(`sale_pay_${m.method}`), value: money(m.total), sub: times(m.count, t), share: methodTotal > 0 ? m.total / methodTotal : 0 }))}
         topServices={rank(summary?.topServices ?? [], 'svc')}
         topProducts={rank(summary?.topProducts ?? [], 'prod')}
         employeeRows={rank(summary?.employeeSales.map((e) => ({ name: e.employeeName, total: e.total, count: e.count })) ?? [], 'emp')}
+        breakdown={breakdownViewModel}
+        onSeeMore={setDetailTarget}
+        onSeeMoreExpenses={() => setExpensesDetailOpen(true)}
+        live={status === 'initial' || status === 'failed' ? null : { text: liveStatusText(t, status, updatedTime), problem: status === 'error' || status === 'stale' }}
         expenseRows={(summary?.expenses ?? []).map((e) => ({ id: e.id, description: e.description, amount: money(e.amount), time: formatClock(localTime(e.createdAt, business.timezone), language) }))}
         clientsServed={summary?.clientsServed ?? 0}
         newClients={summary?.newClients ?? 0}
@@ -178,8 +242,14 @@ export default function CashCloseWeb() {
                 surplus: closedForDay.difference >= 0,
                 note: closedForDay.note,
                 closedByName: closedForDay.closedByName,
+                closedByLine: t('cash_close_closed_by_at', {
+                  name: closedForDay.closedByName,
+                  date: formatDay(localDate(closedForDay.createdAt, business.timezone), language, { day: 'numeric', month: 'short' }),
+                  time: formatClock(localTime(closedForDay.createdAt, business.timezone), language),
+                }),
                 status: closedForDay.status,
                 voidReason: closedForDay.voidReason,
+                afterClose: afterCloseNote(summary?.afterClose ?? null, money, t),
               }
             : null
         }
@@ -207,10 +277,21 @@ export default function CashCloseWeb() {
         expectedCashPreview={summary?.expectedCash ?? null}
         onOpenVoid={() => setVoidOpen(true)}
         onWhatsapp={() => window.open(whatsappLink('', shareText()), '_blank', 'noopener')}
-        onPrint={() => window.print()}
+        onPrint={printClosing}
         history={history}
       />
       <VoidCashClosingModal open={voidOpen} onClose={() => setVoidOpen(false)} t={t} onSubmit={confirmVoid} />
+      <CashSalesDetailModal
+        open={detailTarget !== null}
+        onClose={() => setDetailTarget(null)}
+        t={t}
+        title={detailTarget?.scope === 'employee' ? t('cash_detail_title_employee', { name: detailTarget.name, day: dayLabel }) : t('cash_detail_title_unattributed', { day: dayLabel })}
+        note={detailTarget?.scope === 'unattributed' ? t('cash_detail_unattributed_note') : null}
+        aggregate={detailAggregate ? { gross: detailAggregate.gross, discount: detailAggregate.discount, net: detailAggregate.net } : null}
+        updated={clockOf(detail.sales.updatedAt)}
+        model={detail.sales}
+      />
+      <CashExpensesDetailModal open={expensesDetailOpen} onClose={() => setExpensesDetailOpen(false)} t={t} title={t('cash_exp_title', { day: dayLabel })} updated={clockOf(detail.expenses.updatedAt)} model={detail.expenses} />
     </Screen>
   );
 }

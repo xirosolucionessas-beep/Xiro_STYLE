@@ -1,32 +1,41 @@
 import { mkdirSync } from 'node:fs';
 import { normalizePermissions, type Actor } from '@xiro/shared';
+import compress from '@fastify/compress';
 import cors from '@fastify/cors';
+import underPressure, { type FastifyUnderPressureOptions } from '@fastify/under-pressure';
+import { randomUUID } from 'node:crypto';
 import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { eq, sql } from 'drizzle-orm';
-import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import Fastify, { LogController, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { PgBoss } from 'pg-boss';
 import { loadConfig, type Config } from './config';
 import { assertPolicyCovers, authorize } from './authz';
 import { recordAudit } from './audit';
 import { GoogleMapsClient, type GoogleMaps } from './booking/google';
 import type { Ctx } from './context';
+import { ExportPool } from './exports/pool';
 import type { Database } from './db/client';
-import { users } from './db/schema';
+import { businesses, users } from './db/schema';
 import { AppError, containsNul, installErrorHandler, isUuid } from './errors';
 import { MAX_IMAGE_BYTES } from './media';
-import { ConsoleNotifier, type Notifier } from './notifier';
+import { createNotifier, type Notifier } from './notifier';
+import { loggerOptions } from './logging';
 import { accountRoutes } from './routes/account';
 import { authRoutes } from './routes/auth';
+import { assistantRoutes } from './routes/assistant';
 import { bookingRoutes } from './routes/booking';
 import { bookingConfigRoutes } from './routes/bookingConfig';
 import { cashRoutes } from './routes/cash';
+import { expenseRoutes } from './routes/expenses';
+import { balanceRoutes } from './routes/balance';
 import { catalogRoutes } from './routes/catalog';
 import { clientRoutes } from './routes/clients';
 import { employeeRoutes } from './routes/employees';
 import { loyaltyRoutes } from './routes/loyalty';
+import { birthdayRoutes } from './routes/birthday';
 import { messagesRoutes } from './routes/messages';
 import { notificationRoutes } from './routes/notifications';
 import { placesRoutes } from './routes/places';
@@ -34,13 +43,25 @@ import { publicRoutes } from './routes/public';
 import { clientAccountRoutes } from './routes/clientAccounts';
 import { publicBookingRoutes } from './routes/publicBooking';
 import { realtimeRoutes } from './routes/realtime';
+import { discountRoutes } from './routes/discounts';
+import { waitlistRoutes } from './routes/waitlist';
+import { orderRoutes } from './routes/orders';
 import { salesRoutes } from './routes/sales';
 import { serviceRecordRoutes } from './routes/serviceRecords';
 import type { RealtimeBus } from './realtime';
 import { adminSubscriptionRoutes, subscriptionRoutes } from './routes/subscriptions';
+import { isAccessBlocked } from './subscriptions';
+import { platformRoutes } from './routes/platform';
 import { webRoutes } from './routes/web';
 import { webhookRoutes } from './routes/webhooks';
-import { WindowCounter } from './security';
+import { configurePasswordHashing } from './passwords';
+import type { Redis } from 'ioredis';
+import { FallbackRateStore, MemoryRateStore, RateLimits, RedisRateStore } from './rateStore';
+import { Metrics } from './metrics';
+import { MemoryCacheBackend, PublicCache, RedisCacheBackend } from './publicCache';
+import { redisHealthy } from './redis';
+import { safeEqualSecret } from './security';
+import { LocalMediaStore, S3MediaStore, type MediaStore } from './storage';
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -57,8 +78,9 @@ declare module 'fastify' {
 }
 
 export interface BuildOptions {
-  config?: Partial<Omit<Config, 'database' | 'rateLimit' | 'security' | 'booking'>> & {
+  config?: Partial<Omit<Config, 'database' | 'rateLimit' | 'security' | 'booking' | 'platform'>> & {
     booking?: Partial<Config['booking']>;
+    platform?: Partial<Config['platform']>;
     database?: Partial<Config['database']>;
     rateLimit?: Partial<Config['rateLimit']>;
     security?: Partial<Config['security']>;
@@ -66,6 +88,12 @@ export interface BuildOptions {
   /** Conexión a PostgreSQL ya creada (el llamador es dueño del pool y lo cierra). */
   db: Database;
   notifier?: Notifier;
+  /** Redis ya conectado por `server.ts` (el llamador lo cierra). Sin él: límites en memoria del proceso. */
+  redis?: Redis | null;
+  /** Almacén de imágenes ya creado (pruebas). Sin él se crea según la configuración. */
+  media?: MediaStore;
+  /** Solo pruebas: activa el logger escribiendo en este flujo (para comprobar que no se registran secretos). */
+  logStream?: NodeJS.WritableStream;
   /** Cola de recordatorios de citas ya arrancada por `server.ts`. Sin ella (pruebas, o un arranque que no la usa),
    * programar o cancelar un recordatorio es un no-op silencioso — ver jobs/reminders.ts. */
   boss?: PgBoss | null;
@@ -84,12 +112,15 @@ export function mergeConfig(base: Config, overrides: BuildOptions['config'] = {}
     rateLimit: { ...base.rateLimit, ...overrides.rateLimit },
     security: { ...base.security, ...overrides.security },
     booking: { ...base.booking, ...overrides.booking },
+    platform: { ...base.platform, ...overrides.platform },
   } as Config;
 }
 
 /** Rutas que consultan la base de datos y por tanto se limitan por IP (los archivos estáticos no). */
 const isLimitedPath = (url: string) => (url.startsWith('/api/') && !url.startsWith('/api/health')) || url.startsWith('/catalog/') || url.startsWith('/reservar/');
 const SERVER_PATHS = /^\/(api|media|catalog-assets)(\/|$)|^\/catalog\/[^/?#]|^\/reservar(\/|$)/;
+/** Id de petición recibido de un proxy/balanceador (X-Request-Id): solo si tiene una forma razonable; si no, uno nuevo. */
+const REQUEST_ID = /^[A-Za-z0-9._:-]{8,128}$/;
 
 export async function buildApp(options: BuildOptions): Promise<FastifyInstance> {
   const config = mergeConfig(loadConfig(), options.config);
@@ -97,7 +128,7 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
   const { db } = options;
 
   const app = Fastify({
-    logger: options.logger ? { level: process.env.LOG_LEVEL ?? 'info', redact: ['req.headers.authorization', 'req.headers.cookie'] } : false,
+    logger: options.logger || options.logStream ? { ...loggerOptions(process.env.LOG_LEVEL ?? 'info'), ...(options.logStream ? { stream: options.logStream } : {}) } : false,
     // Un número = saltos de proxy confiables (p. ej. 1 detrás de un solo balanceador): evita que un cliente falsifique su IP.
     trustProxy: typeof config.trustProxy === 'number' ? (_address: string, hop: number) => hop <= (config.trustProxy as number) : config.trustProxy,
     bodyLimit: 1024 * 1024,
@@ -105,18 +136,76 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     // Protección básica contra conexiones lentas (slowloris).
     requestTimeout: 30_000,
     connectionTimeout: 60_000,
+    // Mayor que el keep-alive del balanceador: si el servidor cerrara primero, el balanceador reusaría una conexión muerta (502).
+    keepAliveTimeout: config.observability.keepAliveTimeoutMs,
+    // Cada petición lleva un id: sale en cada línea de log, en la cabecera X-Request-Id y en los errores de Sentry. Se respeta
+    // el del proxy (para seguir una petición de punta a punta) solo si es válido: nunca texto arbitrario en los logs.
+    requestIdHeader: false,
+    logController: new LogController({ requestIdLogLabel: 'requestId' }),
+    genReqId: (request) => {
+      const incoming = request.headers['x-request-id'];
+      return typeof incoming === 'string' && REQUEST_ID.test(incoming) ? incoming : randomUUID();
+    },
   });
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('X-Request-Id', request.id);
+  });
+  // Límites compartidos: Redis (con respaldo en memoria si se cae) o, sin Redis, memoria del proceso.
+  const rateStore = options.redis
+    ? new FallbackRateStore(new RedisRateStore(options.redis), new MemoryRateStore(), (error) => app.log.error({ err: error }, 'Redis no responde: límites de abuso en memoria del proceso hasta que vuelva'))
+    : new MemoryRateStore();
+  const rates = new RateLimits(rateStore);
+  // Caché pública: Redis compartido o, sin Redis, memoria de este proceso (una sola instancia).
+  const publicCache = new PublicCache(
+    config.publicCacheTtlSeconds > 0 ? (options.redis ? new RedisCacheBackend(options.redis) : new MemoryCacheBackend()) : null,
+    config.publicCacheTtlSeconds,
+    (error) => app.log.warn({ err: error }, 'Caché pública no disponible: se responde sin caché'),
+  );
   const ctx: Ctx = {
     db,
     config,
-    notifier: options.notifier ?? new ConsoleNotifier((line) => app.log.info(line)),
-    accountLimiter: new WindowCounter(config.rateLimit.accountWindowMinutes * 60_000),
-    bookingLimiter: new WindowCounter(60_000),
+    notifier: options.notifier ?? createNotifier(config, (line) => app.log.info(line)),
+    accountLimiter: rates.limiter('account', config.rateLimit.accountWindowMinutes * 60_000),
+    bookingLimiter: rates.limiter('booking-business', 60_000),
+    rates,
+    redis: options.redis ?? null,
+    publicCache,
+    media: options.media ?? (config.media.storage === 's3' ? new S3MediaStore(config.media) : new LocalMediaStore(config.mediaDir)),
     boss: options.boss ?? null,
     realtime: options.realtime ?? null,
     maps: options.maps !== undefined ? options.maps : config.booking.googleServerKey ? new GoogleMapsClient(config.booking.googleServerKey) : null,
+    exports: new ExportPool(config.exports),
   };
 
+  configurePasswordHashing({ concurrency: config.security.hashConcurrency, maxQueue: config.security.hashQueueMax });
+
+  /* ---------- Métricas, sobrecarga y compresión (Fase 4) ---------- */
+  const metrics = new Metrics((db as unknown as { $client?: import('pg').Pool }).$client ?? null);
+  app.addHook('onResponse', async (request, reply) => {
+    metrics.observe(request.method, request.routeOptions.url ?? 'sin_ruta', reply.statusCode, reply.elapsedTime / 1000);
+  });
+  app.addHook('onClose', async () => metrics.close());
+  app.addHook('onClose', async () => ctx.exports.close());
+  metrics.exportStats = () => ctx.exports.stats();
+  const isHealthCheck = (url: string | undefined) => url?.startsWith('/api/health') ?? false;
+  // Bajo sobrecarga (event loop atascado o memoria al tope) se responde 503 + Retry-After en vez de hacer esperar a todos.
+  // Las rutas de salud siguen respondiendo: el orquestador decide con /api/health/ready, no por un 503 de sobrecarga.
+  await app.register(underPressure, {
+    maxEventLoopDelay: config.observability.maxEventLoopDelayMs,
+    maxHeapUsedBytes: config.observability.maxHeapUsedMb * 1024 * 1024,
+    retryAfter: 5,
+    // El plugin (index.js, handlePressure): devolver null/undefined deja seguir la petición; devolver un objeto lo envía
+    // como respuesta. Sus tipos dicen `void`, de ahí la conversión.
+    pressureHandler: ((request: FastifyRequest, reply: FastifyReply) => {
+      if (isHealthCheck(request.url)) return undefined;
+      reply.status(503).header('Retry-After', '5');
+      return { code: 'server_busy', message: 'Server busy' };
+    }) as unknown as NonNullable<FastifyUnderPressureOptions['pressureHandler']>,
+  });
+  if (config.observability.compression) {
+    // Solo JSON/HTML/JS grandes (las imágenes ya vienen comprimidas). gzip: buen ahorro con poco CPU.
+    await app.register(compress, { global: true, threshold: 1024, encodings: ['gzip'] });
+  }
   app.decorateRequest('actor', null as never);
   installErrorHandler(app);
 
@@ -161,11 +250,14 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
   await app.register(cors, {
     delegator: (request, callback) => {
       const isPublic = request.url?.startsWith('/api/public/');
+      // Solo /api/auth lleva credenciales (la cookie HttpOnly del refresh token del panel web, ver routes/auth.ts) y
+      // solo para los orígenes de la lista blanca; el resto de la API sigue con Bearer y sin credenciales.
+      const isAuth = request.url?.startsWith('/api/auth/') ?? false;
       callback(null, {
         origin: isPublic ? '*' : config.corsOrigins.length > 0 ? config.corsOrigins : false,
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-        allowedHeaders: ['Content-Type', 'Authorization'],
-        credentials: false,
+        allowedHeaders: ['Content-Type', 'Authorization', ...(isAuth ? ['X-Xiro-Session', 'X-Xiro-Remember'] : [])],
+        credentials: isAuth && config.corsOrigins.length > 0,
         maxAge: 600,
       });
     },
@@ -175,7 +267,9 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
   if (config.rateLimit.enabled) {
     // global: false + hook en la raíz: el límite por IP se evalúa ANTES que cualquier hook de ámbito (p. ej. la autenticación),
     // así las peticiones con token inválido o sin token también consumen cuota. Las rutas de /api/auth añaden su propio tope, más estricto.
-    await app.register(rateLimit, { global: false });
+    // Con Redis, el plugin también guarda sus contadores ahí (todas las instancias comparten la cuota por IP y por ruta).
+    // skipOnError: si Redis falla, el plugin deja pasar y los límites propios (FallbackRateStore) siguen protegiendo.
+    await app.register(rateLimit, { global: false, ...(options.redis ? { redis: options.redis, nameSpace: 'xiro:frl:', skipOnError: true } : {}) });
     // (createRateLimit y no rateLimit: este último marca la petición como ya evaluada y omitiría el tope propio de las rutas de /api/auth.)
     const checkIp = app.createRateLimit({
       max: config.rateLimit.globalPerMinute,
@@ -220,26 +314,46 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     // La librería no exige `exp`: un token sin caducidad sería eterno, así que se exige aquí.
     if (!isUuid(sub) || !isUuid(bid) || typeof exp !== 'number' || typeof iat !== 'number') throw new AppError(401, 'unauthorized');
     const [row] = await db
-      .select({ changedAt: users.passwordChangedAt, businessId: users.businessId, role: users.role, permissions: users.permissions, active: users.active })
+      .select({ changedAt: users.passwordChangedAt, businessId: users.businessId, role: users.role, permissions: users.permissions, active: users.active, businessAccess: businesses.accessStatus })
       .from(users)
+      .innerJoin(businesses, eq(businesses.id, users.businessId))
       .where(eq(users.id, sub))
       .limit(1);
     // Un empleado desactivado pierde el acceso al instante, aunque su token aún no haya vencido.
     if (!row || !row.active || row.businessId !== bid || iat * 1000 + 1000 <= row.changedAt.getTime()) throw new AppError(401, 'unauthorized');
+    // Negocio suspendido o dado de baja desde el panel de plataforma: ninguna sesión abierta sigue funcionando.
+    if (row.businessAccess !== 'active') throw new AppError(403, 'business_suspended');
+    // Suscripción vencida más allá del período de gracia, sin concesión del fundador vigente: el servidor corta el
+    // acceso (antes solo lo "sugería" la interfaz — ver subscriptionNotice en packages/shared — sin que la API lo
+    // exigiera). Deja siempre disponibles las rutas para consultar la cuenta, ver/pagar/cancelar la suscripción: quien
+    // queda bloqueado tiene que poder arreglarlo sin que nadie del equipo tenga que intervenir por él.
+    const url = request.routeOptions.url ?? '';
+    const exemptFromBilling = url === '/api/me' || url.startsWith('/api/subscription');
+    if (!exemptFromBilling && (await isAccessBlocked(db, bid))) throw new AppError(402, 'subscription_required');
     // Rol y permisos se leen de la base de datos en CADA petición (nunca del token): un cambio del dueño aplica de inmediato.
     request.actor = { id: sub, role: row.role === 'employee' ? 'employee' : 'owner', permissions: normalizePermissions(row.permissions) };
     authorize(request.actor, request.method, request.routeOptions.url ?? '');
   };
 
+  // Liveness: el proceso está vivo y atiende (no toca dependencias: si la base cae, reiniciar la API no la arregla).
   app.get('/api/health', async () => ({ status: 'ok' }));
-  // Para balanceadores y orquestadores: comprueba de verdad que la base de datos responde.
+  // Readiness: ¿puede atender tráfico? Base de datos y, si está configurado, Redis. 503 = el balanceador deja de enviarle
+  // peticiones hasta que se recupere. Respuesta mínima: no describe la infraestructura a quien no la necesita.
   app.get('/api/health/ready', async (_request, reply) => {
-    try {
-      await db.execute(sql`select 1`);
-      return { status: 'ok', database: 'up' };
-    } catch {
-      return reply.status(503).send({ status: 'unavailable', database: 'down' });
-    }
+    const database = await db
+      .execute(sql`select 1`)
+      .then(() => 'up' as const)
+      .catch(() => 'down' as const);
+    const redis = options.redis ? ((await redisHealthy(options.redis)) ? ('up' as const) : ('down' as const)) : ('not_configured' as const);
+    const ready = database === 'up' && redis !== 'down';
+    return reply.status(ready ? 200 : 503).send({ status: ready ? 'ok' : 'unavailable', database, redis });
+  });
+  // Métricas Prometheus: solo con METRICS_TOKEN configurado y presentado (Authorization: Bearer …); si no, 404.
+  app.get('/api/metrics', async (request, reply) => {
+    const token = config.observability.metricsToken;
+    const presented = request.headers.authorization?.replace(/^Bearer\s+/i, '') ?? '';
+    if (!token || !safeEqualSecret(presented, token)) return reply.status(404).send({ code: 'not_found', message: 'Not found' });
+    return reply.header('Cache-Control', 'no-store').type('text/plain; version=0.0.4; charset=utf-8').send(metrics.render());
   });
 
   await app.register(
@@ -274,7 +388,14 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
     { prefix: '/api/admin' },
   );
 
-  const userLimiter = new WindowCounter(60_000);
+  // Panel del fundador: solo existe con PLATFORM_ADMIN_KEY (sin ella, /api/platform responde 404 como cualquier ruta inexistente).
+  // Fuera del scope de negocios: su propia autenticación (token de plataforma + TOTP), permisos y bitácora (ver routes/platform.ts).
+  if (config.platform.adminKey) {
+    await app.register(async (scope) => platformRoutes(scope, ctx, { metrics }), { prefix: '/api/platform' });
+  }
+
+  const userLimiter = rates.limiter('user', 60_000);
+  const uploadLimiter = rates.limiter('media-uploads', 24 * 60 * 60_000);
   await app.register(
     async (scope) => {
       // Fallo al arrancar (no en producción a las 3 a. m.) si alguien añade una ruta autenticada sin decidir quién la puede usar.
@@ -295,11 +416,25 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
       scope.addHook('preHandler', async (request, reply) => {
         if (!config.rateLimit.enabled) return;
         const key = request.user.sub;
-        const used = userLimiter.hit(key);
+        const used = await userLimiter.hit(key);
         reply.header('X-RateLimit-Limit', String(config.rateLimit.userPerMinute));
         if (used > config.rateLimit.userPerMinute) {
-          throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(userLimiter.retryAfterSeconds(key)) });
+          throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await userLimiter.retryAfterSeconds(key)) });
         }
+      });
+      // Cuota diaria de subidas de imágenes por NEGOCIO (todas las personas del equipo juntas): frena el abuso del
+      // almacenamiento aunque cada subida individual sea válida. Compartida entre instancias (Redis).
+      scope.addHook('preHandler', async (request) => {
+        if (!config.rateLimit.enabled || !request.isMultipart()) return;
+        const key = request.user.bid;
+        if ((await uploadLimiter.hit(key)) > config.mediaUploadsPerDay) {
+          throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await uploadLimiter.retryAfterSeconds(key)) });
+        }
+      });
+      // Toda escritura exitosa de un negocio invalida su caché pública ANTES de responder: quien guarda un cambio y abre
+      // su página pública ya lo ve. (Invalida de más a propósito: es una sola operación y nunca deja datos viejos.)
+      scope.addHook('onSend', async (request, reply) => {
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && reply.statusCode < 400 && request.user?.bid) await publicCache.invalidate(request.user.bid);
       });
       scope.addHook('onSend', async (_request, reply) => void reply.header('Cache-Control', 'no-store'));
       accountRoutes(scope, ctx);
@@ -307,15 +442,22 @@ export async function buildApp(options: BuildOptions): Promise<FastifyInstance> 
       clientRoutes(scope, ctx);
       subscriptionRoutes(scope, ctx);
       salesRoutes(scope, ctx);
+      orderRoutes(scope, ctx);
+      discountRoutes(scope, ctx);
+      waitlistRoutes(scope, ctx);
       cashRoutes(scope, ctx);
+      expenseRoutes(scope, ctx);
+      balanceRoutes(scope, ctx);
       serviceRecordRoutes(scope, ctx);
       loyaltyRoutes(scope, ctx);
+      birthdayRoutes(scope, ctx);
       notificationRoutes(scope, ctx);
       employeeRoutes(scope, ctx);
       bookingRoutes(scope, ctx);
       bookingConfigRoutes(scope, ctx);
       placesRoutes(scope, ctx);
       messagesRoutes(scope, ctx);
+      assistantRoutes(scope, ctx);
     },
     { prefix: '/api' },
   );

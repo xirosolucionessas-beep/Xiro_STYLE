@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, date, doublePrecision, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import type { BookingSettings, BusinessHours, CustomField, PublicSection } from '@xiro/shared';
+import { clientSearchText, itemSearchText } from './search';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow();
@@ -26,12 +27,23 @@ export const businesses = pgTable(
     timezone: text('timezone').notNull().default('America/Bogota'),
     hours: jsonb('hours').$type<BusinessHours>().notNull(),
     logoFile: text('logo_file'),
+    /**
+     * Acceso a XIRO decidido por la administración de la plataforma (panel del fundador, ver routes/platform.ts). Es
+     * independiente del pago: `subscriptions` dice si el negocio pagó; esto dice si puede entrar. 'suspended' y
+     * 'deactivated' (baja lógica, recuperable) bloquean el inicio de sesión, la API del negocio y sus páginas públicas.
+     * Solo lo cambian los servicios de platform/, siempre con auditoría.
+     */
+    accessStatus: text('access_status').notNull().default('active'),
+    accessStatusChangedAt: ts('access_status_changed_at'),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('businesses_slug_uq').on(t.slug),
     check('businesses_type_ck', sql`${t.type} in ('barbershop','beauty_salon','spa','nails','other')`),
     check('businesses_currency_ck', sql`${t.currency} in ('COP','USD','MXN','EUR')`),
+    check('businesses_access_status_ck', sql`${t.accessStatus} in ('active','suspended','deactivated')`),
+    // Panel de plataforma: altas por período (gráfica histórica) sin recorrer toda la tabla.
+    index('businesses_created_idx').on(t.createdAt),
   ],
 );
 
@@ -198,6 +210,9 @@ export const items = pgTable(
     foreignKey({ columns: [t.categoryId, t.businessId], foreignColumns: [categories.id, categories.businessId], name: 'items_category_business_fk' }),
     index('items_business_updated_idx').on(t.businessId, t.updatedAt.desc()),
     index('items_category_idx').on(t.categoryId),
+    // Búsqueda sin tildes por nombre o referencia (la misma expresión que usa GET /items, ver db/search.ts) con el
+    // negocio DENTRO del índice (btree_gin). Medido en test/indexes.test.ts.
+    index('items_search_trgm_idx').using('gin', t.businessId, sql`(${itemSearchText(t.name, t.referenceCode)}) gin_trgm_ops`),
     // Catálogo público: solo publicados, del más reciente al más antiguo.
     index('items_public_idx').on(t.businessId, t.updatedAt.desc()).where(sql`${t.published}`),
     check('items_price_ck', sql`${t.price} >= 0 and ${t.price} <= 1000000000`),
@@ -237,9 +252,21 @@ export const clients = pgTable(
     /** Cliente compartido "de mostrador" para ventas sin ficha (ver ventas.clientLabel para el nombre de cada recibo).
      * Nunca aparece en el directorio de clientes ni cuenta como cliente nuevo; una fila por negocio, creada bajo pedido. */
     isOccasional: boolean('is_occasional').notNull().default(false),
+    /** Opcional (AAAA-MM-DD). Solo se usa para el programa de cumpleaños del negocio; nunca sale en listados ni avisos. */
+    birthDate: date('birth_date', { mode: 'string' }),
     createdAt: createdAt(),
   },
-  (t) => [index('clients_business_name_idx').on(t.businessId, sql`lower(${t.name})`), unique('clients_id_business_uq').on(t.id, t.businessId)],
+  (t) => [
+    index('clients_business_name_idx').on(t.businessId, sql`lower(${t.name})`),
+    unique('clients_id_business_uq').on(t.id, t.businessId),
+    // Búsqueda "contiene" (ILIKE '%…%') por nombre, correo o teléfono: trigramas sobre los tres juntos (db/search.ts)
+    // con el negocio DENTRO del índice (btree_gin). Medido en test/indexes.test.ts.
+    index('clients_search_trgm_idx').using('gin', t.businessId, sql`${clientSearchText(t.name, t.email, t.phone)} gin_trgm_ops`),
+    // Clientes recientes (actividad del Inicio, "nuevos hoy/este mes") y la paginación sort=recent.
+    index('clients_business_created_idx').on(t.businessId, t.createdAt.desc().nullsFirst(), t.id.desc().nullsFirst()),
+    // Deduplicar por teléfono en CADA reserva pública (antes: recorrer todos los clientes del negocio).
+    index('clients_business_phone_idx').on(t.businessId, t.phone),
+  ],
 );
 
 /**
@@ -399,6 +426,7 @@ export const serviceRecords = pgTable(
   (t) => [
     index('service_records_client_idx').on(t.businessId, t.clientId, t.createdAt.desc()),
     index('service_records_business_idx').on(t.businessId, t.createdAt.desc()),
+    // + service_records_balance_idx (negocio, fecha) INCLUDE (monto, tipo) WHERE vigente: solo en drizzle/0036 (Drizzle no expresa INCLUDE).
     index('service_records_appointment_idx').on(t.appointmentId),
     check('service_records_amount_ck', sql`${t.amount} >= 0 and ${t.amount} <= 1000000000`),
     check('service_records_kind_ck', sql`${t.kind} in ('service','product')`),
@@ -472,7 +500,11 @@ export const loyaltyRedemptions = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     redeemedAt: createdAt(),
   },
-  (t) => [index('loyalty_redemptions_client_idx').on(t.businessId, t.clientId, t.redeemedAt.desc())],
+  (t) => [
+    index('loyalty_redemptions_client_idx').on(t.businessId, t.clientId, t.redeemedAt.desc()),
+    // Historial de canjes de todo el negocio, paginado (el índice de arriba empieza por el cliente).
+    index('loyalty_redemptions_business_idx').on(t.businessId, t.redeemedAt.desc().nullsFirst(), t.id.desc().nullsFirst()),
+  ],
 );
 
 /** Preferencias de notificaciones: una fila por negocio (igual que loyalty_programs), creada al primer guardado. */
@@ -511,6 +543,11 @@ export const pushTokens = pgTable(
     token: text('token').notNull(),
     p256dh: text('p256dh'),
     auth: text('auth'),
+    /**
+     * El build nativo de este dispositivo incluye el sonido de Xiro y su canal de Android (lo declara al registrarse). Por
+     * defecto false: los dispositivos registrados antes siguen recibiendo los avisos como siempre.
+     */
+    customSound: boolean('custom_sound').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [
@@ -617,9 +654,18 @@ export const businessPublicProfiles = pgTable(
     coverFile: text('cover_file'),
     galleryFiles: jsonb('gallery_files').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     sections: jsonb('sections').$type<Partial<Record<PublicSection, boolean>>>().notNull().default(sql`'{}'::jsonb`),
+    /** Marca del negocio en su página (Fase 3 del plan): color de acento (#rrggbb; null = dorado por defecto). */
+    accentColor: text('accent_color'),
+    /** Título de la página de reservas ('' = el texto por defecto, "Reserva tu experiencia"). */
+    bookingTitle: text('booking_title').notNull().default(''),
+    /** Hasta 3 avisos de confianza propios del negocio (p. ej. "Sin pago anticipado"); vacío = no se muestra ninguno. */
+    trustBadges: jsonb('trust_badges').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
-  (t) => [check('bpp_coords_ck', sql`(${t.latitude} is null) = (${t.longitude} is null)`)],
+  (t) => [
+    check('bpp_coords_ck', sql`(${t.latitude} is null) = (${t.longitude} is null)`),
+    check('bpp_accent_ck', sql`${t.accentColor} is null or ${t.accentColor} ~ '^#[0-9a-f]{6}$'`),
+  ],
 );
 
 /** Reglas de agenda y reservas del negocio (una fila por negocio; sin fila se usan los valores por defecto). */
@@ -642,6 +688,19 @@ export const businessSettings = pgTable(
     customFields: jsonb('custom_fields').$type<CustomField[]>().notNull().default(sql`'[]'::jsonb`),
     /** Un producto publicado en 0 existencias: true = se oculta del catálogo público; false = sigue visible, marcado "Agotado". */
     hideOutOfStockInCatalog: boolean('hide_out_of_stock_in_catalog').notNull().default(false),
+    /** Pedidos de solo productos desde la página pública (recoger y pagar en el local). Apagado por defecto: cada negocio decide. */
+    productOrdersEnabled: boolean('product_orders_enabled').notNull().default(false),
+    /* Funciones de la Fase 4 del plan: cada negocio decide (todas apagadas por defecto, salvo el recordatorio de siempre). */
+    /** Horas antes de la cita en que se recuerda (hasta 3; p. ej. [24, 2]). Por defecto [3], el recordatorio de siempre. */
+    reminderHours: jsonb('reminder_hours').$type<number[]>().notNull().default(sql`'[3]'::jsonb`),
+    waitlistEnabled: boolean('waitlist_enabled').notNull().default(false),
+    discountCodesEnabled: boolean('discount_codes_enabled').notNull().default(false),
+    reviewRequestsEnabled: boolean('review_requests_enabled').notNull().default(false),
+    rememberCustomerEnabled: boolean('remember_customer_enabled').notNull().default(false),
+    /** Distintivo "✓ Reserva fácil · Sin pago anticipado" en la cabecera pública (solo si el negocio lo activa). */
+    noPrepayBadgeEnabled: boolean('no_prepay_badge_enabled').notNull().default(false),
+    /** Campo de comentarios del cliente al reservar (encendido por defecto: así era siempre). */
+    customerNotesEnabled: boolean('customer_notes_enabled').notNull().default(true),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -683,6 +742,8 @@ export const employeeProfiles = pgTable(
     bookable: boolean('bookable').notNull().default(false),
     publicName: text('public_name').notNull().default(''),
     bio: text('bio').notNull().default(''),
+    /** Especialidad que se muestra en la página pública (p. ej. "Colorista"); '' = no se muestra. */
+    specialty: text('specialty').notNull().default(''),
     photoFile: text('photo_file'),
     visible: boolean('visible').notNull().default(true),
     sortOrder: integer('sort_order').notNull().default(0),
@@ -945,6 +1006,9 @@ export const appointments = pgTable(
     tokenExpiresAt: ts('token_expires_at'),
     /** Hash SHA-256 de (negocio + clave de idempotencia) de la confirmación pública: un reintento de la misma confirmación devuelve esta cita. */
     idempotencyHash: text('idempotency_hash'),
+    /** Código de descuento usado (Fase 4) y cuánto descontó; el total bruto (`totalPrice`) no cambia: se cobra totalPrice − discountAmount. */
+    discountCodeId: uuid('discount_code_id').references(() => discountCodes.id, { onDelete: 'set null' }),
+    discountAmount: integer('discount_amount').notNull().default(0),
     modificationCount: integer('modification_count').notNull().default(0),
     termsAcceptedAt: ts('terms_accepted_at'),
     termsAcceptedIp: text('terms_accepted_ip'),
@@ -969,6 +1033,8 @@ export const appointments = pgTable(
     index('appointments_business_start_idx').on(t.businessId, t.startsAt),
     index('appointments_professional_start_idx').on(t.businessId, t.professionalId, t.startsAt),
     index('appointments_client_idx').on(t.businessId, t.clientId),
+    // Fase 5: la llave foránea al código de descuento (borrar un código pone NULL aquí) sin recorrer todas las citas.
+    index('appointments_discount_code_idx').on(t.discountCodeId).where(sql`${t.discountCodeId} is not null`),
     check('appointments_status_ck', sql`${t.status} in ('pending','confirmed','in_progress','completed','cancelled','no_show')`),
     check('appointments_source_ck', sql`${t.source} in ('app','web','walk_in')`),
     check('appointments_order_ck', sql`${t.startsAt} < ${t.endsAt} and ${t.endsAt} <= ${t.busyUntil}`),
@@ -1124,6 +1190,7 @@ export const sales = pgTable(
     foreignKey({ columns: [t.createdBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'sales_created_by_fk' }),
     foreignKey({ columns: [t.voidedBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'sales_voided_by_fk' }),
     index('sales_business_idx').on(t.businessId, t.createdAt.desc()),
+    // + sales_balance_idx (negocio, fecha) INCLUDE (descuento, propina) WHERE completada: solo en drizzle/0036 (Drizzle no expresa INCLUDE).
     index('sales_client_idx').on(t.clientId),
     check('sales_status_ck', sql`${t.status} in ('completed','voided')`),
     check('sales_amounts_ck', sql`${t.subtotal} >= 0 and ${t.discount} >= 0 and ${t.tip} >= 0 and ${t.total} >= 0`),
@@ -1201,12 +1268,75 @@ export const expenses = pgTable(
     method: text('method').notNull().default('cash'),
     createdBy: uuid('created_by').notNull(),
     createdAt: createdAt(),
+    /* ---- Módulo Finanzas (migración 0033): todo aditivo; los gastos anteriores quedan como "operativo · otros". ---- */
+    /** 'operating' (operativo) | 'payroll' (nómina). */
+    type: text('type').notNull().default('operating'),
+    /** Código de categoría (catálogo en @xiro/shared/expenses, ampliable sin migración). */
+    category: text('category').notNull().default('other'),
+    /** Día del gasto en la zona del negocio (lo que usa el Balance). */
+    expenseDate: date('expense_date', { mode: 'string' }).notNull().defaultNow(),
+    /** Empleado que recibe el pago (obligatorio en nómina). */
+    employeeId: uuid('employee_id'),
+    notes: text('notes').notNull().default(''),
+    /** Salió del efectivo de la caja del día (se resta del esperado en el arqueo). */
+    paidFromCash: boolean('paid_from_cash').notNull().default(false),
+    /** Apertura de caja (del día) de la que salió, si aplica. */
+    cashOpeningId: uuid('cash_opening_id').references(() => cashOpenings.id, { onDelete: 'set null' }),
+    /** 'active' | 'voided' (anulación con motivo; nunca se borra). */
+    status: text('status').notNull().default('active'),
+    voidReason: text('void_reason').notNull().default(''),
+    voidedBy: uuid('voided_by'),
+    voidedAt: ts('voided_at'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
     foreignKey({ columns: [t.createdBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'expenses_created_by_fk' }),
+    foreignKey({ columns: [t.employeeId, t.businessId], foreignColumns: [users.id, users.businessId], name: 'expenses_employee_fk' }),
+    foreignKey({ columns: [t.voidedBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'expenses_voided_by_fk' }),
     index('expenses_business_idx').on(t.businessId, t.createdAt.desc()),
+    index('expenses_business_date_idx').on(t.businessId, t.expenseDate.desc()),
+    index('expenses_business_employee_idx').on(t.businessId, t.employeeId).where(sql`${t.employeeId} is not null`),
     check('expenses_method_ck', sql`${t.method} in ('cash','card','nequi','bank_transfer','other')`),
     check('expenses_amount_ck', sql`${t.amount} > 0 and ${t.amount} <= 1000000000`),
+    check('expenses_type_ck', sql`${t.type} in ('operating','payroll')`),
+    check('expenses_status_ck', sql`${t.status} in ('active','voided')`),
+    check('expenses_payroll_employee_ck', sql`${t.type} <> 'payroll' or ${t.employeeId} is not null`),
+    check('expenses_cash_method_ck', sql`not ${t.paidFromCash} or ${t.method} = 'cash'`),
+  ],
+);
+
+/**
+ * Ajustes explícitos a gastos de una caja YA CERRADA (Finanzas, fase 2): el cierre firmado no se toca, pero toda corrección
+ * posterior (editar o anular un gasto que salió de esa caja) queda registrada aquí con su motivo, el antes y el después, quién
+ * y cuándo. Solo se agrega (nunca se edita ni se borra).
+ */
+export const expenseAdjustments = pgTable(
+  'expense_adjustments',
+  {
+    id: id(),
+    businessId: businessRef(),
+    expenseId: uuid('expense_id')
+      .notNull()
+      .references(() => expenses.id, { onDelete: 'cascade' }),
+    /** Día de caja (cerrada) que afecta. */
+    cashDay: date('cash_day', { mode: 'string' }).notNull(),
+    /** 'edit' | 'void'. */
+    kind: text('kind').notNull(),
+    reason: text('reason').notNull(),
+    /** Monto que salía de la caja antes y después del ajuste (0 si dejó de salir de ella). */
+    amountBefore: integer('amount_before').notNull(),
+    amountAfter: integer('amount_after').notNull(),
+    /** Copia de los campos del gasto antes y después (para auditoría). */
+    before: jsonb('before').$type<Record<string, unknown>>().notNull(),
+    after: jsonb('after').$type<Record<string, unknown>>().notNull(),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.createdBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'expense_adjustments_created_by_fk' }),
+    index('expense_adjustments_expense_idx').on(t.businessId, t.expenseId),
+    index('expense_adjustments_day_idx').on(t.businessId, t.cashDay),
+    check('expense_adjustments_kind_ck', sql`${t.kind} in ('edit','void')`),
   ],
 );
 
@@ -1240,5 +1370,347 @@ export const cashClosings = pgTable(
     foreignKey({ columns: [t.voidedBy, t.businessId], foreignColumns: [users.id, users.businessId], name: 'cash_closings_voided_by_fk' }),
     index('cash_closings_business_idx').on(t.businessId, t.day.desc()),
     check('cash_closings_status_ck', sql`${t.status} in ('completed','voided')`),
+  ],
+);
+
+/* ---------- Pedidos de solo productos (página pública) ---------- */
+
+/**
+ * Un cliente pide productos para recoger y pagar en el local, sin cita (sin hora ni profesional). Los precios y el total
+ * los fija el servidor al crear el pedido. El inventario NO se toca aquí: se descuenta cuando el negocio lo entrega,
+ * registrándolo como una venta normal (`saleId`), igual que los productos apartados en una cita.
+ * Estados: pending (nuevo) → ready (listo para recoger) → delivered (entregado, con venta) | cancelled.
+ */
+export const productOrders = pgTable(
+  'product_orders',
+  {
+    id: id(),
+    businessId: businessRef(),
+    clientId: uuid('client_id').notNull(),
+    /** Cuenta de cliente de la página pública con la que se pidió, si inició sesión; null = invitado. */
+    clientAccountId: uuid('client_account_id').references(() => clientAccounts.id, { onDelete: 'set null' }),
+    status: text('status').notNull().default('pending'),
+    customerName: text('customer_name').notNull(),
+    customerPhone: text('customer_phone').notNull(),
+    customerEmail: text('customer_email'),
+    customerNotes: text('customer_notes').notNull().default(''),
+    totalPrice: integer('total_price').notNull(),
+    idempotencyHash: text('idempotency_hash'),
+    /** Código de descuento usado (Fase 4) y cuánto descontó; el total bruto (`totalPrice`) no cambia: se cobra totalPrice − discountAmount. */
+    discountCodeId: uuid('discount_code_id').references(() => discountCodes.id, { onDelete: 'set null' }),
+    discountAmount: integer('discount_amount').notNull().default(0),
+    termsAcceptedAt: ts('terms_accepted_at'),
+    termsAcceptedIp: text('terms_accepted_ip'),
+    /** Venta con la que se entregó (descuenta el inventario); null mientras no se entrega. */
+    saleId: uuid('sale_id').references(() => sales.id, { onDelete: 'set null' }),
+    cancelReason: text('cancel_reason').notNull().default(''),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    unique('product_orders_id_business_uq').on(t.id, t.businessId),
+    foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'product_orders_client_business_fk' }).onDelete('cascade'),
+    uniqueIndex('product_orders_idem_uq').on(t.businessId, t.idempotencyHash).where(sql`${t.idempotencyHash} is not null`),
+    index('product_orders_business_created_idx').on(t.businessId, t.createdAt.desc(), t.id.desc()),
+    index('product_orders_business_status_idx').on(t.businessId, t.status),
+    index('product_orders_discount_code_idx').on(t.discountCodeId).where(sql`${t.discountCodeId} is not null`),
+    check('product_orders_status_ck', sql`${t.status} in ('pending','ready','delivered','cancelled')`),
+    check('product_orders_total_ck', sql`${t.totalPrice} between 0 and 1000000000`),
+    check('product_orders_delivered_sale_ck', sql`${t.status} <> 'delivered' or ${t.saleId} is not null`),
+  ],
+);
+
+export const productOrderItems = pgTable(
+  'product_order_items',
+  {
+    id: id(),
+    businessId: businessRef(),
+    orderId: uuid('order_id').notNull(),
+    /** El producto del catálogo; si luego se borra del catálogo, el pedido conserva nombre y precio. */
+    itemId: uuid('item_id').references(() => items.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    unitPrice: integer('unit_price').notNull(),
+    quantity: integer('quantity').notNull(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.orderId, t.businessId], foreignColumns: [productOrders.id, productOrders.businessId], name: 'product_order_items_order_fk' }).onDelete('cascade'),
+    index('product_order_items_order_idx').on(t.orderId),
+    check('product_order_items_qty_ck', sql`${t.quantity} between 1 and 20`),
+    check('product_order_items_price_ck', sql`${t.unitPrice} between 0 and 1000000000`),
+  ],
+);
+
+/* ---------- Códigos de descuento (Fase 4) ---------- */
+
+/**
+ * Código promocional de un negocio para su página pública. El servidor lo valida y calcula el descuento sobre el subtotal real
+ * (nunca confía en lo que mande el navegador). `uses` se incrementa de forma atómica al confirmar (dos reservas a la vez no
+ * superan `maxUses`). `code` se guarda en mayúsculas y es único por negocio.
+ */
+export const discountCodes = pgTable(
+  'discount_codes',
+  {
+    id: id(),
+    businessId: businessRef(),
+    code: text('code').notNull(),
+    description: text('description').notNull().default(''),
+    /** percent = porcentaje (1–100); fixed = monto fijo en la moneda del negocio. */
+    kind: text('kind').notNull(),
+    value: integer('value').notNull(),
+    /** Subtotal mínimo para aplicarlo (0 = sin mínimo). */
+    minTotal: integer('min_total').notNull().default(0),
+    /** Usos totales permitidos (null = sin tope) y usados hasta ahora. */
+    maxUses: integer('max_uses'),
+    uses: integer('uses').notNull().default(0),
+    /** Solo una vez por cliente (por su ficha: celular o cuenta). */
+    oncePerClient: boolean('once_per_client').notNull().default(false),
+    startsAt: ts('starts_at'),
+    endsAt: ts('ends_at'),
+    active: boolean('active').notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('discount_codes_business_code_uq').on(t.businessId, t.code),
+    index('discount_codes_business_idx').on(t.businessId, t.createdAt.desc()),
+    check('discount_codes_kind_ck', sql`${t.kind} in ('percent','fixed')`),
+    check('discount_codes_value_ck', sql`(${t.kind} = 'percent' and ${t.value} between 1 and 100) or (${t.kind} = 'fixed' and ${t.value} between 1 and 1000000000)`),
+    check('discount_codes_code_ck', sql`${t.code} ~ '^[A-Z0-9_-]{3,30}$'`),
+    check('discount_codes_uses_ck', sql`${t.uses} >= 0 and (${t.maxUses} is null or ${t.maxUses} >= 1)`),
+    check('discount_codes_dates_ck', sql`${t.startsAt} is null or ${t.endsAt} is null or ${t.startsAt} < ${t.endsAt}`),
+  ],
+);
+
+/* ---------- Lista de espera (Fase 4) ---------- */
+
+/**
+ * Alguien quiere un día que está lleno: deja sus datos y lo que quiere reservar. Cuando se libera un horario ese día
+ * (cancelación o cambio), el sistema comprueba la disponibilidad REAL para su selección y avisa en orden de llegada al negocio
+ * (push) y a la persona (su canal). El enlace personal (`tokenHash`: solo el hash en la base) le deja ver o quitar su lugar.
+ */
+export const waitlistEntries = pgTable(
+  'waitlist_entries',
+  {
+    id: id(),
+    businessId: businessRef(),
+    clientId: uuid('client_id').notNull(),
+    /** Fecha de calendario local del negocio ("AAAA-MM-DD") que quiere. */
+    date: date('date', { mode: 'string' }).notNull(),
+    /** Servicios elegidos (ids); con ellos se calcula si hay un horario libre que le sirva. */
+    serviceIds: jsonb('service_ids').$type<string[]>().notNull(),
+    /** null = cualquier profesional. */
+    professionalId: uuid('professional_id'),
+    customerName: text('customer_name').notNull(),
+    customerPhone: text('customer_phone').notNull(),
+    customerEmail: text('customer_email'),
+    status: text('status').notNull().default('waiting'),
+    tokenHash: text('token_hash').notNull(),
+    notifiedAt: ts('notified_at'),
+    termsAcceptedAt: ts('terms_accepted_at').notNull(),
+    termsAcceptedIp: text('terms_accepted_ip'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'waitlist_client_business_fk' }).onDelete('cascade'),
+    uniqueIndex('waitlist_token_uq').on(t.tokenHash),
+    // Una sola espera activa por cliente y día (pedirla otra vez devuelve la misma).
+    uniqueIndex('waitlist_client_date_uq').on(t.businessId, t.clientId, t.date).where(sql`${t.status} = 'waiting'`),
+    index('waitlist_business_date_idx').on(t.businessId, t.date, t.createdAt),
+    check('waitlist_status_ck', sql`${t.status} in ('waiting','notified','cancelled')`),
+  ],
+);
+
+
+/* =====================================================================================================================
+ * Administración de la PLATAFORMA (panel del fundador). Identidades separadas por completo de las de los negocios: un
+ * administrador no es un `users` (no tiene negocio) y un usuario de negocio nunca puede volverse administrador desde la API
+ * (no hay ruta de alta: solo el script `npm run platform:admin`). Ninguna de estas tablas es accesible para `xiro_app`.
+ * ===================================================================================================================== */
+
+export const platformAdmins = pgTable(
+  'platform_admins',
+  {
+    id: id(),
+    /** Siempre en minúsculas. */
+    email: text('email').notNull(),
+    name: text('name').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    /** Secreto TOTP (RFC 6238) CIFRADO con AES-256-GCM (clave PLATFORM_ADMIN_KEY); nunca en claro en la base. */
+    totpSecretEnc: text('totp_secret_enc').notNull(),
+    /** Último paso TOTP aceptado: un código ya usado no sirve otra vez (anti-repetición). */
+    totpLastStep: integer('totp_last_step').notNull().default(0),
+    /** El fundador tiene todos los permisos; el resto, solo los de `permissions` (PLATFORM_PERMISSIONS). */
+    isFounder: boolean('is_founder').notNull().default(false),
+    permissions: jsonb('permissions').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    active: boolean('active').notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('platform_admins_email_uq').on(t.email), check('platform_admins_email_lower_ck', sql`${t.email} = lower(${t.email})`)],
+);
+
+/**
+ * Sesiones de administrador: token opaco (solo su HMAC en la base), vencimiento absoluto y por inactividad, revocables al
+ * instante. `mfaAt` es la última verificación TOTP: las acciones sensibles exigen que sea reciente (reautenticación).
+ */
+export const platformAdminSessions = pgTable(
+  'platform_admin_sessions',
+  {
+    id: id(),
+    adminId: uuid('admin_id')
+      .notNull()
+      .references(() => platformAdmins.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: ts('expires_at').notNull(),
+    lastSeenAt: ts('last_seen_at').notNull().defaultNow(),
+    mfaAt: ts('mfa_at').notNull(),
+    revokedAt: ts('revoked_at'),
+    ip: text('ip'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('platform_sessions_token_uq').on(t.tokenHash), index('platform_sessions_admin_idx').on(t.adminId)],
+);
+
+/**
+ * Bitácora de la plataforma: toda lectura sensible y toda acción administrativa (también los intentos denegados o fallidos).
+ * INMUTABLE desde la aplicación: un trigger rechaza UPDATE, DELETE y TRUNCATE (ver la migración). Sin FK a `businesses`
+ * a propósito: el registro sobrevive aunque algún día se borre el negocio. Nunca guarda contraseñas, tokens ni cuerpos.
+ */
+export const platformAuditLog = pgTable(
+  'platform_audit_log',
+  {
+    id: id(),
+    /** null = intento de inicio de sesión de una cuenta inexistente. */
+    adminId: uuid('admin_id').references(() => platformAdmins.id, { onDelete: 'restrict' }),
+    action: text('action').notNull(),
+    businessId: uuid('business_id'),
+    outcome: text('outcome').notNull(),
+    requestId: text('request_id'),
+    ip: text('ip'),
+    /** Valores anteriores/nuevos, motivo, referencia de soporte… (lista blanca: ver platform/audit.ts). */
+    details: jsonb('details').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('platform_audit_created_idx').on(t.createdAt.desc()),
+    index('platform_audit_business_idx').on(t.businessId, t.createdAt.desc()),
+    index('platform_audit_admin_idx').on(t.adminId, t.createdAt.desc()),
+    check('platform_audit_outcome_ck', sql`${t.outcome} in ('success','denied','error')`),
+  ],
+);
+
+/**
+ * Concesión administrativa de acceso (días o meses de cortesía). NO es un pago: no genera comprobante, no toca
+ * `subscriptions` ni al proveedor de pagos. Da acceso entre `startsAt` y `endsAt`; revocarla la deja sin efecto (no se borra).
+ * `idempotencyKey` (único) hace que un reintento o un doble clic no la dupliquen.
+ */
+export const businessAccessGrants = pgTable(
+  'business_access_grants',
+  {
+    id: id(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id, { onDelete: 'restrict' }),
+    adminId: uuid('admin_id')
+      .notNull()
+      .references(() => platformAdmins.id, { onDelete: 'restrict' }),
+    unit: text('unit').notNull(),
+    amount: integer('amount').notNull(),
+    startsAt: ts('starts_at').notNull(),
+    endsAt: ts('ends_at').notNull(),
+    reason: text('reason').notNull(),
+    supportRef: text('support_ref'),
+    idempotencyKey: uuid('idempotency_key').notNull(),
+    revokedAt: ts('revoked_at'),
+    revokedBy: uuid('revoked_by').references(() => platformAdmins.id, { onDelete: 'restrict' }),
+    revokeReason: text('revoke_reason'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('access_grants_idempotency_uq').on(t.idempotencyKey),
+    index('access_grants_business_idx').on(t.businessId, t.endsAt.desc()),
+    check('access_grants_unit_ck', sql`${t.unit} in ('days','months')`),
+    check('access_grants_amount_ck', sql`(${t.unit} = 'days' and ${t.amount} between 1 and 366) or (${t.unit} = 'months' and ${t.amount} between 1 and 24)`),
+    check('access_grants_range_ck', sql`${t.endsAt} > ${t.startsAt}`),
+  ],
+);
+
+/* =====================================================================================================================
+ * Programa de cumpleaños (opcional por negocio, apagado por defecto). Ver packages/shared/src/birthday.ts.
+ * ===================================================================================================================== */
+
+export const birthdayPrograms = pgTable(
+  'birthday_programs',
+  {
+    id: id(),
+    businessId: businessRef(),
+    enabled: boolean('enabled').notNull().default(false),
+    rewardKind: text('reward_kind').notNull().default('percent'),
+    rewardValue: integer('reward_value').notNull().default(10),
+    scope: text('scope').notNull().default('all'),
+    validDays: integer('valid_days').notNull().default(7),
+    minTotal: integer('min_total').notNull().default(0),
+    combinable: boolean('combinable').notNull().default(false),
+    message: text('message').notNull().default(''),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('birthday_programs_business_uq').on(t.businessId),
+    check('birthday_programs_kind_ck', sql`${t.rewardKind} in ('percent','fixed')`),
+    check('birthday_programs_value_ck', sql`(${t.rewardKind} = 'percent' and ${t.rewardValue} between 1 and 100) or (${t.rewardKind} = 'fixed' and ${t.rewardValue} between 1 and 1000000000)`),
+    check('birthday_programs_scope_ck', sql`${t.scope} in ('all','services','products')`),
+    check('birthday_programs_days_ck', sql`${t.validDays} between 1 and 60`),
+    check('birthday_programs_min_ck', sql`${t.minTotal} >= 0`),
+  ],
+);
+
+/**
+ * Recompensa de cumpleaños emitida. UNA por negocio, cliente y año (`birthday_rewards_once_uq`): ni un trabajo repetido, ni
+ * dos instancias a la vez, ni cambiar la fecha de nacimiento pueden emitir una segunda ese año. Las condiciones se congelan
+ * al emitirla (cambiar el programa después no altera una ya emitida). `status`: available → claimed (reserva/pedido web) o
+ * redeemed (venta en caja); si esa reserva/pedido se cancela o la venta se anula, vuelve a available. "Vencida" se deriva.
+ */
+export const birthdayRewards = pgTable(
+  'birthday_rewards',
+  {
+    id: id(),
+    businessId: businessRef(),
+    clientId: uuid('client_id').notNull(),
+    year: integer('year').notNull(),
+    /** Día celebrado (29 feb → 28 feb en años no bisiestos) = primer día de vigencia; `endsOn` = último (inclusive). */
+    startsOn: date('starts_on', { mode: 'string' }).notNull(),
+    endsOn: date('ends_on', { mode: 'string' }).notNull(),
+    rewardKind: text('reward_kind').notNull(),
+    rewardValue: integer('reward_value').notNull(),
+    scope: text('scope').notNull(),
+    minTotal: integer('min_total').notNull(),
+    combinable: boolean('combinable').notNull(),
+    status: text('status').notNull().default('available'),
+    amount: integer('amount'),
+    usedAt: ts('used_at'),
+    saleId: uuid('sale_id').references(() => sales.id, { onDelete: 'set null' }),
+    appointmentId: uuid('appointment_id').references(() => appointments.id, { onDelete: 'set null' }),
+    productOrderId: uuid('product_order_id').references(() => productOrders.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.clientId, t.businessId], foreignColumns: [clients.id, clients.businessId], name: 'birthday_rewards_client_fk' }).onDelete('cascade'),
+    uniqueIndex('birthday_rewards_once_uq').on(t.businessId, t.clientId, t.year),
+    index('birthday_rewards_business_idx').on(t.businessId, t.startsOn.desc()),
+    index('birthday_rewards_sale_idx').on(t.saleId).where(sql`${t.saleId} is not null`),
+    index('birthday_rewards_appointment_idx').on(t.appointmentId).where(sql`${t.appointmentId} is not null`),
+    index('birthday_rewards_order_idx').on(t.productOrderId).where(sql`${t.productOrderId} is not null`),
+    check('birthday_rewards_status_ck', sql`${t.status} in ('available','claimed','redeemed')`),
+    check('birthday_rewards_kind_ck', sql`${t.rewardKind} in ('percent','fixed')`),
+    check('birthday_rewards_scope_ck', sql`${t.scope} in ('all','services','products')`),
+    check('birthday_rewards_range_ck', sql`${t.endsOn} >= ${t.startsOn}`),
+    // Disponible ⇔ sin uso; usada ⇔ con monto y fecha. El destino (venta/cita/pedido) puede quedar en null si algún día se
+    // borra esa fila (ON DELETE SET NULL): la recompensa sigue contando como usada ese año.
+    check(
+      'birthday_rewards_use_ck',
+      sql`(${t.status} = 'available' and ${t.amount} is null and ${t.usedAt} is null and ${t.saleId} is null and ${t.appointmentId} is null and ${t.productOrderId} is null)
+        or (${t.status} in ('claimed','redeemed') and ${t.amount} >= 0 and ${t.usedAt} is not null)`,
+    ),
   ],
 );

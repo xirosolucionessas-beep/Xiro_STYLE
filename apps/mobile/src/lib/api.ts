@@ -30,6 +30,8 @@ import type {
   CashClosingDto,
   CashCloseInput,
   CashDaySummary,
+  CashDaySalesPage,
+  CashDaySalesQuery,
   CashOpening,
   CashOpeningDto,
   Category,
@@ -37,6 +39,7 @@ import type {
   ClientInput,
   AuditLogEntry,
   Employee,
+  EmployeeQuotaDto,
   EmployeeCreateInput,
   EmployeeUpdateInput,
   ExpenseDto,
@@ -67,6 +70,9 @@ import type {
   SubscriptionPlatform,
   User,
 } from '@xiro/shared';
+import type { BirthdayProgramDto, BirthdayProgramInput, BirthdayStatusDto, BalanceDto, BalanceExportFormat, BalanceExportQuery, BalanceMovementsPage, BalanceMovementsQuery, BalanceQuery, DiscountCodeDto, DiscountCodeInput, ExpensePayeeDto, ExpensesExportQuery, ExpensesPage, ExpensesPageQuery, ExpensesQuery, ExpenseUpdateInput, ExpenseVoidInput, WaitlistEntryDto } from '@xiro/shared';
+import type { AssistantAnswer, AssistantCatalogEntry, AssistantQuestionKey, ImageMatchResult, ReportPeriod } from '@xiro/shared';
+import { HTTP_TIMEOUT_MS, withRetry, type ClientsQuery, type ClientVisits, type ClientsSummary, type ItemsQuery, type ItemsSummary, type LoyaltySummary, type Page, type PageParams, type ProductOrderDto, type ProductOrdersQuery, type ProductOrdersSummary, type ServiceRecordsQuery, type ServiceRecordsSummary } from '@xiro/shared';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -85,6 +91,22 @@ export class ApiError extends Error {
   }
 }
 
+/** Host imposible (dominio reservado `.invalid`): una compilación de producción mal configurada falla cerrada. */
+export const MISCONFIGURED_API_URL = 'https://api-url-no-configurada.invalid';
+
+/**
+ * URL de la API en el celular. En desarrollo, la de EXPO_PUBLIC_API_URL o la IP del PC que sirve Metro (http, red local).
+ * En una compilación de PRODUCCIÓN solo vale una URL https: sin ella (o con http://) la app NO cae a http en texto
+ * plano —tokens y datos de clientes viajarían sin cifrar—; apunta a un host inválido y cada petición falla.
+ */
+export function resolveNativeApiUrl(input: { dev: boolean; configured?: string; hostUri?: string | null }): string {
+  const configured = input.configured?.trim().replace(/\/$/, '');
+  if (!input.dev) return configured && /^https:\/\/[^/]/i.test(configured) ? configured : MISCONFIGURED_API_URL;
+  if (configured) return configured;
+  const host = input.hostUri?.split(':')[0];
+  return host ? `http://${host}:3000` : 'http://10.0.2.2:3000';
+}
+
 export function apiBaseUrl(): string {
   if (Platform.OS === 'web') {
     // La Web siempre detecta su propia URL: un EXPO_PUBLIC_API_URL puesto para el celular (IP de LAN, modo túnel…)
@@ -93,15 +115,21 @@ export function apiBaseUrl(): string {
     // Servidor de desarrollo de Expo (8081) → API local en 3000. En producción la API sirve la web (mismo origen).
     return port === '8081' ? `http://${hostname}:3000` : origin;
   }
-  const configured = process.env.EXPO_PUBLIC_API_URL;
-  if (configured) return configured.replace(/\/$/, '');
-  const host = Constants.expoConfig?.hostUri?.split(':')[0];
-  return host ? `http://${host}:3000` : 'http://10.0.2.2:3000';
+  return resolveNativeApiUrl({ dev: __DEV__, configured: process.env.EXPO_PUBLIC_API_URL, hostUri: Constants.expoConfig?.hostUri });
 }
 
 /** URL base pública para enlaces compartidos con clientes. */
 export function publicBaseUrl(): string {
   return (process.env.EXPO_PUBLIC_PUBLIC_URL ?? apiBaseUrl()).replace(/\/$/, '');
+}
+
+/**
+ * Dirección pública CANÓNICA de un servicio o producto (Fase 2): la página de reservas moderna con su detalle abierto. Si ese
+ * artículo no se ve allí (página sin publicar, no reservable…), el servidor lleva solo al catálogo de siempre — la app no
+ * necesita saberlo, así que el mismo enlace sirve siempre ("Ver página pública", compartir).
+ */
+export function publicItemUrl(slug: string, itemId: string): string {
+  return `${publicBaseUrl()}/reservar/${encodeURIComponent(slug)}/articulo/${encodeURIComponent(itemId)}`;
 }
 
 export function resolveMedia(url: string | null | undefined): string | undefined {
@@ -113,6 +141,8 @@ export function resolveMedia(url: string | null | undefined): string | undefined
 
 interface SessionHooks {
   getRefreshToken: () => string | null;
+  /** "Recordarme" (solo web): cookie persistente de 30 días o de sesión del navegador. */
+  remembers?: () => boolean;
   onTokens: (session: AuthSession) => void;
   onSignedOut: () => void;
 }
@@ -128,27 +158,60 @@ export function setAccessToken(token: string | null) {
   accessToken = token;
 }
 
+/**
+ * Un intento con tiempo máximo (`HTTP_TIMEOUT_MS`). Se usa AbortController + setTimeout (no `AbortSignal.timeout`,
+ * que no existe en todas las versiones de React Native). Sin respuesta a tiempo = `timeout_error`; sin red = `offline_error`
+ * (ambos con status 0: la sesión no se cierra por un problema de red).
+ */
+async function fetchOnce(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch {
+    throw new ApiError(0, controller.signal.aborted ? 'timeout_error' : 'offline_error');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Panel web: el refresh token vive en una cookie HttpOnly que pone la API (JavaScript nunca lo ve, así un XSS no puede
+ * robarlo). Las rutas /api/auth se piden con `X-Xiro-Session: cookie` y con credenciales; la app móvil no usa esto
+ * (guarda el token en Keychain/Keystore). Ver apps/api/src/routes/auth.ts.
+ */
+export const usesCookieSession = Platform.OS === 'web';
+
+/** Política común (@xiro/shared/http): solo GET se reintenta (hasta 3 intentos, backoff con jitter) y nunca un 4xx. */
 async function rawRequest(path: string, init: RequestInit & { auth: boolean }): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
   if (init.auth && accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-  try {
-    return await fetch(`${apiBaseUrl()}${path}`, { ...init, headers });
-  } catch {
-    throw new ApiError(0, 'offline_error');
+  const { auth: _auth, ...rest } = init;
+  const cookieAuth = usesCookieSession && path.startsWith('/api/auth/');
+  if (cookieAuth) {
+    headers.set('X-Xiro-Session', 'cookie');
+    if (hooks?.remembers?.() === false) headers.set('X-Xiro-Remember', '0');
   }
+  return withRetry(
+    init.method,
+    () => fetchOnce(`${apiBaseUrl()}${path}`, { ...rest, headers, ...(cookieAuth ? { credentials: 'include' as const } : {}) }),
+    (response) => response.status,
+    (error) => error instanceof ApiError && error.isNetwork,
+  );
 }
 
 async function tryRefresh(): Promise<boolean> {
   const refreshToken = hooks?.getRefreshToken();
-  if (!hooks || !refreshToken) return false;
+  // En web el token no está en JavaScript: va en la cookie, así que se intenta igual.
+  if (!hooks || (!refreshToken && !usesCookieSession)) return false;
   refreshing ??= (async () => {
     try {
       const response = await rawRequest('/api/auth/refresh', {
         method: 'POST',
         auth: false,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
+        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
       });
       if (!response.ok) return false;
       hooks?.onTokens((await response.json()) as AuthSession);
@@ -188,9 +251,50 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (await tryRefresh()) response = await rawRequest(path, init());
     else hooks?.onSignedOut();
   }
-  if (!response.ok) throw await toError(response);
+  if (!response.ok) {
+    const error = await toError(response);
+    // Negocio suspendido desde la administración de Xiro: la sesión ya no sirve (el servidor también cerró las demás).
+    if (auth && error.code === 'business_suspended') hooks?.onSignedOut();
+    throw error;
+  }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+/** Archivo generado por el servidor (PDF o Excel): misma sesión y renovación que `request`, pero devuelve los bytes. */
+export async function requestFile(path: string): Promise<Uint8Array> {
+  const init = (): RequestInit & { auth: boolean } => ({ method: 'GET', auth: true });
+  let response = await rawRequest(path, init());
+  if (response.status === 401) {
+    if (await tryRefresh()) response = await rawRequest(path, init());
+    else hooks?.onSignedOut();
+  }
+  if (!response.ok) throw await toError(response);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/** `?a=1&b=x` a partir de un objeto; omite `undefined`, `null` y cadenas vacías. */
+function query(params: object): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== null && value !== '') search.set(key, String(value));
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}
+
+/**
+ * Recorre TODAS las páginas de un listado (para lo que de verdad necesita el conjunto completo: configuraciones de
+ * servicios, el catálogo en PDF). `maxPages` es un tope de seguridad (100 × 100 = 10.000 filas).
+ */
+export async function fetchAllPages<T>(fetchPage: (cursor: string | undefined) => Promise<Page<T>>, maxPages = 100): Promise<T[]> {
+  const all: T[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < maxPages; page += 1) {
+    const result = await fetchPage(cursor);
+    all.push(...result.data);
+    if (!result.nextCursor) return all;
+    cursor = result.nextCursor;
+  }
+  return all;
 }
 
 /* ---------- Endpoints ---------- */
@@ -198,8 +302,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 export const api = {
   register: (body: RegisterInput) => request<AuthSession>('/api/auth/register', { method: 'POST', body, auth: false }),
   login: (body: LoginInput) => request<AuthSession>('/api/auth/login', { method: 'POST', body, auth: false }),
-  refresh: (refreshToken: string) => request<AuthSession>('/api/auth/refresh', { method: 'POST', body: { refreshToken }, auth: false }),
-  logout: (refreshToken: string) => request<void>('/api/auth/logout', { method: 'POST', body: { refreshToken }, auth: false }),
+  /** Sin token = la cookie HttpOnly del panel web (ver `usesCookieSession`). */
+  refresh: (refreshToken?: string | null) => request<AuthSession>('/api/auth/refresh', { method: 'POST', body: refreshToken ? { refreshToken } : {}, auth: false }),
+  logout: (refreshToken?: string | null) => request<void>('/api/auth/logout', { method: 'POST', body: refreshToken ? { refreshToken } : {}, auth: false }),
   recoverRequest: (identifier: string, channel: RecoveryChannel) =>
     request<{ ok: true; devCode?: string }>('/api/auth/recover/request', { method: 'POST', body: { identifier, channel }, auth: false }),
   recoverVerify: (identifier: string, code: string) =>
@@ -211,6 +316,7 @@ export const api = {
   updateMe: (body: Partial<Pick<User, 'name' | 'language' | 'theme'>>) => request<User>('/api/me', { method: 'PATCH', body }),
   uploadMyPhoto: (form: FormData) => request<User>('/api/me/photo', { method: 'PUT', form }),
   deleteMyPhoto: () => request<User>('/api/me/photo', { method: 'DELETE' }),
+  changeMyPassword: (body: { currentPassword: string; newPassword: string }) => request<{ ok: true }>('/api/me/password', { method: 'POST', body }),
 
   /* ---------- Mensajes (chat interno del equipo) ---------- */
   messagePeople: () => request<MessagePerson[]>('/api/messages/people'),
@@ -224,6 +330,8 @@ export const api = {
   confirmPhoneChange: (code: string) => request<User>('/api/me/phone/confirm', { method: 'POST', body: { code } }),
   updateBusiness: (body: BusinessUpdateInput) => request<Business>('/api/business', { method: 'PATCH', body }),
   uploadLogo: (form: FormData) => request<Business>('/api/business/logo', { method: 'PUT', form }),
+  /** Eliminación definitiva del negocio (solo el dueño) — ver la zona de peligro de /profile. */
+  deleteBusiness: (password: string) => request<{ ok: true }>('/api/business', { method: 'DELETE', body: { password } }),
   cashToday: () => request<{ opening: CashOpening | null }>('/api/cash/today'),
   openCash: (body: { amount: number; note?: string }) => request<{ opening: CashOpening }>('/api/cash/opening', { method: 'POST', body }),
   /** Bases de caja registradas en un rango (Reportes: tarjeta "Base inicial"); un día sin apertura no aparece en la lista. */
@@ -232,7 +340,22 @@ export const api = {
   /* ---------- Gastos y cierre de caja ---------- */
   expenses: (from: string, to: string) => request<ExpenseDto[]>(`/api/expenses?${new URLSearchParams({ from, to }).toString()}`),
   createExpense: (body: ExpenseInput) => request<ExpenseDto>('/api/expenses', { method: 'POST', body }),
+  /* Módulo Finanzas: listado con filtros, detalle (con ajustes), edición, anulación y beneficiarios de nómina. */
+  expensesList: (params: ExpensesQuery) => request<ExpenseDto[]>(`/api/expenses${query(params)}`),
+  /** Listado paginado con totales del servidor (la pantalla de Gastos usa este; `expensesList` queda por compatibilidad). */
+  expensesPage: (params: ExpensesPageQuery) => request<ExpensesPage>(`/api/expenses/page${query(params)}`),
+  expense: (id: string) => request<ExpenseDto>(`/api/expenses/${id}`),
+  updateExpense: (id: string, body: ExpenseUpdateInput) => request<ExpenseDto>(`/api/expenses/${id}`, { method: 'PUT', body }),
+  voidExpense: (id: string, body: ExpenseVoidInput) => request<ExpenseDto>(`/api/expenses/${id}/void`, { method: 'POST', body }),
+  expensePayees: () => request<ExpensePayeeDto[]>('/api/expenses/payees'),
+  // Balance general (Reportes → Balance general; solo dueño o 'Finanzas').
+  balance: (params: BalanceQuery) => request<BalanceDto>(`/api/reports/balance${query(params)}`),
+  balanceMovements: (params: BalanceMovementsQuery) => request<BalanceMovementsPage>(`/api/reports/balance/movements${query(params)}`),
+  /** Descargas generadas en el servidor (máximo 12 meses). */
+  balanceExport: (format: BalanceExportFormat, params: BalanceExportQuery) => requestFile(`/api/reports/balance/export.${format}${query(params)}`),
+  expensesExport: (params: ExpensesExportQuery) => requestFile(`/api/expenses/export.xlsx${query(params)}`),
   cashCloseSummary: (day: string) => request<CashDaySummary>(`/api/cash/close-summary?day=${day}`),
+  cashDaySales: (params: CashDaySalesQuery) => request<CashDaySalesPage>(`/api/cash/day-sales${query(params)}`),
   cashClosings: (from: string, to: string) => request<CashClosingDto[]>(`/api/cash/closings?${new URLSearchParams({ from, to }).toString()}`),
   cashClosing: (id: string) => request<CashClosingDto>(`/api/cash/closings/${id}`),
   closeCash: (body: CashCloseInput) => request<CashClosingDto>('/api/cash/close', { method: 'POST', body }),
@@ -243,7 +366,9 @@ export const api = {
   renameCategory: (id: string, name: string) => request<Category>(`/api/categories/${id}`, { method: 'PATCH', body: { name } }),
   deleteCategory: (id: string) => request<void>(`/api/categories/${id}`, { method: 'DELETE' }),
 
-  items: () => request<Item[]>('/api/items'),
+  /** Catálogo/inventario paginado (`limit` ≤ 100) con filtros en el servidor. */
+  items: (params: ItemsQuery = {}) => request<Page<Item>>(`/api/items${query(params)}`),
+  itemsSummary: () => request<ItemsSummary>('/api/items/summary'),
   item: (id: string) => request<Item>(`/api/items/${id}`),
   createItem: (body: ItemInput) => request<Item>('/api/items', { method: 'POST', body }),
   updateItem: (id: string, body: ItemInput) => request<Item>(`/api/items/${id}`, { method: 'PUT', body }),
@@ -253,7 +378,9 @@ export const api = {
   deletePhoto: (id: string, photoId: string) => request<Item>(`/api/items/${id}/photos/${photoId}`, { method: 'DELETE' }),
   makePrimaryPhoto: (id: string, photoId: string) => request<Item>(`/api/items/${id}/photos/${photoId}/primary`, { method: 'POST' }),
 
-  clients: (q?: string) => request<Client[]>(`/api/clients${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  /** Directorio paginado (`limit` ≤ 100): `q` busca en el servidor; `sort=recent` = los últimos creados primero. */
+  clients: (params: ClientsQuery = {}) => request<Page<Client>>(`/api/clients${query(params)}`),
+  clientsSummary: (range?: { from: string; to: string }) => request<ClientsSummary>(`/api/clients/summary${query(range ?? {})}`),
   client: (id: string) => request<Client>(`/api/clients/${id}`),
   createClient: (body: ClientInput) => request<Client>('/api/clients', { method: 'POST', body }),
   updateClient: (id: string, body: ClientInput) => request<Client>(`/api/clients/${id}`, { method: 'PUT', body }),
@@ -264,12 +391,18 @@ export const api = {
   uploadClientPhoto: (id: string, form: FormData) => request<Client>(`/api/clients/${id}/photo`, { method: 'PUT', form }),
   deleteClientPhoto: (id: string) => request<Client>(`/api/clients/${id}/photo`, { method: 'DELETE' }),
 
+  birthdayProgram: () => request<BirthdayProgramDto>('/api/birthday/program'),
+  updateBirthdayProgram: (body: BirthdayProgramInput) => request<BirthdayProgramDto>('/api/birthday/program', { method: 'PUT', body }),
+  clientBirthday: (id: string) => request<BirthdayStatusDto>(`/api/clients/${id}/birthday`),
   loyaltyProgram: () => request<LoyaltyProgram>('/api/loyalty/program'),
   updateLoyaltyProgram: (body: LoyaltyProgramUpdateInput) => request<LoyaltyProgram>('/api/loyalty/program', { method: 'PUT', body }),
-  loyaltyClients: () => request<LoyaltyClientProgress[]>('/api/loyalty/clients'),
-  loyaltyRedemptions: (clientId?: string) => request<LoyaltyRedemption[]>(`/api/loyalty/redemptions${clientId ? `?clientId=${clientId}` : ''}`),
+  loyaltySummary: () => request<LoyaltySummary>('/api/loyalty/summary'),
+  loyaltyClients: (params: PageParams & { q?: string } = {}) => request<Page<LoyaltyClientProgress>>(`/api/loyalty/clients${query(params)}`),
+  loyaltyRedemptions: (params: PageParams & { clientId?: string } = {}) => request<Page<LoyaltyRedemption>>(`/api/loyalty/redemptions${query(params)}`),
   redeemLoyalty: (clientId: string) => request<LoyaltyClientProgress>(`/api/loyalty/clients/${clientId}/redeem`, { method: 'POST' }),
-  serviceRecords: (clientId?: string) => request<ServiceRecord[]>(`/api/service-records${clientId ? `?clientId=${clientId}` : ''}`),
+  serviceRecords: (params: ServiceRecordsQuery = {}) => request<Page<ServiceRecord>>(`/api/service-records${query(params)}`),
+  serviceRecordsByClient: (clientIds: string[]) => request<ClientVisits[]>(`/api/service-records/by-client${query({ clientIds: clientIds.join(',') })}`),
+  serviceRecordsSummary: (params: { clientId?: string; kind?: 'service' | 'product'; from?: string; to?: string } = {}) => request<ServiceRecordsSummary>(`/api/service-records/summary${query(params)}`),
   createServiceRecord: (body: ServiceRecordInput) => request<ServiceRecord & { rewardJustEarned: boolean }>('/api/service-records', { method: 'POST', body }),
 
   /* ---------- Ventas (POS) ---------- */
@@ -277,6 +410,12 @@ export const api = {
   sales: (query: { from: string; to: string }) => request<SaleDto[]>(`/api/sales?${new URLSearchParams({ from: query.from, to: query.to, limit: '200' }).toString()}`),
   createSale: (body: SaleInput) => request<SaleDto & { rewardJustEarned: boolean }>('/api/sales', { method: 'POST', body }),
   voidSale: (id: string, reason: string) => request<SaleDto>(`/api/sales/${id}/void`, { method: 'POST', body: { reason } }),
+  /* Pedidos de solo productos de la página pública (entregar = registrar la venta con `productOrderId`). */
+  orders: (params: ProductOrdersQuery = {}) => request<Page<ProductOrderDto>>(`/api/orders${query(params)}`),
+  ordersSummary: () => request<ProductOrdersSummary>('/api/orders/summary'),
+  order: (id: string) => request<ProductOrderDto>(`/api/orders/${id}`),
+  orderReady: (id: string) => request<ProductOrderDto>(`/api/orders/${id}/ready`, { method: 'POST', body: {} }),
+  orderCancel: (id: string, reason = '') => request<ProductOrderDto>(`/api/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
 
   notificationSettings: () => request<NotificationSettings>('/api/notifications/settings'),
   updateNotificationSettings: (body: NotificationSettingsUpdateInput) => request<NotificationSettings>('/api/notifications/settings', { method: 'PUT', body }),
@@ -289,6 +428,7 @@ export const api = {
   markAllNotificationsRead: () => request<{ ok: true }>('/api/notifications/read-all', { method: 'POST' }),
 
   employees: () => request<Employee[]>('/api/employees'),
+  employeeQuota: () => request<EmployeeQuotaDto>('/api/employees/quota'),
   createEmployee: (body: EmployeeCreateInput) => request<Employee>('/api/employees', { method: 'POST', body }),
   updateEmployee: (id: string, body: EmployeeUpdateInput) => request<Employee>(`/api/employees/${id}`, { method: 'PATCH', body }),
   /** Foto de cuenta de un empleado, puesta por el dueño (misma columna que `/me/photo`: el propio empleado también puede cambiarla). */
@@ -326,8 +466,16 @@ export const api = {
   closures: () => request<ClosureDto[]>('/api/booking/closures'),
   addClosure: (body: { date: string; reason: string }) => request<ClosureDto>('/api/booking/closures', { method: 'POST', body }),
   deleteClosure: (id: string) => request<void>(`/api/booking/closures/${id}`, { method: 'DELETE' }),
-  bookingReviews: () => request<ReviewDto[]>('/api/booking/reviews'),
+  bookingReviews: (params: PageParams & { status?: 'pending' | 'approved' | 'hidden' } = {}) => request<Page<ReviewDto>>(`/api/booking/reviews${query(params)}`),
   moderateReview: (id: string, status: 'approved' | 'hidden') => request<ReviewDto>(`/api/booking/reviews/${id}`, { method: 'PATCH', body: { status } }),
+
+  /* ---------- Códigos de descuento y lista de espera (Fase 4) ---------- */
+  discountCodes: () => request<DiscountCodeDto[]>('/api/discount-codes'),
+  createDiscountCode: (body: DiscountCodeInput) => request<DiscountCodeDto>('/api/discount-codes', { method: 'POST', body }),
+  updateDiscountCode: (id: string, body: DiscountCodeInput) => request<DiscountCodeDto>(`/api/discount-codes/${id}`, { method: 'PUT', body }),
+  deleteDiscountCode: (id: string) => request<void>(`/api/discount-codes/${id}`, { method: 'DELETE' }),
+  waitlist: (params: { from?: string; status?: 'waiting' | 'notified' | 'cancelled' } = {}) => request<WaitlistEntryDto[]>(`/api/waitlist${query(params)}`),
+  cancelWaitlistEntry: (id: string) => request<WaitlistEntryDto>(`/api/waitlist/${id}/cancel`, { method: 'POST', body: {} }),
 
   /* ---------- Profesionales ---------- */
   professionals: () => request<ProfessionalDto[]>('/api/professionals'),
@@ -359,6 +507,12 @@ export const api = {
   checkoutPaypal: (plan: SubscriptionPlan) => request<{ url: string }>('/api/subscription/checkout/paypal', { method: 'POST', body: { plan } }),
   checkoutBankTransfer: (plan: SubscriptionPlan) => request<{ instructions: string; plan: SubscriptionPlan }>('/api/subscription/checkout/bank-transfer', { method: 'POST', body: { plan } }),
   subscriptionInvoices: () => request<{ invoices: SubscriptionInvoiceDto[] }>('/api/subscription/invoices').then((r) => r.invoices),
+
+  /* ---------- Asistente de negocio (catálogo cerrado, Fase A/B) ---------- */
+  assistantCatalog: () => request<AssistantCatalogEntry[]>('/api/assistant/catalog'),
+  assistantAsk: (params: { question: AssistantQuestionKey; period?: ReportPeriod; from?: string; to?: string }) => request<AssistantAnswer>(`/api/assistant/ask${query(params)}`),
+  /** Foto de un producto → comparación LOCAL contra el inventario (nunca sale de nuestro servidor). */
+  assistantImageMatch: (form: FormData) => request<ImageMatchResult>('/api/assistant/image-match', { method: 'POST', form }),
 };
 
 /** Lo elegido para reservar: servicios (con estilo), paquetes y el profesional; viaja como `services=id:estilo,id` y `packages=id,id`. */
@@ -386,21 +540,10 @@ function availabilityParams(query: AvailabilityQuery & { from?: string; days?: n
 /** Traduce un error de API a una clave de i18n (o el mensaje del primer campo inválido). */
 export function errorKey(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.isNetwork) return 'offline_error';
+    if (error.isNetwork) return error.code === 'timeout_error' ? 'timeout_error' : 'offline_error';
     if (error.code === 'validation_error' && error.issues[0]) return error.issues[0].message;
     return error.code;
   }
   return 'unknown_error';
 }
 
-/** Mapa campo → clave de i18n para mostrar errores junto a cada input. */
-export function fieldErrors(error: unknown): Record<string, string> {
-  const result: Record<string, string> = {};
-  if (error instanceof ApiError) {
-    for (const issue of error.issues) {
-      const field = issue.path.split('.')[0] ?? '';
-      if (field && !result[field]) result[field] = issue.message;
-    }
-  }
-  return result;
-}

@@ -10,9 +10,14 @@ import type {
   PublicBookingCatalog,
   PublicBookingProfile,
   PublicBookingResult,
+  PublicDiscountDto,
+  PublicProductOrderDto,
   PublicReviewDto,
   PublicTeamMemberDto,
+  PublicWaitlistDto,
+  ClientBirthdayDto,
 } from '@xiro/shared';
+import { HTTP_TIMEOUT_MS, withRetry } from '@xiro/shared';
 
 export interface LoyaltyAccountView {
   active: boolean;
@@ -36,15 +41,31 @@ export class ApiError extends Error {
   }
 }
 
+/** Un intento con tiempo máximo: sin respuesta a tiempo = `timeout_error`; sin red = `offline_error` (ambos status 0). */
+async function fetchOnce(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch {
+    throw new ApiError(0, controller.signal.aborted ? 'timeout_error' : 'offline_error');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  let response: Response;
   // Cuerpo FormData (subida de foto): el navegador pone su propio Content-Type con el boundary — fijarlo a mano lo rompe.
   const isFormData = init.body instanceof FormData;
-  try {
-    response = await fetch(`/api/public/booking${path}`, { ...init, headers: { Accept: 'application/json', ...(init.body && !isFormData ? { 'Content-Type': 'application/json' } : {}), ...init.headers } });
-  } catch {
-    throw new ApiError(0, 'offline_error');
-  }
+  const headers = { Accept: 'application/json', ...(init.body && !isFormData ? { 'Content-Type': 'application/json' } : {}), ...init.headers };
+  // Política común (@xiro/shared/http): solo GET se reintenta (hasta 3 intentos, backoff con jitter); reservar, cancelar
+  // o subir una foto NUNCA se repiten solas.
+  const response = await withRetry(
+    init.method,
+    () => fetchOnce(`/api/public/booking${path}`, { ...init, headers }),
+    (res) => res.status,
+    (error) => error instanceof ApiError && error.isNetwork,
+  );
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
     throw new ApiError(response.status, body?.code ?? 'unknown_error', body?.issues, (body ?? {}) as Record<string, unknown>);
@@ -73,6 +94,17 @@ export const publicApi = {
     request<DaySummary[]>(`/${slug}/days?from=${from}&days=${days}&professionalId=${professionalId}&${selectionParams(selection)}`),
 
   book: (slug: string, body: unknown) => request<PublicBookingResult>(`/${slug}/appointments`, { method: 'POST', body: JSON.stringify(body) }),
+  /** Pedido de solo productos (recoger y pagar en el local). Repetir el mismo `idempotencyKey` devuelve el mismo pedido. */
+  order: (slug: string, body: unknown) => request<{ order: PublicProductOrderDto }>(`/${slug}/orders`, { method: 'POST', body: JSON.stringify(body) }),
+
+  /** Vista previa de un código de descuento (el canje real lo hace el servidor al confirmar). */
+  discount: (slug: string, code: string) => request<PublicDiscountDto>(`/${slug}/discount?code=${encodeURIComponent(code)}`),
+  joinWaitlist: (slug: string, body: unknown) => request<{ entry: PublicWaitlistDto; token: string; manageUrl: string }>(`/${slug}/waitlist`, { method: 'POST', body: JSON.stringify(body) }),
+  waitlist: (slug: string, token: string) => request<PublicWaitlistDto>(`/${slug}/waitlist/${token}`),
+  cancelWaitlist: (slug: string, token: string) => request<PublicWaitlistDto>(`/${slug}/waitlist/${token}/cancel`, { method: 'POST' }),
+  /** Enlace firmado para reseñar (llega al completar la cita, si el negocio lo activó): solo sirve para reseñar. */
+  reviewLink: (slug: string, token: string) => request<PublicAppointmentDto>(`/${slug}/review-link/${token}`),
+  submitReviewLink: (slug: string, token: string, rating: number, comment: string) => request<PublicAppointmentDto>(`/${slug}/review-link/${token}`, { method: 'POST', body: JSON.stringify({ rating, comment }) }),
 
   appointment: (slug: string, token: string) => request<PublicAppointmentDto>(`/${slug}/appointments/${token}`),
   cancel: (slug: string, token: string, reason: string) => request<PublicAppointmentDto>(`/${slug}/appointments/${token}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
@@ -82,11 +114,11 @@ export const publicApi = {
   review: (slug: string, token: string, rating: number, comment: string) => request<PublicAppointmentDto>(`/${slug}/appointments/${token}/review`, { method: 'POST', body: JSON.stringify({ rating, comment }) }),
 
   accountMe: (slug: string) => request<ClientAccountDto | undefined>(`/${slug}/account/me`),
-  accountRegister: (slug: string, body: { name: string; phone: string; password: string; email?: string; acceptTerms: true; remember: boolean }) =>
+  accountRegister: (slug: string, body: { name: string; phone: string; password: string; email?: string; birthDate?: string; acceptTerms: true; remember: boolean }) =>
     request<ClientAccountDto>(`/${slug}/account/register`, { method: 'POST', body: JSON.stringify(body) }),
   accountLogin: (slug: string, body: { phone: string; password: string; remember: boolean }) => request<ClientAccountDto>(`/${slug}/account/login`, { method: 'POST', body: JSON.stringify(body) }),
   accountLogout: (slug: string) => request<void>(`/${slug}/account/logout`, { method: 'POST' }),
-  accountUpdate: (slug: string, body: { name?: string; email?: string | null }) => request<ClientAccountDto>(`/${slug}/account/me`, { method: 'PUT', body: JSON.stringify(body) }),
+  accountUpdate: (slug: string, body: { name?: string; email?: string | null; birthDate?: string | null }) => request<ClientAccountDto>(`/${slug}/account/me`, { method: 'PUT', body: JSON.stringify(body) }),
   accountUploadPhoto: (slug: string, file: File) => {
     const form = new FormData();
     form.append('photo', file);
@@ -100,6 +132,9 @@ export const publicApi = {
   accountRecoverVerify: (slug: string, phone: string, code: string) => request<{ resetToken: string }>(`/${slug}/account/recover/verify`, { method: 'POST', body: JSON.stringify({ phone, code }) }),
   accountRecoverReset: (slug: string, resetToken: string, newPassword: string) => request<{ ok: true }>(`/${slug}/account/recover/reset`, { method: 'POST', body: JSON.stringify({ resetToken, newPassword }) }),
   accountAppointments: (slug: string) => request<ClientAppointmentDto[]>(`/${slug}/account/appointments`),
+  /** Calificar una cita propia ya completada (con sesión): queda por revisar hasta que el negocio la apruebe. */
+  accountReview: (slug: string, id: string, rating: number, comment: string) => request<ClientAppointmentDto>(`/${slug}/account/appointments/${id}/review`, { method: 'POST', body: JSON.stringify({ rating, comment }) }),
   accountCancelAppointment: (slug: string, id: string, reason = '') => request<ClientAppointmentDto>(`/${slug}/account/appointments/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
   accountLoyalty: (slug: string) => request<LoyaltyAccountView>(`/${slug}/account/loyalty`),
+  accountBirthday: (slug: string) => request<ClientBirthdayDto>(`/${slug}/account/birthday`),
 };

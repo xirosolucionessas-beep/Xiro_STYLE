@@ -7,6 +7,7 @@ const TZ = 'America/Bogota';
 const appt = (over: Partial<AppointmentDto> & { id: string; startsAt: string }): AppointmentDto => ({
   status: 'confirmed',
   source: 'web',
+  discount: null,
   endsAt: new Date(new Date(over.startsAt).getTime() + 3_600_000).toISOString(),
   durationMinutes: 60,
   totalPrice: 30000,

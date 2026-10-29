@@ -56,6 +56,7 @@ export function testAppConfig(overrides: BuildOptions['config'] = {}): { config:
       webDir: null,
       exposeDevOtp: false,
       corsOrigins: ['http://localhost:8081'],
+      exports: { workers: 0, queueMax: 20, timeoutMs: 60_000, workerMemoryMb: 256 },
       ...overrides,
       rateLimit: { enabled: false, ...overrides.rateLimit },
     },

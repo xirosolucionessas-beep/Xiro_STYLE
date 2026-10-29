@@ -1,11 +1,29 @@
+import { useEffect, useState } from 'react';
+
 /** Bloque de carga (shimmer sutil; sin movimiento si la persona pidió menos animación): evita pantallas en blanco mientras llegan los datos. */
 export function Skeleton({ className = '', style }: { className?: string; style?: React.CSSProperties }) {
   return <span className={`xp-skel ${className}`} style={style} aria-hidden="true" />;
 }
 
-export function ProfileSkeleton({ label }: { label: string }) {
+/** Pasado este tiempo cargando, se avisa y se ofrece reintentar (la página nunca parece "rota" con solo rectángulos). */
+const SLOW_AFTER_MS = 6000;
+
+export function ProfileSkeleton({ label, slow }: { label: string; slow?: { text: string; cta: string; onRetry: () => void } }) {
+  const [isSlow, setIsSlow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setIsSlow(true), SLOW_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, []);
   return (
     <div className="xp-page" role="status" aria-busy="true" aria-label={label}>
+      {isSlow && slow ? (
+        <div className="xp-slow-notice" role="alert">
+          <p>{slow.text}</p>
+          <button type="button" className="xp-btn xp-btn--secondary xp-btn--auto" onClick={slow.onRetry}>
+            {slow.cta}
+          </button>
+        </div>
+      ) : null}
       <Skeleton className="xp-skel-cover" />
       <div className="xp-container xp-identity">
         <Skeleton className="xp-skel-logo" />

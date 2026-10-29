@@ -1,5 +1,5 @@
-import { and, desc, eq } from 'drizzle-orm';
-import { employeeCreateSchema, employeeUpdateSchema, normalizePermissions, type AuditLogEntry, type Employee } from '@xiro/shared';
+import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { EMPLOYEE_ACTIVE_LIMIT, employeeCreateSchema, employeeQuota, employeeUpdateSchema, normalizePermissions, type AuditLogEntry, type Employee, type EmployeeQuotaDto } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { recordAudit } from '../audit';
@@ -12,7 +12,7 @@ import { notifyUser } from '../push';
 import { hashPassword } from '../security';
 import { toEmployee } from '../serializers';
 
-const auditQuery = z.object({ userId: z.string().optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
+const auditQuery = z.object({ userId: z.string().max(64).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
 
 /**
  * Gestión de empleados (solo dueño — ver POLICY). Todo se acota a `request.user.bid` Y a `role = 'employee'`: un dueño
@@ -27,6 +27,22 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (!row) throw notFound();
     return row;
   }
+  type Executor = Pick<typeof db, 'select' | 'execute'>;
+  const countActive = async (executor: Executor, businessId: string) =>
+    Number((await executor.select({ n: count() }).from(users).where(and(eq(users.businessId, businessId), eq(users.role, 'employee'), eq(users.active, true))))[0]?.n ?? 0);
+
+  /**
+   * Ocupa un cupo de empleado activo DENTRO de la transacción que da el alta o reactiva. Un advisory lock por negocio (se
+   * libera al confirmar o revertir) hace que dos peticiones simultáneas por el último cupo se atiendan una tras otra: la
+   * segunda ya cuenta a la primera y recibe 409. Otro negocio usa otra llave: nunca se esperan ni comparten cupos.
+   */
+  const lockEmployeeSlots = (tx: Executor, businessId: string) => tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`employee-slots:${businessId.toLowerCase()}`}, 0))`);
+  /** Exige que haya un cupo libre; quien llama ya tomó `lockEmployeeSlots` en la misma transacción. */
+  async function assertFreeSlot(tx: Executor, businessId: string): Promise<void> {
+    const active = await countActive(tx, businessId);
+    if (active >= EMPLOYEE_ACTIVE_LIMIT) throw new AppError(409, 'employee_limit_reached', undefined, undefined, { active, limit: EMPLOYEE_ACTIVE_LIMIT });
+  }
+
   const audit = (request: { user: { bid: string; sub: string }; log: { error: (e: unknown) => void } }, action: string, entityId: string, status: number) =>
     recordAudit(db, { businessId: request.user.bid, userId: request.user.sub, action, entityId, status }, (error) => request.log.error(error));
 
@@ -35,23 +51,31 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
     return rows.map(toEmployee);
   });
 
+  /** Cupos de empleados activos del propio negocio ("3 de 5"). */
+  app.get('/employees/quota', async (request): Promise<EmployeeQuotaDto> => employeeQuota(await countActive(db, request.user.bid)));
+
   app.post('/employees', async (request, reply): Promise<unknown> => {
     const input = parse(employeeCreateSchema, request.body);
     const [owner] = await db.select({ language: users.language }).from(users).where(eq(users.id, request.user.sub)).limit(1);
+    const passwordHash = await hashPassword(input.password);
     try {
-      const [created] = await db
+      const [created] = await db.transaction(async (tx) => {
+        await lockEmployeeSlots(tx, request.user.bid);
+        await assertFreeSlot(tx, request.user.bid);
+        return tx
         .insert(users)
         .values({
           businessId: request.user.bid,
           name: input.name,
           email: input.email ?? null,
           phone: input.phone ?? null,
-          passwordHash: await hashPassword(input.password),
+          passwordHash,
           language: owner?.language ?? 'es',
           role: 'employee',
           permissions: normalizePermissions(input.permissions),
         })
         .returning();
+      });
       await audit(request, 'POST /employees', created!.id, 201);
       return reply.status(201).send(toEmployee(created!));
     } catch (error) {
@@ -77,6 +101,13 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
     if (Object.keys(changes).length === 0) return toEmployee(before);
 
     const updated = await db.transaction(async (tx) => {
+      // Reactivar ocupa un cupo igual que un alta. Se vuelve a leer el estado con el candado tomado: si otra petición ya lo
+      // reactivó, no se cuenta dos veces.
+      if (input.active === true) {
+        await lockEmployeeSlots(tx, businessId);
+        const [current] = await tx.select({ active: users.active }).from(users).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).limit(1);
+        if (current && !current.active) await assertFreeSlot(tx, businessId);
+      }
       const [row] = await tx.update(users).set(changes).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).returning();
       // Desactivar o cambiar la contraseña cierra todas sus sesiones y deja de mandarle avisos a ese dispositivo.
       if (input.active === false || input.password !== undefined) {
@@ -111,15 +142,15 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
     const id = uuid((request.params as { id?: string }).id);
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    const file = await saveAvatarImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     try {
       const existing = await findEmployee(businessId, id);
       const [row] = await db.update(users).set({ photoFile: file }).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).returning();
-      await removeMedia(config.mediaDir, existing.photoFile);
+      await removeMedia(ctx.media, existing.photoFile);
       return toEmployee(row!);
     } catch (error) {
-      await removeMedia(config.mediaDir, file);
+      await removeMedia(ctx.media, file);
       throw error;
     }
   });
@@ -129,7 +160,7 @@ export function employeeRoutes(app: FastifyInstance, ctx: Ctx): void {
     const id = uuid((request.params as { id?: string }).id);
     const existing = await findEmployee(businessId, id);
     const row = existing.photoFile ? (await db.update(users).set({ photoFile: null }).where(and(eq(users.id, id), eq(users.businessId, businessId), eq(users.role, 'employee'))).returning())[0] : existing;
-    await removeMedia(config.mediaDir, existing.photoFile);
+    await removeMedia(ctx.media, existing.photoFile);
     return toEmployee(row!);
   });
 

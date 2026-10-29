@@ -5,7 +5,9 @@
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { quotaView } from '@/lib/employeesLogic';
 import { apiErrors } from '@/lib/forms';
+import { useEmployeeQuota } from '@/lib/queries';
 import { Header, Screen } from '@/ui/Screen';
 import { EmployeesView } from '@/web/screens/Employees';
 import { useWebText } from '@/web/services/useWebText';
@@ -17,6 +19,8 @@ export default function EmployeesWeb() {
   const queryClient = useQueryClient();
   const employees = useQuery({ queryKey: keys.employees, queryFn: api.employees });
   const logs = useQuery({ queryKey: keys.auditLogs, queryFn: () => api.auditLogs() });
+  // Mismo prefijo ['employees']: `refresh` lo vuelve a pedir tras crear, desactivar o reactivar.
+  const quota = useEmployeeQuota();
 
   if (!employees.data) return null;
   const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: keys.employees }), queryClient.invalidateQueries({ queryKey: keys.auditLogs })]);
@@ -49,6 +53,7 @@ export default function EmployeesWeb() {
         t={t}
         employees={employees.data}
         logs={logs.data ?? []}
+        quota={quota.data ? quotaView(t, quota.data) : null}
         onCreate={(input) => run(() => api.createEmployee(input))}
         onUpdate={(id, input) => run(() => api.updateEmployee(id, input))}
         onUploadPhoto={(id, file) => {

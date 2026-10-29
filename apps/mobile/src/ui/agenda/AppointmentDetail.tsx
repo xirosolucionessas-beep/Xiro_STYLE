@@ -1,4 +1,4 @@
-import { formatMoney, whatsappLink, type AppointmentDto, type AvailabilitySlot } from '@xiro/shared';
+import { formatMoney, whatsappLink, type AppointmentDto, type AvailabilitySlot, appliedDiscountLabel } from '@xiro/shared';
 import { useMemo, useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
 import { ApiError, api } from '@/lib/api';
@@ -149,12 +149,20 @@ export function AppointmentDetail({ appointment, onClose, onChanged, canManage }
             <AppText tone="muted">{formatMoney(item.price * item.quantity, currency)}</AppText>
           </View>
         ))}
+        {current.discount && current.discount.amount > 0 ? (
+          <View style={styles.line}>
+            <AppText tone="success" style={{ flex: 1 }}>
+              {appliedDiscountLabel(t, current.discount, 'birthday_applied')}
+            </AppText>
+            <AppText tone="success">−{formatMoney(current.discount.amount, currency)}</AppText>
+          </View>
+        ) : null}
         <View style={[styles.line, { marginTop: 6 }]}>
           <AppText variant="bodyStrong" style={{ flex: 1 }}>
             {t('appt_total')}
           </AppText>
           <AppText variant="heading" tone="gold">
-            {formatMoney(current.totalPrice, currency)}
+            {formatMoney(current.totalPrice - (current.discount?.amount ?? 0), currency)}
           </AppText>
         </View>
         <AppText variant="small" tone="muted">

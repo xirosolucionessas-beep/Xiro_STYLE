@@ -39,6 +39,7 @@ describe('design scale', () => {
 describe('documentation', () => {
   it('docs/web-design-tokens.md is up to date (run: npm run docs:tokens -w @xiro/mobile)', () => {
     const file = readFileSync(path.resolve(__dirname, '../docs/web-design-tokens.md'), 'utf8');
-    expect(file).toBe(buildTokensMarkdown());
+    // Sin importar los fines de línea (Git en Windows con core.autocrlf los convierte a CRLF al hacer checkout).
+    expect(file.replace(/\r\n/g, '\n')).toBe(buildTokensMarkdown());
   });
 });

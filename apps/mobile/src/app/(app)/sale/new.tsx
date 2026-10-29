@@ -4,20 +4,24 @@
  * presentación propia con los componentes nativos. Hermana de sale/new.web.tsx.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { formatMoney, normalizePhone, whatsappLink, type Currency, type SaleDto, type SaleInput } from '@xiro/shared';
-import { useRouter } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { formatMoney, normalizePhone, whatsappLink, type Currency, type Item, type SaleDto, type SaleInput } from '@xiro/shared';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
 import { dayRange, formatClock, localTime, summarizeItems, todayIn } from '@/lib/agenda';
 import { api } from '@/lib/api';
 import { apiErrors, toInt } from '@/lib/forms';
-import { useAppointments, useCategories, useClients, useEmployees, useInvalidateAfterSale, useItems } from '@/lib/queries';
-import { changeDue, cartSubtotal, filterCatalog, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, type CartLine, type PaymentRow } from '@/lib/sale';
+import { birthdaySalePreview } from '@/lib/birthdaySale';
+import { describeReward } from '@/lib/birthdayText';
+import { flatPages, useAppointments, useCategories, useClientBirthday, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
+import { useOrderPrefill } from '@/lib/orderPrefill';
+import { changeDue, cartSubtotal, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, type CartLine, type PaymentRow } from '@/lib/sale';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { BancolombiaBadge, NequiBadge } from '@/ui/brand/logos';
 import { Button } from '@/ui/Button';
+import { CheckRow } from '@/ui/CheckRow';
 import { Field } from '@/ui/Field';
 import { Card, Chip, ChipRow, EmptyState, SectionTitle } from '@/ui/Kit';
 import { PopIn } from '@/ui/PopIn';
@@ -52,7 +56,8 @@ export default function SaleNewNative() {
   /* ---------- Cliente ---------- */
   const [clientQuery, setClientQuery] = useState('');
   const searching = clientQuery.trim().length >= 2;
-  const clientResults = useClients(clientQuery, searching);
+  // Búsqueda en el servidor (primera página): no se descarga el directorio.
+  const clientResults = useClientSearch(clientQuery.trim(), searching);
   const [selectedClient, setSelectedClient] = useState<{ id: string; name: string; phone: string | null } | null>(null);
   const [occasional, setOccasional] = useState(false);
   const [newClientOpen, setNewClientOpen] = useState(false);
@@ -93,7 +98,6 @@ export default function SaleNewNative() {
   const todayKey = todayIn(business.timezone);
   const todayRange = useMemo(() => dayRange(todayKey, business.timezone, 1), [todayKey, business.timezone]);
   const appointments = useAppointments(todayRange, canAgenda && Boolean(selectedClient));
-  const items = useItems();
   const categories = useCategories();
   const clientAppointment = useMemo(() => {
     if (!selectedClient || !appointments.data) return null;
@@ -101,12 +105,16 @@ export default function SaleNewNative() {
   }, [selectedClient, appointments.data]);
   const [appointmentLoaded, setAppointmentLoaded] = useState(false);
 
-  function loadAppointment() {
-    if (!clientAppointment || !items.data) return;
+  /** Carga la cita del cliente en el carrito con los precios del catálogo: pide SOLO esos artículos (por id). */
+  async function loadAppointment() {
+    if (!clientAppointment) return;
+    const ids = [...new Set(clientAppointment.items.filter((line) => line.kind !== 'package' && line.itemId).map((line) => line.itemId!))];
+    const fetched = await Promise.all(ids.map((id) => api.item(id).catch(() => null)));
+    const byId = new Map(fetched.filter((item): item is Item => item !== null).map((item) => [item.id, item]));
     const added: CartLine[] = [];
     for (const line of clientAppointment.items) {
       if (line.kind === 'package' || !line.itemId) continue;
-      const catalogItem = items.data.find((i) => i.id === line.itemId);
+      const catalogItem = byId.get(line.itemId);
       if (!catalogItem) continue;
       added.push({
         key: nextKey(),
@@ -129,7 +137,14 @@ export default function SaleNewNative() {
   const [tab, setTab] = useState<'service' | 'product'>('service');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [itemQuery, setItemQuery] = useState('');
-  const catalogRows = useMemo(() => filterCatalog(items.data ?? [], itemQuery, categoryFilter, tab), [items.data, itemQuery, categoryFilter, tab]);
+  const [appliedItemQuery, setAppliedItemQuery] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setAppliedItemQuery(itemQuery.trim()), 300);
+    return () => clearTimeout(id);
+  }, [itemQuery]);
+  // Catálogo del POS paginado: tipo, categoría y búsqueda (sin tildes) en el servidor; "Cargar más" al final.
+  const items = useItemsPages({ kind: tab, categoryId: categoryFilter ?? undefined, q: appliedItemQuery || undefined });
+  const catalogRows = useMemo(() => flatPages(items.data), [items.data]);
 
   const [manualOpen, setManualOpen] = useState(false);
   const [manualKind, setManualKind] = useState<'service' | 'product'>('service');
@@ -141,7 +156,23 @@ export default function SaleNewNative() {
   const [lines, setLines] = useState<CartLine[]>([]);
   const updateLine = (key: string, patch: Partial<CartLine>) => setLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
 
-  function addCatalogLine(row: NonNullable<typeof items.data>[number]) {
+  // Entregar un pedido de la página pública (Pedidos → "Entregar"): cliente y productos precargados; la venta lo marca entregado.
+  const { orderId } = useLocalSearchParams<{ orderId?: string }>();
+  // Declarado antes de precargar: un pedido con código de descuento trae ya su descuento.
+  const [discount, setDiscount] = useState('');
+  const orderPrefill = useOrderPrefill(
+    orderId,
+    ({ client, lines: orderLines, discount: promised }) => {
+      setSelectedClient(client);
+      setOccasional(false);
+      setLines(orderLines);
+      if (promised > 0) setDiscount(String(promised));
+    },
+    nextKey,
+    canOverridePrice,
+  );
+
+  function addCatalogLine(row: Item) {
     setLines((prev) => {
       const existing = prev.find((l) => l.itemId === row.id && l.kind === tab);
       if (existing) return prev.map((l) => (l === existing ? { ...l, quantity: l.quantity + 1 } : l));
@@ -168,12 +199,19 @@ export default function SaleNewNative() {
   }, [employeesQuery.data, user.id, t]);
 
   /* ---------- Descuento, propina, pagos ---------- */
-  const [discount, setDiscount] = useState('');
   const [tip, setTip] = useState('');
   const [payments, setPayments] = useState<PaymentRow[]>([{ key: 'pay-1', method: 'cash', amount: 0, receivedAmount: null }]);
 
   const subtotal = cartSubtotal(lines);
-  const total = saleTotal(subtotal, toInt(discount), toInt(tip));
+  // Recompensa de cumpleaños del cliente elegido: vista previa con la MISMA regla que el servidor (que la recalcula al cobrar).
+  const birthdayStatus = useClientBirthday(selectedClient?.id, Boolean(selectedClient));
+  // Se guarda PARA QUÉ cliente se marcó: al cambiar de cliente queda desmarcada sola.
+  const [birthdayFor, setBirthdayFor] = useState<string | null>(null);
+  const useBirthday = Boolean(selectedClient) && birthdayFor === selectedClient?.id;
+  const setUseBirthday = (checked: boolean) => setBirthdayFor(checked ? (selectedClient?.id ?? null) : null);
+  const birthday = birthdaySalePreview(birthdayStatus.data, lines, toInt(discount));
+  const birthdayAmount = useBirthday && birthday.kind === 'ready' ? birthday.amount : 0;
+  const total = saleTotal(subtotal, toInt(discount) + birthdayAmount, toInt(tip));
 
   const [totalSyncedTo, setTotalSyncedTo] = useState(total);
   if (total !== totalSyncedTo) {
@@ -193,7 +231,8 @@ export default function SaleNewNative() {
   function validate(): string | undefined {
     if (!selectedClient && !occasional) return t('sale_error_client_required');
     if (lines.length === 0) return t('sale_error_no_lines');
-    if (toInt(discount) > subtotal) return t('sale_error_discount');
+    if (useBirthday && birthday.kind === 'blocked') return t(birthday.reason);
+    if (toInt(discount) + birthdayAmount > subtotal) return t('sale_error_discount');
     if (insufficientStockLines(lines).length > 0) return t('sale_cart_insufficient_stock', { n: insufficientStockLines(lines)[0]!.stock ?? 0 });
     if (paymentsTotal(payments) !== total) return t('sale_error_payments_mismatch');
     return undefined;
@@ -221,6 +260,8 @@ export default function SaleNewNative() {
           saveToCatalog: line.saveToCatalog,
         })),
         payments: payments.map((p) => ({ method: p.method, amount: p.amount, receivedAmount: p.receivedAmount })),
+        ...(orderPrefill.order ? { productOrderId: orderPrefill.order.id } : {}),
+        ...(birthdayAmount > 0 && birthday.kind === 'ready' ? { birthdayRewardId: birthday.reward.id } : {}),
       };
       const created = await api.createSale(body);
       await invalidateAfterSale();
@@ -233,11 +274,13 @@ export default function SaleNewNative() {
   }
 
   function resetAll() {
+    orderPrefill.dismiss();
     setSelectedClient(null);
     setOccasional(false);
     setAppointmentLoaded(false);
     setLines([]);
     setDiscount('');
+    setUseBirthday(false);
     setTip('');
     setPayments([{ key: 'pay-1', method: 'cash', amount: 0, receivedAmount: null }]);
     setError(undefined);
@@ -291,6 +334,14 @@ export default function SaleNewNative() {
 
   return (
     <Screen header={<Header title={t('sale_new_title')} />} footer={<Button label={`${t('sale_submit_cta')} · ${fmt(total)}`} onPress={() => void submit()} loading={busy} />}>
+      {orderPrefill.order || orderPrefill.loading || orderPrefill.error ? (
+        <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: space.md }}>
+          <Ionicons name="bag-handle-outline" size={20} color={colors.gold} />
+          <AppText style={{ flex: 1 }} tone={orderPrefill.error ? 'danger' : undefined}>
+            {orderPrefill.loading ? t('loading') : orderPrefill.error ? (apiErrors(orderPrefill.error, t).general ?? t('unknown_error')) : t('order_delivering', { name: orderPrefill.order?.clientName ?? '' })}
+          </AppText>
+        </Card>
+      ) : null}
       {/* ---------- Cliente ---------- */}
       <SectionTitle>{t('sale_client_title')}</SectionTitle>
       {selectedClient || occasional ? (
@@ -321,9 +372,9 @@ export default function SaleNewNative() {
             </Card>
           ) : null}
           {searching ? (
-            (clientResults.data ?? []).length > 0 ? (
+            (clientResults.data?.data ?? []).length > 0 ? (
               <View style={{ marginBottom: space.md }}>
-                {(clientResults.data ?? []).map((client) => (
+                {(clientResults.data?.data ?? []).map((client) => (
                   <Pressable key={client.id} accessibilityRole="button" onPress={() => pickClient(client)} style={[styles.clientRow, { borderColor: colors.border }]}>
                     <AppText variant="bodyStrong">{client.name}</AppText>
                     {client.phone ? <AppText variant="small" tone="muted">{client.phone}</AppText> : null}
@@ -347,7 +398,7 @@ export default function SaleNewNative() {
               {t('sale_client_appt_loaded')}
             </AppText>
           ) : (
-            <Button label={t('sale_client_appt_load')} compact variant="secondary" onPress={loadAppointment} style={{ marginTop: space.sm, alignSelf: 'flex-start' }} />
+            <Button label={t('sale_client_appt_load')} compact variant="secondary" onPress={() => void loadAppointment()} style={{ marginTop: space.sm, alignSelf: 'flex-start' }} />
           )}
         </Card>
       ) : null}
@@ -367,7 +418,11 @@ export default function SaleNewNative() {
           ))}
         </ChipRow>
       ) : null}
-      {catalogRows.length === 0 ? (
+      {items.isPending ? (
+        <AppText tone="muted" variant="small" style={{ marginBottom: space.md }}>
+          {t('loading')}
+        </AppText>
+      ) : catalogRows.length === 0 ? (
         <EmptyState icon="search-outline" message={t(tab === 'service' ? 'sale_items_empty_services' : 'sale_items_empty_products')} />
       ) : (
         catalogRows.map((row) => {
@@ -386,6 +441,16 @@ export default function SaleNewNative() {
           );
         })
       )}
+      {items.hasNextPage || items.isFetchNextPageError ? (
+        <Button
+          label={items.isFetchNextPageError ? t('retry') : t('load_more')}
+          variant="ghost"
+          compact
+          loading={items.isFetchingNextPage}
+          onPress={() => void items.fetchNextPage()}
+          style={{ alignSelf: 'center', marginBottom: space.md }}
+        />
+      ) : null}
 
       <Pressable accessibilityRole="button" onPress={() => setManualOpen((v) => !v)} style={{ marginBottom: space.md }}>
         <AppText tone="gold" variant="bodyStrong">
@@ -471,6 +536,15 @@ export default function SaleNewNative() {
         <Field label={t('sale_discount')} value={discount} onChangeText={(v) => setDiscount(v.replace(/\D/g, ''))} keyboardType="number-pad" prefix="$" />
         <Field label={t('sale_tip')} value={tip} onChangeText={(v) => setTip(v.replace(/\D/g, ''))} keyboardType="number-pad" prefix="$" />
       </View>
+      {birthday.kind !== 'none' ? (
+        <CheckRow
+          label={t('birthday_apply', { reward: describeReward(t, birthday.reward, currency) })}
+          hint={birthday.kind === 'ready' ? `${t('birthday_applied')}: -${fmt(birthday.amount)}` : t(birthday.reason)}
+          checked={useBirthday && birthday.kind === 'ready'}
+          disabled={birthday.kind === 'blocked'}
+          onChange={setUseBirthday}
+        />
+      ) : null}
 
       {payments.map((payment) => (
         <Card key={payment.key} style={{ marginBottom: space.sm }}>
@@ -507,6 +581,12 @@ export default function SaleNewNative() {
           <AppText tone="muted">{t('sale_summary_subtotal')}</AppText>
           <AppText>{fmt(subtotal)}</AppText>
         </View>
+        {birthdayAmount > 0 ? (
+          <View style={styles.summaryRow}>
+            <AppText tone="muted">{t('birthday_applied')}</AppText>
+            <AppText>-{fmt(birthdayAmount)}</AppText>
+          </View>
+        ) : null}
         <View style={styles.summaryRow}>
           <AppText tone="muted">{t('sale_summary_total')}</AppText>
           <AppText variant="bodyStrong" tone="gold">

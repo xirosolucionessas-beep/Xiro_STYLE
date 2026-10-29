@@ -248,7 +248,7 @@ describe('cuentas de cliente: el negocio restablece la contraseña (8.10)', () =
     const oldCookie = sessionCookie(regRes);
 
     const clientsList = await app.inject({ method: 'GET', url: '/api/clients', headers: ownerAuth(biz) });
-    const clientId = clientsList.json().find((c: { phone: string }) => c.phone === `57${phone}`)?.id ?? clientsList.json()[0]?.id;
+    const clientId = clientsList.json().data.find((c: { phone: string }) => c.phone === `57${phone}`)?.id ?? clientsList.json().data[0]?.id;
 
     const detail = await app.inject({ method: 'GET', url: `/api/clients/${clientId}`, headers: ownerAuth(biz) });
     expect(detail.json().onlineAccount).toMatchObject({ lastLoginAt: null });
@@ -286,7 +286,7 @@ describe('cuentas de cliente: el negocio restablece la contraseña (8.10)', () =
     const phone = nextPhone();
     await register(biz, { phone });
     const clientsList = await app.inject({ method: 'GET', url: '/api/clients', headers: ownerAuth(biz) });
-    const clientId = clientsList.json()[0]?.id;
+    const clientId = clientsList.json().data[0]?.id;
 
     const empRes = await app.inject({ method: 'POST', url: '/api/employees', headers: ownerAuth(biz), payload: { name: 'Empleada', email: `emp-${Date.now()}@correo.com`, password: 'Empleada123', permissions: ['clients_view', 'clients_manage'] } });
     const empLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { identifier: empRes.json().email, password: 'Empleada123' } });
@@ -337,6 +337,18 @@ describe('cuentas de cliente: cancelar una cita propia desde "Mi cuenta" (sin en
     // La cita de A sigue intacta.
     const stillThere = await app.inject({ method: 'GET', url: `${bizA.base}/account/appointments`, headers: { cookie: cookieA } });
     expect(stillThere.json<Array<{ status: string }>>()[0]).toMatchObject({ status: 'confirmed' });
+  });
+
+  it('no puede cerrar la sesión de OTRA cuenta ni ver sus dispositivos (Fase 3, BOLA)', async () => {
+    const biz = await setupBiz(app, 'SesionesAjenas');
+    const victim = sessionCookie(await register(biz));
+    const attacker = sessionCookie(await register(biz));
+    const [victimSession] = (await app.inject({ method: 'GET', url: `${biz.base}/account/sessions`, headers: { cookie: victim } })).json<Array<{ id: string }>>();
+    const attackerList = (await app.inject({ method: 'GET', url: `${biz.base}/account/sessions`, headers: { cookie: attacker } })).json<Array<{ id: string }>>();
+    expect(attackerList.map((s) => s.id)).not.toContain(victimSession!.id);
+    await app.inject({ method: 'DELETE', url: `${biz.base}/account/sessions/${victimSession!.id}`, headers: { cookie: attacker } });
+    // La víctima sigue con su sesión activa.
+    expect((await app.inject({ method: 'GET', url: `${biz.base}/account/me`, headers: { cookie: victim } })).statusCode).toBe(200);
   });
 
   it('sin sesión, cancelar se rechaza (401)', async () => {

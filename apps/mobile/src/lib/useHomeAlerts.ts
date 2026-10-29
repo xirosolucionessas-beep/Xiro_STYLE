@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { actorOf, meets } from './access';
 import { buildAlerts, dismissAlert, markAllRead, markRead, markSeen, pendingAlerts, serverNotificationAlert, visibleAlerts, type HomeAlert } from './alerts';
 import { updateAlertState, useAlertState } from './alertStore';
-import { useCashToday, useItems, useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications, useSubscription } from './queries';
+import { useCashToday, useInvalidateSubscription, useItemsSummary, useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications, useSubscription } from './queries';
 import { useAuthed } from './session';
 
 /**
@@ -16,7 +16,7 @@ export function useHomeAlerts() {
   const actor = actorOf(user);
   const isOwner = user.role === 'owner';
   const canCatalog = meets(actor, ['catalog_view']);
-  const items = useItems(canCatalog);
+  const items = useItemsSummary(canCatalog);
   const cash = useCashToday(isOwner);
   const subscription = useSubscription();
   const notifications = useNotifications();
@@ -25,7 +25,7 @@ export function useHomeAlerts() {
   const { state, loaded } = useAlertState(business.id);
 
   const localAlerts = useMemo(
-    () => buildAlerts({ isOwner, canCatalog, items: items.data, cashOpened: cash.data ? Boolean(cash.data.opening) : undefined, subscription: subscription.data }),
+    () => buildAlerts({ isOwner, canCatalog, stock: items.data?.stock, cashOpened: cash.data ? Boolean(cash.data.opening) : undefined, subscription: subscription.data }),
     [isOwner, canCatalog, items.data, cash.data, subscription.data],
   );
   const serverAlerts = useMemo(() => (notifications.data?.notifications ?? []).map(serverNotificationAlert), [notifications.data]);
@@ -42,6 +42,14 @@ export function useHomeAlerts() {
     if (readSignatures.length === 0) return;
     updateAlertState((current) => readSignatures.reduce((next, signature) => markRead(next, signature), current));
   }, [notifications.data]);
+
+  // Un aviso de facturación nuevo (p. ej. "Ampliamos tu acceso") significa que la suscripción cambió en el servidor: se vuelve
+  // a consultar para que el perfil, el aviso de bloqueo y la tarjeta del plan muestren el estado real sin esperar.
+  const billingSignature = (notifications.data?.notifications ?? []).filter((n) => n.category === 'billing').map((n) => n.id).join(',');
+  const invalidateSubscription = useInvalidateSubscription();
+  useEffect(() => {
+    if (billingSignature) void invalidateSubscription();
+  }, [billingSignature]);
 
   return {
     alerts,

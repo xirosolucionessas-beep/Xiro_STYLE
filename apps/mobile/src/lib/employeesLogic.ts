@@ -1,4 +1,4 @@
-import { normalizePermissions, passwordSchema, type EmployeePermission } from '@xiro/shared';
+import { normalizePermissions, passwordSchema, type EmployeePermission, type EmployeeQuotaDto } from '@xiro/shared';
 
 /** Acción de la bitácora → clave de texto legible. Lo que no esté aquí se muestra tal cual (la ruta), nunca se oculta. */
 export const ACTION_LABELS: Record<string, string> = {
@@ -48,4 +48,20 @@ export function validateEmployeeForm(values: EmployeeFormValues, editing: boolea
   if (!editing && !values.email.trim() && !values.phone.trim()) errors.contact = 'contact_required';
   if ((!editing || values.password) && !passwordSchema.safeParse(values.password).success) errors.password = 'password_weak';
   return errors;
+}
+
+/**
+ * Cupos de empleados activos para la pantalla de Equipo ("3 de 5 empleados activos"). El conteo lo da el servidor, que es
+ * quien aplica el límite; esto solo lo explica y deshabilita los botones de agregar/reactivar cuando no hay cupo.
+ */
+export function quotaView(t: (key: string, params?: Record<string, string | number>) => string, quota: EmployeeQuotaDto): { title: string; detail: string; full: boolean } {
+  const title = t('employees_quota', { active: quota.active, limit: quota.limit });
+  const detail = quota.overLimit
+    ? t('employees_quota_over', { limit: quota.limit })
+    : quota.remaining === 0
+      ? t('employees_quota_full')
+      : quota.remaining === 1
+        ? t('employees_quota_left_one')
+        : t('employees_quota_left', { n: quota.remaining });
+  return { title, detail: `${detail} ${t('employees_quota_owner_note')}`, full: quota.remaining === 0 };
 }

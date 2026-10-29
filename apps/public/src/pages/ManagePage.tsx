@@ -1,6 +1,7 @@
 import { formatClock, formatDay, formatMoney, localDate, localTime, translate, phoneHref, upperFirst, whatsappLink, type Currency, type Language, type PublicAppointmentDto } from '@xiro/shared';
 import { useState } from 'react';
 import { ApiError, publicApi } from '../api';
+import { useBrand } from '../lib/brand';
 import { errorKey, useAsync } from '../lib/useAsync';
 import { navigate, profilePath } from '../lib/route';
 import { Alert } from '../ui/Alert';
@@ -9,12 +10,16 @@ import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
 import { SchedulePicker } from '../ui/SchedulePicker';
 import { StarRating } from '../ui/StarRating';
+import { TotalRows } from '../ui/TotalRows';
 
 const STATUS_TONE: Record<PublicAppointmentDto['status'], string> = { pending: 'warning', confirmed: 'success', in_progress: 'success', completed: 'success', cancelled: 'muted', no_show: 'danger' };
 
 /** Ficha de la cita con el enlace personal: ver, cancelar, mover o eliminar los datos personales. Sin sesión: el token es la única llave. */
 export function ManagePage({ slug, token, language }: { slug: string; token: string; language: Language }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
+  // Misma marca que la página del negocio (si la página ya no está publicada, el dorado por defecto).
+  const brandState = useAsync(() => publicApi.profile(slug).catch(() => null), [slug]);
+  useBrand(brandState.data?.accentColor);
   const state = useAsync(() => publicApi.appointment(slug, token), [slug, token]);
   const [appointment, setAppointment] = useState<PublicAppointmentDto>();
   const current = appointment ?? state.data;
@@ -160,10 +165,7 @@ export function ManagePage({ slug, token, language }: { slug: string; token: str
                 </li>
               ))}
             </ul>
-            <div className="xp-summary-row xp-summary-total">
-              <span>{t('pub_summary_total')}</span>
-              <span className="xp-item-price">{formatMoney(current.totalPrice, currency)}</span>
-            </div>
+            <TotalRows total={current.totalPrice} discount={current.discount} currency={currency} t={t} rowClass="xp-summary-row xp-summary-total" priceClass="xp-item-price" />
           </div>
 
           <div className="xp-card xp-stack">

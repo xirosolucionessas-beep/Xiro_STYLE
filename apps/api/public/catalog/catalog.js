@@ -26,6 +26,7 @@
         photoOf: 'Foto de ',
         hello: 'Hola, quiero solicitar: ',
         seen: 'Vi este catálogo en el enlace que me compartieron.',
+        book: 'Reservar en línea',
       }
     : {
         loading: 'Loading…',
@@ -45,6 +46,7 @@
         photoOf: 'Photo of ',
         hello: 'Hello, I would like to request: ',
         seen: 'I saw this catalog in the link you shared with me.',
+        book: 'Book online',
       };
 
   var parts = location.pathname.split('/').filter(Boolean); // ['catalog', slug, 'item', id]
@@ -95,11 +97,26 @@
     app.replaceChildren(box);
   }
 
+  /* Marca del negocio: los tonos ya vienen calculados por el servidor (contraste AA garantizado); solo se copian a variables
+   * CSS (CSSOM, permitido por la política de seguridad). Claro = --bl-*, oscuro = --bd-*. Sin marca, el dorado de la hoja. */
+  function applyBrand(brand) {
+    if (!brand || !brand.light || !brand.dark) return;
+    var names = { accent: 'accent', onAccent: 'on-accent', accentText: 'accent-text', accentBorder: 'accent-border', accentTint: 'accent-tint' };
+    var root = document.documentElement.style;
+    Object.keys(names).forEach(function (key) {
+      if (typeof brand.light[key] === 'string') root.setProperty('--bl-' + names[key], brand.light[key]);
+      if (typeof brand.dark[key] === 'string') root.setProperty('--bd-' + names[key], brand.dark[key]);
+    });
+  }
+
   function header(business) {
     var logo = business.logoUrl
       ? el('img', { src: business.logoUrl, alt: business.name })
       : el('div', { class: 'logo-fallback', 'aria-hidden': 'true', text: (business.name || '?').charAt(0).toUpperCase() });
-    return [el('div', { class: 'brand' }, [logo, el('h1', { text: business.name })]), el('p', { class: 'tagline', text: T.tagline })];
+    var nodes = [el('div', { class: 'brand' }, [logo, el('h1', { text: business.name })]), el('p', { class: 'tagline', text: T.tagline })];
+    // Si el negocio publicó su página de reservas, el catálogo lleva a ella (la misma experiencia en ambos enlaces).
+    if (business.bookingPath) nodes.push(el('p', { class: 'book-cta' }, [el('a', { class: 'button', href: business.bookingPath, text: T.book })]));
+    return nodes;
   }
 
   function renderList(data) {
@@ -206,6 +223,7 @@
         else notice(T.notFoundTitle, T.notFoundBody, false);
         return;
       }
+      applyBrand(data.business && data.business.brand);
       if (itemId) renderDetail(data);
       else {
         renderList(data);

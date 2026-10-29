@@ -1,10 +1,13 @@
+import { markBirthdayRewardUsed, releaseBirthdayReward, reserveBirthdayReward, type ReservedReward } from '../birthday';
 import { formatMoney, REORDER_THRESHOLD, can, saleInputSchema, salesQuerySchema, voidSaleInputSchema, type Currency, type SaleDto, type SaleItemDto, type SalePaymentDto } from '@xiro/shared';
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { lockCashDayAt } from '../booking/cashLock';
 import { withBusinessTrusted, type Tx } from '../booking/scope';
 import type { Ctx } from '../context';
 import { businesses, categories, clients, items, saleItems, salePayments, sales, serviceRecords, users } from '../db/schema';
 import { AppError, notFound, parse, uuid } from '../errors';
+import { deliverProductOrder } from '../booking/orders';
 import { notifyBusiness, notifyLowStockIfNeeded } from '../push';
 import { recordService } from '../serviceRecording';
 
@@ -39,12 +42,13 @@ async function adjustStock(tx: Tx, businessId: string, itemId: string, delta: nu
   return updated;
 }
 
-async function loadSaleDtos(db: Ctx['db'], businessId: string, saleRows: SaleRow[]): Promise<SaleDto[]> {
+export async function loadSaleDtos(db: Ctx['db'], businessId: string, saleRows: SaleRow[]): Promise<SaleDto[]> {
   if (saleRows.length === 0) return [];
   const saleIds = saleRows.map((s) => s.id);
 
   const [itemRows, paymentRows] = await Promise.all([
-    db.select().from(saleItems).where(and(eq(saleItems.businessId, businessId), inArray(saleItems.saleId, saleIds))).orderBy(asc(saleItems.createdAt)),
+    // Orden estable (fecha y id): el desglose del cierre reparte el descuento con este mismo orden.
+    db.select().from(saleItems).where(and(eq(saleItems.businessId, businessId), inArray(saleItems.saleId, saleIds))).orderBy(asc(saleItems.createdAt), asc(saleItems.id)),
     db.select().from(salePayments).where(and(eq(salePayments.businessId, businessId), inArray(salePayments.saleId, saleIds))).orderBy(asc(salePayments.createdAt)),
   ]);
 
@@ -58,8 +62,10 @@ async function loadSaleDtos(db: Ctx['db'], businessId: string, saleRows: SaleRow
   for (const item of itemRows) if (item.employeeId) userIds.add(item.employeeId);
 
   const [userRows, clientRows] = await Promise.all([
-    userIds.size > 0 ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, [...userIds])) : Promise.resolve([]),
-    clientIds.size > 0 ? db.select({ id: clients.id, name: clients.name }).from(clients).where(inArray(clients.id, [...clientIds])) : Promise.resolve([]),
+    // Filtrados también por negocio (defensa en profundidad: las claves foráneas compuestas ya lo garantizan, y esta conexión
+    // no tiene RLS). El resultado es idéntico.
+    userIds.size > 0 ? db.select({ id: users.id, name: users.name }).from(users).where(and(eq(users.businessId, businessId), inArray(users.id, [...userIds]))) : Promise.resolve([]),
+    clientIds.size > 0 ? db.select({ id: clients.id, name: clients.name }).from(clients).where(and(eq(clients.businessId, businessId), inArray(clients.id, [...clientIds]))) : Promise.resolve([]),
   ]);
   const userName = new Map(userRows.map((u) => [u.id, u.name]));
   const clientName = new Map(clientRows.map((c) => [c.id, c.name]));
@@ -144,6 +150,9 @@ export function salesRoutes(app: FastifyInstance, ctx: Ctx): void {
     const actor = request.actor;
 
     const result = await withBusinessTrusted(db, businessId, async (tx) => {
+      // Un cierre de caja de hoy en curso termina antes de que esta venta se registre (booking/cashLock.ts): la venta entra
+      // completa en el cierre o queda, entera, "después del cierre".
+      await lockCashDayAt(tx, businessId);
       // Cliente: el elegido (validado que sea de este negocio y no sea el placeholder ocasional), o el cliente ocasional
       // compartido cuando la venta no tiene ficha.
       let clientId: string;
@@ -236,18 +245,36 @@ export function salesRoutes(app: FastifyInstance, ctx: Ctx): void {
         });
       }
 
-      if (input.discount > subtotal) throw new AppError(400, 'validation_error', 'Discount exceeds subtotal');
-      const total = subtotal - input.discount + input.tip;
+      // Recompensa de cumpleaños: se bloquea y valida aquí (cliente, negocio, vigencia, condiciones) y el descuento lo calcula
+      // el servidor; se suma al descuento manual (si el negocio permite combinarlos). Se marca usada tras crear la venta.
+      let birthday: ReservedReward | null = null;
+      if (input.birthdayRewardId) {
+        if (!input.clientId) throw new AppError(409, 'birthday_reward_unavailable');
+        birthday = await reserveBirthdayReward(tx, {
+          businessId,
+          clientId,
+          rewardId: input.birthdayRewardId,
+          lines: itemsToInsert.map((row) => ({ kind: row.kind as 'service' | 'product', total: row.total! })),
+          otherDiscount: input.discount,
+        });
+      }
+      const discount = input.discount + (birthday?.amount ?? 0);
+      if (discount > subtotal) throw new AppError(400, 'validation_error', 'Discount exceeds subtotal');
+      const total = subtotal - discount + input.tip;
       const paid = input.payments.reduce((acc, p) => acc + p.amount, 0);
       if (paid !== total) throw new AppError(400, 'validation_error', 'Payments do not add up to the total');
 
       const [sale] = await tx
         .insert(sales)
-        .values({ businessId, clientId: input.clientId ? clientId : null, clientLabel: input.clientId ? '' : input.clientLabel, subtotal, discount: input.discount, tip: input.tip, total, createdBy: userId })
+        .values({ businessId, clientId: input.clientId ? clientId : null, clientLabel: input.clientId ? '' : input.clientLabel, subtotal, discount, tip: input.tip, total, createdBy: userId })
         .returning();
 
       if (itemsToInsert.length > 0) await tx.insert(saleItems).values(itemsToInsert.map((row) => ({ ...row, saleId: sale!.id })));
       if (input.payments.length > 0) await tx.insert(salePayments).values(input.payments.map((p) => ({ businessId, saleId: sale!.id, method: p.method, amount: p.amount, receivedAmount: p.receivedAmount })));
+      // Entrega de un pedido de la página pública: en ESTA transacción (bloqueado). Si ya se entregó o se canceló, toda la
+      // venta se revierte (inventario incluido): nunca dos ventas por un mismo pedido.
+      if (input.productOrderId) await deliverProductOrder(tx, businessId, input.productOrderId, sale!.id);
+      if (birthday) await markBirthdayRewardUsed(tx, businessId, birthday, { saleId: sale!.id });
 
       return { sale: sale!, rewardJustEarned, stockMoved };
     });
@@ -274,9 +301,13 @@ export function salesRoutes(app: FastifyInstance, ctx: Ctx): void {
     const userId = request.user.sub;
 
     const sale = await withBusinessTrusted(db, businessId, async (tx) => {
-      const [row] = await tx.select().from(sales).where(and(eq(sales.id, id), eq(sales.businessId, businessId))).limit(1);
+      // FOR UPDATE: dos anulaciones simultáneas (doble clic, dos dispositivos) se ordenan; la segunda ve "voided" y
+      // responde 409 en vez de devolver el stock otra vez.
+      const [row] = await tx.select().from(sales).where(and(eq(sales.id, id), eq(sales.businessId, businessId))).limit(1).for('update');
       if (!row) throw notFound();
       if (row.status === 'voided') throw new AppError(409, 'already_voided');
+      // La caja del día en que se vendió: un cierre en curso de ese día termina primero (booking/cashLock.ts).
+      await lockCashDayAt(tx, businessId, row.createdAt);
 
       const lines = await tx.select().from(saleItems).where(and(eq(saleItems.businessId, businessId), eq(saleItems.saleId, id)));
       for (const line of lines) {
@@ -291,6 +322,8 @@ export function salesRoutes(app: FastifyInstance, ctx: Ctx): void {
       const recordIds = lines.map((line) => line.serviceRecordId).filter((recordId): recordId is string => recordId !== null);
       if (recordIds.length > 0) await tx.update(serviceRecords).set({ voided: true }).where(and(eq(serviceRecords.businessId, businessId), inArray(serviceRecords.id, recordIds)));
 
+      // La recompensa de cumpleaños canjeada en esta venta vuelve a estar disponible (sigue siendo la única de ese año).
+      await releaseBirthdayReward(tx, businessId, { saleId: id });
       const [updated] = await tx.update(sales).set({ status: 'voided', voidReason: reason, voidedBy: userId, voidedAt: new Date() }).where(eq(sales.id, id)).returning();
       return updated!;
     });

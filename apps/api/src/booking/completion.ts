@@ -27,7 +27,15 @@ export async function applyCompletion(tx: Tx, businessId: string, appointment: A
   let records = 0;
   let rewardJustEarned = false;
   const stockMoved: CompletionEffects['stockMoved'] = [];
-  for (const line of lines) {
+  // Código de descuento (Fase 4): lo cobrado es el total MENOS el descuento, repartido entre las líneas en proporción a su valor
+  // (la última se lleva el redondeo), para que los ingresos por servicio y por producto sumen exactamente lo que se pagó.
+  const gross = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
+  const discount = Math.min(appointment.discountAmount ?? 0, gross);
+  let discountLeft = discount;
+  for (const [index, line] of lines.entries()) {
+    const lineGross = line.price * line.quantity;
+    const share = index === lines.length - 1 ? discountLeft : gross > 0 ? Math.min(discountLeft, Math.round((discount * lineGross) / gross)) : 0;
+    discountLeft -= share;
     if (line.kind === 'product' && line.itemId) {
       const next = sql`greatest(${items.stock} - ${line.quantity}, 0)`;
       const [updated] = await tx
@@ -42,7 +50,7 @@ export async function applyCompletion(tx: Tx, businessId: string, appointment: A
       clientId: appointment.clientId,
       itemId: line.kind === 'package' ? null : line.itemId,
       label: line.quantity > 1 ? `${line.name} ×${line.quantity}` : line.name,
-      amount: line.price * line.quantity,
+      amount: lineGross - share,
       // Un paquete agrupa servicios: cuenta como servicio para separar el valor de servicios del de productos.
       kind: line.kind === 'package' ? 'service' : (line.kind as 'service' | 'product'),
       note: '',

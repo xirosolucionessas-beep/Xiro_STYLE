@@ -11,10 +11,12 @@ import {
   type BookingAdminSettings,
   type ClosureDto,
   type ProfessionalDto,
+  pageQuerySchema,
+  type Page,
   type ReviewDto,
   type TimeOffDto,
 } from '@xiro/shared';
-import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { loadContext } from '../booking/availability';
@@ -25,13 +27,13 @@ import { isUniqueViolation } from '../db/errors';
 import { businessClosures, businessPublicProfiles, businessSettings, businessSlugHistory, businesses, employeeProfiles, employeeSchedules, employeeServices, employeeTimeOff, items, reviews, users } from '../db/schema';
 import { AppError, notFound, parse, uuid } from '../errors';
 import { mediaUrl, removeMedia, saveAvatarImage, saveImage } from '../media';
-import { WindowCounter } from '../security';
+import { decodeCursor, descNullsLast, toPage } from '../pagination';
 
 const MAX_GALLERY = 8;
 /** Subir o quitar la foto de una persona del equipo, por negocio y por minuto: de sobra para un uso normal, corta un abuso. */
 const PHOTO_WRITES_PER_MINUTE = 20;
 const slugCheckQuery = z.object({ slug: z.string().trim().toLowerCase().max(60) });
-const reviewsQuery = z.object({ status: z.enum(['pending', 'approved', 'hidden']).optional() });
+const reviewsQuery = pageQuerySchema.extend({ status: z.enum(['pending', 'approved', 'hidden']).optional() });
 const reviewPatch = z.object({ status: z.enum(['approved', 'hidden']) });
 
 /**
@@ -41,10 +43,10 @@ const reviewPatch = z.object({ status: z.enum(['approved', 'hidden']) });
 export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
   const scoped = <T>(request: { user: { bid: string } }, fn: (tx: Tx) => Promise<T>) => withBusiness(db, request.user.bid, fn);
-  const photoLimiter = new WindowCounter(60_000);
-  function checkPhotoLimit(request: { user: { bid: string } }): void {
-    if (config.rateLimit.enabled && photoLimiter.hit(request.user.bid) > PHOTO_WRITES_PER_MINUTE) {
-      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(photoLimiter.retryAfterSeconds(request.user.bid)) });
+  const photoLimiter = ctx.rates.limiter('photo-writes', 60_000);
+  async function checkPhotoLimit(request: { user: { bid: string } }): Promise<void> {
+    if (config.rateLimit.enabled && (await photoLimiter.hit(request.user.bid)) > PHOTO_WRITES_PER_MINUTE) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await photoLimiter.retryAfterSeconds(request.user.bid)) });
     }
   }
 
@@ -77,6 +79,9 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
         coverUrl: profile?.coverFile ? mediaUrl(profile.coverFile) : null,
         gallery: (profile?.galleryFiles ?? []).map((file) => ({ file, url: mediaUrl(file) })),
         sections: allSections(profile?.sections),
+        accentColor: profile?.accentColor ?? null,
+        bookingTitle: profile?.bookingTitle ?? '',
+        trustBadges: profile?.trustBadges ?? [],
       },
     };
   }
@@ -115,7 +120,7 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
   app.put('/booking/profile/cover', async (request): Promise<BookingAdminSettings> => {
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveImage(config.mediaDir, await part.toBuffer());
+    const file = await saveImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     try {
       const previous = await scoped(request, async (tx) => {
@@ -123,9 +128,9 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
         await tx.insert(businessPublicProfiles).values({ businessId: request.user.bid, coverFile: file }).onConflictDoUpdate({ target: businessPublicProfiles.businessId, set: { coverFile: file, updatedAt: new Date() } });
         return existing?.coverFile ?? null;
       });
-      await removeMedia(config.mediaDir, previous);
+      await removeMedia(ctx.media, previous);
     } catch (error) {
-      await removeMedia(config.mediaDir, file);
+      await removeMedia(ctx.media, file);
       throw error;
     }
     return scoped(request, (tx) => adminSettings(tx, request.user.bid));
@@ -137,14 +142,14 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
       if (existing) await tx.update(businessPublicProfiles).set({ coverFile: null, updatedAt: new Date() }).where(eq(businessPublicProfiles.businessId, request.user.bid));
       return existing?.coverFile ?? null;
     });
-    await removeMedia(config.mediaDir, previous);
+    await removeMedia(ctx.media, previous);
     return scoped(request, (tx) => adminSettings(tx, request.user.bid));
   });
 
   app.post('/booking/profile/gallery', async (request, reply) => {
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveImage(config.mediaDir, await part.toBuffer());
+    const file = await saveImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     try {
       await scoped(request, async (tx) => {
@@ -154,7 +159,7 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
         await tx.insert(businessPublicProfiles).values({ businessId: request.user.bid, galleryFiles: [...files, file] }).onConflictDoUpdate({ target: businessPublicProfiles.businessId, set: { galleryFiles: [...files, file], updatedAt: new Date() } });
       });
     } catch (error) {
-      await removeMedia(config.mediaDir, file);
+      await removeMedia(ctx.media, file);
       throw error;
     }
     return reply.status(201).send(await scoped(request, (tx) => adminSettings(tx, request.user.bid)));
@@ -167,7 +172,7 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
       if (!locked || !locked.galleryFiles.includes(file)) throw notFound();
       await tx.update(businessPublicProfiles).set({ galleryFiles: locked.galleryFiles.filter((f) => f !== file), updatedAt: new Date() }).where(eq(businessPublicProfiles.businessId, request.user.bid));
     });
-    await removeMedia(config.mediaDir, file);
+    await removeMedia(ctx.media, file);
     return scoped(request, (tx) => adminSettings(tx, request.user.bid));
   });
 
@@ -263,13 +268,13 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   app.put('/professionals/:id/photo', async (request): Promise<ProfessionalDto> => {
     const id = uuid((request.params as { id?: string }).id);
-    checkPhotoLimit(request);
+    await checkPhotoLimit(request);
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
     const buffer = await part.toBuffer();
     // Opcional siempre: recorte cuadrado centrado, 400×400 y WebP, sin importar el tamaño ni la orientación de lo que llegó.
     // (El mismo código 'photo_invalid' cubre tipo inválido y más de 5 MB, igual que en el resto de subidas de fotos.)
-    const file = await saveAvatarImage(config.mediaDir, buffer);
+    const file = await saveAvatarImage(ctx.media, buffer);
     if (!file) throw new AppError(400, 'photo_invalid');
     try {
       const { previous, dto } = await scoped(request, async (tx) => {
@@ -279,24 +284,24 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
         return { previous: existing?.photoFile ?? null, dto: (await loadProfessionals(tx, request.user.bid, id))[0]! };
       });
       // Se borra la anterior DESPUÉS de confirmar la nueva: si algo falla antes, la persona conserva la foto que ya tenía.
-      await removeMedia(config.mediaDir, previous);
+      await removeMedia(ctx.media, previous);
       return dto;
     } catch (error) {
-      await removeMedia(config.mediaDir, file);
+      await removeMedia(ctx.media, file);
       throw error;
     }
   });
 
   app.delete('/professionals/:id/photo', async (request): Promise<ProfessionalDto> => {
     const id = uuid((request.params as { id?: string }).id);
-    checkPhotoLimit(request);
+    await checkPhotoLimit(request);
     const { previous, dto } = await scoped(request, async (tx) => {
       await requirePerson(tx, request.user.bid, id);
       const [existing] = await tx.select({ photoFile: employeeProfiles.photoFile }).from(employeeProfiles).where(eq(employeeProfiles.userId, id)).limit(1);
       if (existing?.photoFile) await tx.update(employeeProfiles).set({ photoFile: null, updatedAt: new Date() }).where(eq(employeeProfiles.userId, id));
       return { previous: existing?.photoFile ?? null, dto: (await loadProfessionals(tx, request.user.bid, id))[0]! };
     });
-    await removeMedia(config.mediaDir, previous);
+    await removeMedia(ctx.media, previous);
     return dto;
   });
 
@@ -374,16 +379,24 @@ export function bookingConfigRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   /* ---------- Reseñas (moderación) ---------- */
 
-  app.get('/booking/reviews', async (request): Promise<ReviewDto[]> => {
-    const { status } = parse(reviewsQuery, request.query);
+  /** Moderación de reseñas, paginada por cursor (las más recientes primero); antes se cortaba en 200 sin avisar. */
+  app.get('/booking/reviews', async (request): Promise<Page<ReviewDto>> => {
+    const { status, limit, cursor } = parse(reviewsQuery, request.query);
+    const after = decodeCursor(cursor, ['string', 'string']);
     return scoped(request, async (tx) => {
       const rows = await tx
-        .select()
+        .select({ review: reviews, createdText: sql<string>`${reviews.createdAt}::text` })
         .from(reviews)
-        .where(and(eq(reviews.businessId, request.user.bid), status ? eq(reviews.status, status) : undefined))
-        .orderBy(desc(reviews.createdAt))
-        .limit(200);
-      return rows.map(toReviewDto);
+        .where(
+          and(
+            eq(reviews.businessId, request.user.bid),
+            status ? eq(reviews.status, status) : undefined,
+            after ? sql`(${reviews.createdAt}, ${reviews.id}) < (${after[0]}::timestamptz, ${after[1]}::uuid)` : undefined,
+          ),
+        )
+        .orderBy(descNullsLast(reviews.createdAt), desc(reviews.id))
+        .limit(limit + 1);
+      return toPage(rows, limit, (row) => [row.createdText, row.review.id], (row) => toReviewDto(row.review));
     });
   });
 

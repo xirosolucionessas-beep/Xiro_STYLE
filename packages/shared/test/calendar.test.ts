@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIcs, icsFold, icsInstant, icsText, utf8Length } from '../src/calendar';
+import { buildIcs, icsFold, icsInstant, icsText, icsUid, utf8Length } from '../src/calendar';
 
 const NOW = new Date('2026-09-28T12:00:00.000Z');
 const event = { uid: 'derek-20260930T140000Z@xirostyle', title: 'Corte de cabello — Xiro Beauty Studio', startsAt: '2026-09-30T14:00:00.000Z', endsAt: '2026-09-30T15:00:00.000Z', now: NOW };
@@ -59,6 +59,9 @@ describe('buildIcs', () => {
       'BEGIN:VEVENT',
       'UID:derek-20260930T140000Z@xirostyle',
       'DTSTAMP:20260928T120000Z',
+      'CREATED:20260928T120000Z',
+      'LAST-MODIFIED:20260928T120000Z',
+      'SEQUENCE:0',
       'DTSTART:20260930T140000Z',
       'DTEND:20260930T150000Z',
       'SUMMARY:Corte de cabello — Xiro Beauty Studio',
@@ -66,6 +69,7 @@ describe('buildIcs', () => {
       'LOCATION:Cra. 7 #71-21\\, Bogotá',
       'URL:https://x.co/reservar/derek/gestion/abc',
       'STATUS:CONFIRMED',
+      'TRANSP:OPAQUE',
       'BEGIN:VALARM',
       'ACTION:DISPLAY',
       'DESCRIPTION:Corte de cabello — Xiro Beauty Studio',
@@ -82,6 +86,30 @@ describe('buildIcs', () => {
     expect(ics).not.toContain('VALARM');
     expect(ics).not.toContain('LOCATION');
     expect(ics).not.toContain('URL');
+  });
+
+  it('cumple RFC 5545 para Outlook y Google: CRLF sin LF sueltos, líneas ≤ 75 octetos, propiedades obligatorias, fin > inicio', () => {
+    const long = 'Corte, color y tratamiento; con "Ana María" — llega 10 min antes.\n'.repeat(8);
+    const ics = buildIcs({ ...event, uid: 'mi-negocio-2026-09-30T14:00:00.000Z', title: `💇 ${long.slice(0, 120)}`, description: long, location: 'Cra. 7 #71-21, Bogotá', url: 'https://x.co/reservar/mi negocio' });
+    expect(/\r(?!\n)|(?<!\r)\n/.test(ics)).toBe(false);
+    const physical = ics.split('\r\n').slice(0, -1);
+    for (const line of physical) expect(utf8Length(line), line).toBeLessThanOrEqual(75);
+    // Desplegar (§3.1) devuelve las líneas lógicas; ninguna secuencia escapada quedó partida.
+    const logical = ics.replace(/\r\n /g, '').split('\r\n');
+    for (const name of ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:', 'BEGIN:VEVENT', 'UID:', 'DTSTAMP:', 'DTSTART:', 'DTEND:', 'END:VEVENT', 'END:VCALENDAR']) expect(logical.some((l) => l.startsWith(name)), name).toBe(true);
+    for (const part of physical) expect(/(^|[^\\])(\\\\)*\\$/.test(part), `escape partido: ${part}`).toBe(false);
+    expect(logical.find((l) => l.startsWith('UID:'))).toBe('UID:mi-negocio-2026-09-30T14-00-00.000Z@xirostyle');
+    expect(logical.find((l) => l.startsWith('URL:'))).toBe('URL:https://x.co/reservar/mi%20negocio');
+    // Un fin igual al inicio se corrige (los calendarios rechazan eventos de duración cero o negativa).
+    const zero = buildIcs({ ...event, endsAt: event.startsAt }).replace(/\r\n /g, '');
+    expect(zero).toContain('DTSTART:20260930T140000Z');
+    expect(zero).toContain('DTEND:20260930T140100Z');
+  });
+
+  it('icsUid: estable, sin caracteres problemáticos, siempre con dominio', () => {
+    expect(icsUid('derek-20260930T140000Z@xirostyle')).toBe('derek-20260930T140000Z@xirostyle');
+    expect(icsUid('a b:c/d')).toBe('a-b-c-d@xirostyle');
+    expect(icsUid('a b:c/d')).toBe(icsUid('a b:c/d'));
   });
 
   it('el título de un negocio con comas o saltos de línea no puede inyectar líneas', () => {

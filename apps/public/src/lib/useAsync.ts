@@ -49,4 +49,4 @@ export function useAsync<T>(fetcher: () => Promise<T>, deps: ReadonlyArray<unkno
 }
 
 /** Clave de traducción del error (código de la API si existe, o el genérico). */
-export const errorKey = (error: unknown): string => (error instanceof ApiError ? (error.isNetwork ? 'offline_error' : error.code) : 'unknown_error');
+export const errorKey = (error: unknown): string => (error instanceof ApiError ? (error.isNetwork ? (error.code === 'timeout_error' ? 'timeout_error' : 'offline_error') : error.code) : 'unknown_error');

@@ -1,6 +1,11 @@
 import {
+  allocateProportionally,
+  buildEmployeeBreakdown,
   cashCloseInputSchema,
-  expenseInputSchema,
+  cashDaySalesQuerySchema,
+  lineInScope,
+  type CashDaySaleDto,
+  type CashDaySalesPage,
   voidCashCloseInputSchema,
   type CashClosingDto,
   type CashDaySummary,
@@ -8,16 +13,20 @@ import {
   type CashOpeningDto,
   type CashSalesByMethod,
   type CashTopEntry,
-  type ExpenseDto,
 } from '@xiro/shared';
-import { and, desc, eq, gte, inArray, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { addDays, localMinutes, zonedInstant } from '../booking/time';
+import { loadAdjustments, toExpenseDto } from '../booking/expenses';
+import { lockCashDays } from '../booking/cashLock';
 import { withBusinessTrusted, type Tx } from '../booking/scope';
 import type { Ctx } from '../context';
-import { appointments, businesses, cashClosings, cashOpenings, clients, expenses, saleItems, salePayments, sales, users } from '../db/schema';
+import { appointments, businesses, cashClosings, cashOpenings, clients, expenses, saleItems, salePayments, sales, serviceRecords, users } from '../db/schema';
+import { isUniqueViolation } from '../db/errors';
 import { AppError, notFound, parse, uuid } from '../errors';
+import { decodeCursor, toPage } from '../pagination';
+import { loadSaleDtos } from './sales';
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const dayQuery = z.object({ day: z.string().regex(DAY_RE, 'required') });
@@ -38,14 +47,6 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     return row.timezone;
   }
 
-  const toExpenseDto = (row: typeof expenses.$inferSelect, name: string): ExpenseDto => ({
-    id: row.id,
-    amount: row.amount,
-    description: row.description,
-    method: row.method as ExpenseDto['method'],
-    createdByName: name,
-    createdAt: row.createdAt.toISOString(),
-  });
 
   async function namesOf(tx: Tx | typeof db, businessId: string, ids: readonly string[]): Promise<Map<string, string>> {
     const unique = [...new Set(ids)];
@@ -64,12 +65,15 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     const saleRows = await tx.select().from(sales).where(and(eq(sales.businessId, businessId), gte(sales.createdAt, rangeFrom), lt(sales.createdAt, rangeTo), eq(sales.status, 'completed')));
     const saleIds = saleRows.map((s) => s.id);
     const [itemRows, paymentRows] = await Promise.all([
-      saleIds.length > 0 ? tx.select().from(saleItems).where(and(eq(saleItems.businessId, businessId), inArray(saleItems.saleId, saleIds))) : Promise.resolve([]),
+      // Orden estable (fecha y id), el mismo del detalle "Ver más": así el reparto del descuento coincide línea a línea.
+      saleIds.length > 0 ? tx.select().from(saleItems).where(and(eq(saleItems.businessId, businessId), inArray(saleItems.saleId, saleIds))).orderBy(asc(saleItems.createdAt), asc(saleItems.id)) : Promise.resolve([]),
       saleIds.length > 0 ? tx.select().from(salePayments).where(and(eq(salePayments.businessId, businessId), inArray(salePayments.saleId, saleIds))) : Promise.resolve([]),
     ]);
 
-    const expenseRows = await tx.select().from(expenses).where(and(eq(expenses.businessId, businessId), gte(expenses.createdAt, rangeFrom), lt(expenses.createdAt, rangeTo)));
-    const expenseNames = await namesOf(tx, businessId, expenseRows.map((e) => e.createdBy));
+    // Gastos DEL DÍA (por su fecha de gasto) y vigentes: los anulados ya no cuentan. Los anteriores a Finanzas tienen como fecha
+    // su día de creación (migración 0033), así que el resumen de días pasados no cambia.
+    const expenseRows = await tx.select().from(expenses).where(and(eq(expenses.businessId, businessId), eq(expenses.expenseDate, day), eq(expenses.status, 'active')));
+    const expenseNames = await namesOf(tx, businessId, expenseRows.flatMap((e) => [e.createdBy, e.employeeId, e.voidedBy].filter((v): v is string => Boolean(v))));
 
     const byMethod = new Map<string, CashSalesByMethod>();
     for (const payment of paymentRows) {
@@ -99,7 +103,15 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
       bucket.count += 1;
       employeeMap.set(row.employeeId, bucket);
     }
-    const employeeNames = await namesOf(tx, businessId, [...employeeMap.keys()]);
+    // Desglose por quien REALIZÓ cada servicio (bruto, descuento guardado repartido por línea, neto). Productos y propinas no
+    // se atribuyen: el sistema no registra quién vendió un producto ni quién recibió la propina (ver buildEmployeeBreakdown).
+    const performerIds = itemRows.filter((i) => i.kind === 'service' && i.employeeId).map((i) => i.employeeId!);
+    const employeeNames = await namesOf(tx, businessId, [...employeeMap.keys(), ...performerIds]);
+    const employeeBreakdown = buildEmployeeBreakdown(
+      saleRows.map((sale) => ({ id: sale.id, discount: sale.discount, tip: sale.tip, total: sale.total })),
+      itemRows.map((item) => ({ saleId: item.saleId, kind: item.kind as 'service' | 'product', name: item.name, quantity: item.quantity, total: item.total, employeeId: item.employeeId })),
+      employeeNames,
+    );
     const employeeSales = [...employeeMap.values()].map((e) => ({ ...e, employeeName: employeeNames.get(e.employeeId) ?? '' })).sort((a, b) => b.total - a.total);
 
     const hourlyMap = new Map<number, number>();
@@ -119,7 +131,36 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     const totalTip = saleRows.reduce((sum, s) => sum + s.tip, 0);
     const totalExpenses = expenseRows.reduce((sum, e) => sum + e.amount, 0);
     const cashIn = byMethod.get('cash')?.total ?? 0;
-    const cashOut = expenseRows.filter((e) => e.method === 'cash').reduce((sum, e) => sum + e.amount, 0);
+    // Solo lo que salió del efectivo de la caja (antes: todo gasto en efectivo, que es exactamente lo mismo para los existentes).
+    const cashOut = expenseRows.filter((e) => e.paidFromCash).reduce((sum, e) => sum + e.amount, 0);
+
+    // Cobros del día sin venta (citas completadas, servicios registrados a mano): los registros de servicio vigentes del día
+    // que no salieron de una línea de venta de ese día (una venta y sus registros se guardan en la misma transacción, con la
+    // misma hora). Informativo: no tocan ventas ni efectivo esperado.
+    const fromSales = new Set(itemRows.map((i) => i.serviceRecordId).filter((id): id is string => id !== null));
+    const recordRows = await tx
+      .select({ id: serviceRecords.id, amount: serviceRecords.amount })
+      .from(serviceRecords)
+      .where(and(eq(serviceRecords.businessId, businessId), eq(serviceRecords.voided, false), gte(serviceRecords.createdAt, rangeFrom), lt(serviceRecords.createdAt, rangeTo)));
+    const unbilled = recordRows.filter((r) => !fromSales.has(r.id));
+    const unbilledRecords = { count: unbilled.length, total: unbilled.reduce((sum, r) => sum + r.amount, 0) };
+
+    // Cierre firmado del día (si lo hay): lo de ahora menos lo firmado = lo que cambió DESPUÉS del cierre.
+    const expectedCash = opening ? opening.amount + cashIn - cashOut : null;
+    const [closing] = await tx
+      .select({ createdAt: cashClosings.createdAt, totalSales: cashClosings.totalSales, expectedAmount: cashClosings.expectedAmount })
+      .from(cashClosings)
+      .where(and(eq(cashClosings.businessId, businessId), eq(cashClosings.day, day), eq(cashClosings.status, 'completed')))
+      .limit(1);
+    const afterClose = closing
+      ? {
+          closedAt: closing.createdAt.toISOString(),
+          closedSales: closing.totalSales,
+          closedExpectedCash: closing.expectedAmount,
+          salesDelta: totalSales - closing.totalSales,
+          expectedCashDelta: (expectedCash ?? 0) - closing.expectedAmount,
+        }
+      : null;
 
     return {
       day,
@@ -132,9 +173,14 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
       topServices: rank(itemRows, 'service'),
       topProducts: rank(itemRows, 'product'),
       employeeSales,
-      expenses: expenseRows.map((e) => toExpenseDto(e, expenseNames.get(e.createdBy) ?? '')),
+      employeeBreakdown,
+      expenses: expenseRows.map((e) => toExpenseDto(e, expenseNames)),
       totalExpenses,
-      expectedCash: opening ? opening.amount + cashIn - cashOut : null,
+      // Correcciones hechas DESPUÉS del cierre de este día (el cierre firmado no cambia; quedan a la vista).
+      adjustmentsAfterClose: await loadAdjustments(tx as Tx, businessId, { cashDay: day }),
+      expectedCash,
+      afterClose,
+      unbilledRecords,
       hourly,
       clientsServed: clientIds.size,
       newClients: newClientRows.length,
@@ -160,27 +206,7 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     ...(summary ? { summary } : {}),
   });
 
-  /* ---------- Gastos ---------- */
-
-  app.get('/expenses', async (request) => {
-    const { from, to } = parse(rangeQuery, request.query);
-    const businessId = businessOf(request);
-    const timezone = await timezoneOf(businessId);
-    const rangeFrom = zonedInstant(from, 0, timezone);
-    const rangeTo = zonedInstant(addDays(to, 1), 0, timezone);
-    const rows = await db.select().from(expenses).where(and(eq(expenses.businessId, businessId), gte(expenses.createdAt, rangeFrom), lt(expenses.createdAt, rangeTo))).orderBy(desc(expenses.createdAt));
-    const names = await namesOf(db, businessId, rows.map((r) => r.createdBy));
-    return rows.map((r) => toExpenseDto(r, names.get(r.createdBy) ?? ''));
-  });
-
-  app.post('/expenses', async (request, reply) => {
-    const input = parse(expenseInputSchema, request.body);
-    const businessId = businessOf(request);
-    const userId = request.user.sub;
-    const [row] = await db.insert(expenses).values({ businessId, amount: input.amount, description: input.description, method: input.method, createdBy: userId }).returning();
-    const name = (await namesOf(db, businessId, [userId])).get(userId) ?? '';
-    return reply.status(201).send(toExpenseDto(row!, name));
-  });
+  /* Gastos: viven en routes/expenses.ts (módulo Finanzas), con el mismo GET/POST /expenses de antes, ampliado. */
 
   /* ---------- Cierre de caja ---------- */
 
@@ -189,6 +215,70 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     const businessId = businessOf(request);
     const timezone = await timezoneOf(businessId);
     return computeDaySummary(db, businessId, day, timezone);
+  });
+
+  /**
+   * "Ver más" del cierre: ventas del día (zona del negocio) de UN empleado (las que tienen al menos un servicio que él
+   * realizó) o las que tienen productos / servicios sin profesional. Por venta: la venta completa guardada y solo las líneas
+   * de esta vista, con su parte DISTRIBUIDA del descuento (misma regla y orden que el desglose: los totales coinciden).
+   * Paginado por cursor (fecha + id, más reciente primero). Anuladas incluidas y marcadas; no suman en `summary`.
+   */
+  app.get('/cash/day-sales', async (request): Promise<CashDaySalesPage> => {
+    const { day, scope, employeeId, cursor, limit } = parse(cashDaySalesQuerySchema, request.query);
+    const businessId = businessOf(request);
+    const timezone = await timezoneOf(businessId);
+    const rangeFrom = zonedInstant(day, 0, timezone);
+    const rangeTo = zonedInstant(addDays(day, 1), 0, timezone);
+    const after = decodeCursor(cursor, ['string', 'string']);
+
+    const inScope =
+      scope === 'employee'
+        ? sql`exists (select 1 from sale_items si where si.sale_id = ${sales.id} and si.business_id = ${businessId} and si.kind = 'service' and si.employee_id = ${employeeId!})`
+        : sql`exists (select 1 from sale_items si where si.sale_id = ${sales.id} and si.business_id = ${businessId} and (si.kind = 'product' or si.employee_id is null))`;
+    const base = and(eq(sales.businessId, businessId), gte(sales.createdAt, rangeFrom), lt(sales.createdAt, rangeTo), inScope);
+
+    const createdText = sql<string>`${sales.createdAt}::text`;
+    const rows = await db
+      .select({ sale: sales, createdText })
+      .from(sales)
+      .where(and(base, after ? sql`(${sales.createdAt}, ${sales.id}) < (${after[0]}::timestamptz, ${after[1]}::uuid)` : undefined))
+      .orderBy(desc(sales.createdAt), desc(sales.id))
+      .limit(limit + 1);
+    const page = toPage(rows, limit, (r) => [r.createdText, r.sale.id], (r) => r.sale);
+    const dtos = await loadSaleDtos(db, businessId, page.data);
+
+    const focus = (items: Array<{ id: string; kind: 'service' | 'product'; name: string; quantity: number; unitPrice: number; total: number; employeeId: string | null }>, discount: number) => {
+      const shares = allocateProportionally(items.map((i) => i.total), discount);
+      const lines = items.flatMap((item, index) =>
+        lineInScope(item, scope, employeeId) ? [{ id: item.id, kind: item.kind, name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, gross: item.total, discountShare: shares[index] ?? 0, net: item.total - (shares[index] ?? 0) }] : [],
+      );
+      const gross = lines.reduce((sum, l) => sum + l.gross, 0);
+      const discountShare = lines.reduce((sum, l) => sum + l.discountShare, 0);
+      return { lines, gross, discountShare, net: gross - discountShare, units: lines.reduce((sum, l) => sum + l.quantity, 0) };
+    };
+    const data: CashDaySaleDto[] = dtos.map((sale) => {
+      const { lines, gross, discountShare, net } = focus(sale.items, sale.discount);
+      return { sale, lines, gross, discountShare, net };
+    });
+
+    // Totales de TODO el día y filtro (solo en la primera página): completadas suman, anuladas solo se cuentan.
+    let summary: CashDaySalesPage['summary'] = null;
+    if (!after) {
+      const all = await db.select({ id: sales.id, discount: sales.discount, status: sales.status }).from(sales).where(base);
+      const completed = all.filter((s) => s.status === 'completed');
+      const itemRows = completed.length > 0 ? await db.select().from(saleItems).where(and(eq(saleItems.businessId, businessId), inArray(saleItems.saleId, completed.map((s) => s.id)))).orderBy(asc(saleItems.createdAt), asc(saleItems.id)) : [];
+      const bySale = new Map<string, typeof itemRows>();
+      for (const item of itemRows) bySale.set(item.saleId, [...(bySale.get(item.saleId) ?? []), item]);
+      summary = { completedCount: completed.length, voidedCount: all.length - completed.length, gross: 0, discountShare: 0, net: 0, units: 0 };
+      for (const sale of completed) {
+        const part = focus((bySale.get(sale.id) ?? []).map((i) => ({ ...i, kind: i.kind as 'service' | 'product' })), sale.discount);
+        summary.gross += part.gross;
+        summary.discountShare += part.discountShare;
+        summary.net += part.net;
+        summary.units += part.units;
+      }
+    }
+    return { data, nextCursor: page.nextCursor, summary };
   });
 
   /**
@@ -227,7 +317,12 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
     const userId = request.user.sub;
     const timezone = await timezoneOf(businessId);
 
+    // Dos cierres simultáneos del mismo día: el índice único (cash_closings_business_day_active_uq) deja pasar uno; el
+    // otro es el mismo 409 "ya cerrada" que si hubiera llegado después (antes era un error 500).
     const result = await withBusinessTrusted(db, businessId, async (tx) => {
+      // Candado EXCLUSIVO de la caja del día: espera a las ventas y gastos en curso y frena los nuevos hasta firmar (ver
+      // booking/cashLock.ts). Así lo firmado es exactamente lo registrado.
+      await lockCashDays(tx, businessId, [input.day], 'exclusive');
       const [already] = await tx.select({ id: cashClosings.id }).from(cashClosings).where(and(eq(cashClosings.businessId, businessId), eq(cashClosings.day, input.day), eq(cashClosings.status, 'completed'))).limit(1);
       if (already) throw new AppError(409, 'already_closed');
 
@@ -252,6 +347,9 @@ export function cashRoutes(app: FastifyInstance, ctx: Ctx): void {
         })
         .returning();
       return { row: row!, summary };
+    }).catch((error: unknown) => {
+      if (isUniqueViolation(error, 'cash_closings_business_day_active_uq')) throw new AppError(409, 'already_closed');
+      throw error;
     });
 
     const name = (await namesOf(db, businessId, [userId])).get(userId) ?? '';

@@ -1,10 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { ActivityIndicator, View } from 'react-native';
 import { api, errorKey } from '@/lib/api';
-import { keys, useBookingReviews } from '@/lib/queries';
+import { flatPages, keys, useBookingReviews } from '@/lib/queries';
+import { LoadMoreButton } from '../PagedFooter';
 import { useSettings } from '@/lib/settings';
-import { Button } from '../Button';
-import { Card, EmptyState } from '../Kit';
+import { EmptyState } from '../Kit';
+import { Button, Card } from './PanelKit';
 import { AppText } from '../Text';
 import { useAction } from './useAction';
 
@@ -37,8 +38,8 @@ export function ReviewsTab() {
           {action.error}
         </AppText>
       ) : null}
-      {(reviews.data ?? []).length === 0 ? <EmptyState icon="star-outline" message={t('reviews_empty')} /> : null}
-      {(reviews.data ?? []).map((review) => (
+      {flatPages(reviews.data).length === 0 ? <EmptyState icon="star-outline" message={t('reviews_empty')} /> : null}
+      {flatPages(reviews.data).map((review) => (
         <Card key={review.id}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <AppText variant="heading" tone="gold" accessibilityLabel={t('reviews_stars', { count: review.rating })}>
@@ -60,6 +61,7 @@ export function ReviewsTab() {
           </View>
         </Card>
       ))}
+      <LoadMoreButton query={reviews} />
     </View>
   );
 }

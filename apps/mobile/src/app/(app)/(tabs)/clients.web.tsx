@@ -1,19 +1,19 @@
 /**
- * Ruta /clients SOLO WEB (nativo: clients.tsx, sin cambios). Mismos datos y acciones que la nativa (búsqueda en el
- * servidor, alta y ficha de cliente); la presentación está en src/web/screens/Clients.tsx.
+ * Ruta /clients SOLO WEB (nativo: clients.tsx). Mismos datos y acciones que la nativa (búsqueda en el servidor, alta y
+ * ficha de cliente). El directorio se pagina por cursor ("Cargar más"); los indicadores salen de `/clients/summary` y
+ * las columnas de servicios de `/service-records/by-client` (solo de las filas visibles). La presentación está en
+ * src/web/screens/Clients.tsx.
  */
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
-import { localDate, todayIn } from '@/lib/agenda';
+import { dayRange, todayIn } from '@/lib/agenda';
 import { errorKey } from '@/lib/api';
-import { activeClients, clientRows, isTruncated, newThisMonth, RECORD_LIMIT } from '@/lib/sections';
-import { useClients, useServiceRecords } from '@/lib/queries';
+import { flatPages, useClientVisits, useClientsPages, useClientsSummary } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { Header, Screen } from '@/ui/Screen';
 import { Ico } from '@/web/icons';
 import { ClientsView, type ClientRowView } from '@/web/screens/Clients';
-import { useNow } from '@/web/services/useNow';
 import { useWebText } from '@/web/services/useWebText';
 import { Button } from '@/web/ui/Button';
 import type { KpiView } from '@/web/ui/Page';
@@ -25,7 +25,6 @@ export default function ClientsWeb() {
   const actor = actorOf(user);
   const canRecords = meets(actor, ['services_record']);
   const canManage = meets(actor, ['clients_manage']);
-  const nowMs = useNow();
   // Llegada desde la tarjeta "Clientes nuevos hoy" del tablero de Inicio: se acota a los de hoy hasta que se quite el filtro.
   const params = useLocalSearchParams<{ since?: string }>();
   const sinceToday = params.since === 'today';
@@ -38,33 +37,40 @@ export default function ClientsWeb() {
     return () => clearTimeout(id);
   }, [search]);
 
-  const everyone = useClients('');
-  const clients = useClients(applied);
-  const records = useServiceRecords(undefined, canRecords);
-
-  const date = useMemo(() => new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', year: 'numeric', timeZone: business.timezone }), [language, business.timezone]);
-  const filteredClients = useMemo(() => (sinceToday ? (clients.data ?? []).filter((c) => localDate(c.createdAt, business.timezone) === todayKey) : clients.data), [clients.data, sinceToday, business.timezone, todayKey]);
-  const rows = useMemo<ClientRowView[]>(
-    () =>
-      clientRows(filteredClients ?? [], canRecords ? records.data : undefined).map((row) => ({
-        id: row.id,
-        name: row.name,
-        phone: row.phone,
-        email: row.email,
-        photoUrl: row.photoUrl,
-        since: date.format(new Date(row.createdAt)),
-        visits: row.visits === null ? null : String(row.visits),
-        lastVisit: row.lastVisit ? date.format(new Date(row.lastVisit)) : null,
-        href: `/client/${row.id}`,
-      })),
-    [filteredClients, records.data, canRecords, date],
+  // "Clientes nuevos hoy" (desde el Inicio): el servidor filtra por fecha de alta en el día del negocio.
+  const today = useMemo(() => (sinceToday ? dayRange(todayKey, business.timezone, 1) : null), [sinceToday, todayKey, business.timezone]);
+  const clients = useClientsPages({ q: applied || undefined, createdFrom: today?.from, createdTo: today?.to });
+  const summary = useClientsSummary();
+  const loaded = useMemo(() => flatPages(clients.data), [clients.data]);
+  const visits = useClientVisits(
+    loaded.map((c) => c.id),
+    canRecords,
   );
 
-  const now = new Date(nowMs);
+  const date = useMemo(() => new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', year: 'numeric', timeZone: business.timezone }), [language, business.timezone]);
+  const rows = useMemo<ClientRowView[]>(() => {
+    const byClient = new Map((visits.data ?? []).map((v) => [v.clientId, v]));
+    return loaded.map((client) => {
+      const stats = canRecords && visits.data ? byClient.get(client.id) : undefined;
+      return {
+        id: client.id,
+        name: client.name,
+        phone: client.phone,
+        email: client.email,
+        photoUrl: client.photoUrl,
+        since: date.format(new Date(client.createdAt)),
+        // Sin permiso o mientras cargan: "—"; cargadas y sin servicios: "0".
+        visits: canRecords && visits.data ? String(stats?.count ?? 0) : null,
+        lastVisit: stats?.lastAt ? date.format(new Date(stats.lastAt)) : null,
+        href: `/client/${client.id}`,
+      };
+    });
+  }, [loaded, visits.data, canRecords, date]);
+
   const kpis: KpiView[] = [
-    { id: 'total', icon: 'users', label: t('sec_kpi_clients_total'), value: everyone.data ? String(everyone.data.length) : '—', loading: everyone.isLoading },
-    { id: 'month', icon: 'plus', label: t('sec_kpi_new_month'), value: everyone.data ? String(newThisMonth(everyone.data, business.timezone, now)) : '—', loading: everyone.isLoading },
-    ...(canRecords ? [{ id: 'active', icon: 'activity' as const, label: t('sec_kpi_active'), value: records.data ? String(activeClients(records.data, 30, now)) : '—', loading: records.isLoading }] : []),
+    { id: 'total', icon: 'users', label: t('sec_kpi_clients_total'), value: summary.data ? String(summary.data.total) : '—', loading: summary.isLoading },
+    { id: 'month', icon: 'plus', label: t('sec_kpi_new_month'), value: summary.data ? String(summary.data.newThisMonth) : '—', loading: summary.isLoading },
+    ...(canRecords ? [{ id: 'active', icon: 'activity' as const, label: t('sec_kpi_active'), value: summary.data ? String(summary.data.active30d) : '—', loading: summary.isLoading }] : []),
   ];
 
   const addClient = () => router.push('/client/form');
@@ -104,7 +110,12 @@ export default function ClientsWeb() {
         state={state}
         errorMessage={clients.isError ? t(errorKey(clients.error)) : undefined}
         onRetry={() => void clients.refetch()}
-        note={canRecords && records.data && isTruncated(records.data) ? t('sec_records_note', { n: RECORD_LIMIT }) : undefined}
+        pagination={{
+          hasMore: Boolean(clients.hasNextPage),
+          loading: clients.isFetchingNextPage,
+          error: clients.isFetchNextPageError ? t(errorKey(clients.error)) : undefined,
+          onLoadMore: () => void clients.fetchNextPage(),
+        }}
         emptyAction={
           canManage ? (
             <Button icon={<Ico name="plus" size={18} />} onPress={addClient}>

@@ -47,7 +47,7 @@ describe('cuentas de cliente: sincronización con el directorio "Clientes" del n
     const account = res.json();
 
     const list = await app.inject({ method: 'GET', url: '/api/clients', headers: auth(biz.session) });
-    const found = list.json<Client[]>().find((c) => c.phone === e164(phone))!;
+    const found = list.json<{ data: Client[] }>().data.find((c) => c.phone === e164(phone))!;
     expect(found).toMatchObject({ name: 'Cliente Prueba', phone: e164(phone), email: 'cliente@correo.com' });
     expect(new Date(found.createdAt).getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
 
@@ -91,7 +91,7 @@ describe('cuentas de cliente: sincronización con el directorio "Clientes" del n
     expect(put.statusCode).toBe(200);
 
     const list = await app.inject({ method: 'GET', url: '/api/clients', headers: auth(biz.session) });
-    const clients = list.json<Client[]>();
+    const clients = list.json<{ data: Client[] }>().data;
     const linked = clients.find((c) => c.name === 'Nombre Nuevo' && c.email === 'nuevo@correo.com');
     expect(linked).toBeDefined();
     void accountId;
@@ -109,7 +109,7 @@ describe('cuentas de cliente: sincronización con el directorio "Clientes" del n
     expect(photoUrl).toMatch(/^\/media\/.+\.webp$/);
 
     const list = await app.inject({ method: 'GET', url: '/api/clients', headers: auth(biz.session) });
-    const linked = list.json<Client[]>().find((c) => c.photoUrl === photoUrl);
+    const linked = list.json<{ data: Client[] }>().data.find((c) => c.photoUrl === photoUrl);
     expect(linked).toBeDefined();
   });
 
@@ -123,7 +123,7 @@ describe('cuentas de cliente: sincronización con el directorio "Clientes" del n
     await app.inject({ method: 'PUT', url: `${biz.base}/account/photo`, headers: { cookie, 'content-type': contentType }, payload });
 
     const list = await app.inject({ method: 'GET', url: '/api/clients', headers: auth(biz.session) });
-    const before = list.json<Client[]>().find((c) => c.photoUrl !== null);
+    const before = list.json<{ data: Client[] }>().data.find((c) => c.photoUrl !== null);
     expect(before).toBeDefined();
 
     const deleted = await app.inject({ method: 'DELETE', url: `${biz.base}/account`, headers: { cookie }, payload: { password: 'Clavesegura1' } });

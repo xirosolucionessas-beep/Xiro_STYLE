@@ -4,17 +4,18 @@ import { ActivityIndicator, View } from 'react-native';
 import { errorKey } from '@/lib/api';
 import { useBookingSettings } from '@/lib/queries';
 import { useSettings } from '@/lib/settings';
-import { Button } from '../Button';
-import { Chip, ChipRow } from '../Kit';
+import { Button, Chip, ChipRow, PANEL_SCOPE } from './PanelKit';
 import { Header, Screen } from '../Screen';
 import { AppText } from '../Text';
 import { InfoTab } from './InfoTab';
 import { LinkTab } from './LinkTab';
+import { DiscountsTab } from './DiscountsTab';
 import { ReviewsTab } from './ReviewsTab';
+import { WaitlistTab } from './WaitlistTab';
 import { RulesTab } from './RulesTab';
 import { TeamTab } from './TeamTab';
 
-const TABS = ['link', 'info', 'rules', 'team', 'reviews'] as const;
+const TABS = ['link', 'info', 'rules', 'team', 'reviews', 'promos', 'waitlist'] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -29,6 +30,7 @@ export function BookingPanel() {
 
   return (
     <Screen header={<Header title={t('booking_title')} subtitle={t('booking_subtitle')} />} refreshing={settings.isRefetching} onRefresh={() => void settings.refetch()}>
+      <View {...PANEL_SCOPE}>
       <ChipRow label={t('booking_title')}>
         {TABS.map((id) => (
           <Chip key={id} label={t(`booking_tab_${id}`)} selected={tab === id} onPress={() => setTab(id)} />
@@ -49,6 +51,9 @@ export function BookingPanel() {
         {settings.data && tab === 'rules' ? <RulesTab data={settings.data} /> : null}
         {tab === 'team' ? <TeamTab /> : null}
         {tab === 'reviews' ? <ReviewsTab /> : null}
+        {settings.data && tab === 'promos' ? <DiscountsTab data={settings.data} onGoTab={setTab} /> : null}
+        {settings.data && tab === 'waitlist' ? <WaitlistTab data={settings.data} onGoTab={setTab} /> : null}
+      </View>
       </View>
     </Screen>
   );

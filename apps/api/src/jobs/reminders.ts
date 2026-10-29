@@ -4,18 +4,24 @@ import { clientNameOf } from '../booking/appointments';
 import { loadContext } from '../booking/availability';
 import { withBusinessTrusted } from '../booking/scope';
 import type { Ctx } from '../context';
-import { appointments, clients } from '../db/schema';
+import { appointments, businessSettings, clients } from '../db/schema';
+import type { Database } from '../db/client';
+import { REMINDER_HOUR_OPTIONS } from '@xiro/shared';
 import { formatPushMoment, notifyAppointment } from '../push';
 
 export const REMINDER_QUEUE = 'appointment-reminder';
-/** Cuántas horas antes de la cita se avisa. Ni el negocio ni el cliente lo configuran hoy: es un valor fijo, razonable
- * para casi cualquier negocio de servicios (ver la ventana mínima de cancelación, que es aparte). */
-const REMINDER_HOURS_BEFORE = 3;
+/** Recordatorio de siempre (3 h antes) si el negocio no eligió otros. Desde la Fase 4 cada negocio elige hasta 3 (`reminderHours`). */
+const DEFAULT_REMINDER_HOURS = [3];
 
 export interface ReminderJobData {
   businessId: string;
   appointmentId: string;
+  /** Con cuántas horas de anticipación es este aviso (los programados antes de la Fase 4 no lo traen: eran de 3 h). */
+  hoursBefore?: number;
 }
+
+/** Clave única de cada aviso de una cita: una por anticipación, así nunca hay dos iguales activos. */
+const reminderKey = (appointmentId: string, hours: number) => `${appointmentId}:${hours}`;
 
 /** Crea la cola si no existe. Se llama una vez al arrancar; repetirlo (p. ej. tras un redeploy) no hace nada. */
 export async function ensureReminderQueue(boss: PgBoss): Promise<void> {
@@ -23,30 +29,49 @@ export async function ensureReminderQueue(boss: PgBoss): Promise<void> {
 }
 
 /**
- * Programa (o reprograma) el recordatorio de una cita: si ya había uno pendiente lo cancela primero, así que crear,
- * mover o volver a llamar esto para la misma cita nunca deja dos recordatorios activos (la clave única es el id de la
- * cita). No programa nada si faltan menos de `REMINDER_HOURS_BEFORE` horas: ya no tendría margen de avisar antes.
- * Mejor esfuerzo, como el push de eventos: nunca debe tumbar la reserva que lo dispara.
+ * Programa (o reprograma) los recordatorios de una cita, uno por cada anticipación de `hours` (p. ej. [24, 2]): primero cancela
+ * los pendientes, así que crear, mover o volver a llamar esto nunca deja avisos duplicados. Un aviso cuya hora ya pasó (la
+ * cita está más cerca que esa anticipación) no se programa. Mejor esfuerzo: nunca debe tumbar la reserva que lo dispara.
  */
-export async function scheduleReminder(boss: PgBoss | null, businessId: string, appointmentId: string, startsAt: Date): Promise<void> {
+export async function scheduleReminder(boss: PgBoss | null, businessId: string, appointmentId: string, startsAt: Date, hours: readonly number[] = DEFAULT_REMINDER_HOURS): Promise<void> {
   if (!boss) return;
   await cancelReminder(boss, appointmentId);
-  const remindAt = new Date(startsAt.getTime() - REMINDER_HOURS_BEFORE * 3_600_000);
-  if (remindAt.getTime() <= Date.now()) return;
-  try {
-    const data: ReminderJobData = { businessId, appointmentId };
-    await boss.send(REMINDER_QUEUE, data, { startAfter: remindAt, singletonKey: appointmentId });
-  } catch {
-    // Ver nota arriba: un fallo al programar no debe propagarse a quien reserva.
+  for (const hoursBefore of new Set(hours)) {
+    const remindAt = new Date(startsAt.getTime() - hoursBefore * 3_600_000);
+    if (remindAt.getTime() <= Date.now()) continue;
+    try {
+      const data: ReminderJobData = { businessId, appointmentId, hoursBefore };
+      await boss.send(REMINDER_QUEUE, data, { startAfter: remindAt, singletonKey: reminderKey(appointmentId, hoursBefore) });
+    } catch {
+      // Ver nota arriba: un fallo al programar no debe propagarse a quien reserva.
+    }
   }
 }
 
-/** Cancela el recordatorio pendiente de una cita (se movió, se canceló o se completó). No falla si ya no había uno. */
+/** Las anticipaciones que eligió el negocio (Fase 4); sin configuración, el recordatorio de siempre. */
+export async function reminderHoursOf(db: Database, businessId: string): Promise<number[]> {
+  const [row] = await db.select({ hours: businessSettings.reminderHours }).from(businessSettings).where(eq(businessSettings.businessId, businessId)).limit(1);
+  return row?.hours ?? DEFAULT_REMINDER_HOURS;
+}
+
+/** Programa los recordatorios de una cita con las anticipaciones del negocio. Mejor esfuerzo (nunca lanza). */
+export async function scheduleAppointmentReminders(ctx: { boss: PgBoss | null; db: Database }, businessId: string, appointmentId: string, startsAt: Date): Promise<void> {
+  if (!ctx.boss) return;
+  const hours = await reminderHoursOf(ctx.db, businessId).catch(() => DEFAULT_REMINDER_HOURS);
+  await scheduleReminder(ctx.boss, businessId, appointmentId, startsAt, hours);
+}
+
+/**
+ * Cancela TODOS los recordatorios pendientes de una cita (se movió, se canceló o se completó): los de cada anticipación y el
+ * de la versión anterior (clave = id de la cita, programado antes de la Fase 4). No falla si ya no había ninguno.
+ */
 export async function cancelReminder(boss: PgBoss | null, appointmentId: string): Promise<void> {
   if (!boss) return;
   try {
-    const pending = await boss.findJobs<ReminderJobData>(REMINDER_QUEUE, { key: appointmentId });
-    if (pending.length > 0) await boss.cancel(REMINDER_QUEUE, pending.map((job) => job.id));
+    for (const key of [appointmentId, ...REMINDER_HOUR_OPTIONS.map((h) => reminderKey(appointmentId, h))]) {
+      const pending = await boss.findJobs<ReminderJobData>(REMINDER_QUEUE, { key });
+      if (pending.length > 0) await boss.cancel(REMINDER_QUEUE, pending.map((job) => job.id));
+    }
   } catch {
     // Ver nota en scheduleReminder.
   }
@@ -81,7 +106,8 @@ export async function sendReminder(ctx: Ctx, data: ReminderJobData): Promise<voi
       titleKey: 'push_appt_reminder_title',
       bodyKey: 'push_appt_reminder_body',
       params: { time: formatPushMoment(row.startsAt.toISOString(), context.business.timezone) },
-      dedupeKey: `appt_reminder:${row.id}`,
+      // Un aviso por anticipación (24 h y 2 h son dos notificaciones distintas); los antiguos conservan su clave.
+      dedupeKey: data.hoursBefore ? `appt_reminder:${row.id}:${data.hoursBefore}` : `appt_reminder:${row.id}`,
       href: '/agenda',
     });
 

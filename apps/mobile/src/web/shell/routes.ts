@@ -1,7 +1,7 @@
 /** Metadatos de cada ruta de la app: título, migas de pan, sección activa y ancho de contenido. Puro (sin React). */
 import type { IconName } from '../icons';
 
-export type SectionId = 'home' | 'notifications' | 'messages' | 'agenda' | 'booking' | 'reports' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
+export type SectionId = 'home' | 'notifications' | 'messages' | 'agenda' | 'orders' | 'expenses' | 'booking' | 'reports' | 'clients' | 'services' | 'inventory' | 'loyalty' | 'employees' | 'settings';
 
 export interface Crumb {
   /** Clave de traducción. */
@@ -46,6 +46,10 @@ const AUTH = (titleKey: string, extra: Partial<RouteInfo> = {}): RouteInfo => ({
 export function describeRoute(pathname: string, search = ''): RouteInfo {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   const editing = new URLSearchParams(search).has('id');
+  // Panel del fundador: pantalla completa, sin la barra lateral ni las herramientas de un negocio.
+  if (path === '/platform' || path.startsWith('/platform/')) {
+    return { titleKey: 'platform_title', section: null, trail: [{ labelKey: 'platform_title' }], auth: false, width: 'wide', needsHeading: false, hideFloating: true, standalone: true };
+  }
 
   switch (path) {
     case '/':
@@ -54,6 +58,10 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
       return { titleKey: 'notifications', section: 'notifications', trail: [HOME, { labelKey: 'notifications' }], auth: false, width: 'wide', needsHeading: false };
     case '/messages':
       return { titleKey: 'messages_title', section: 'messages', trail: [HOME, { labelKey: 'messages_title' }], auth: false, width: 'wide', needsHeading: false };
+    case '/orders':
+      return { titleKey: 'nav_orders', section: 'orders', trail: [HOME, { labelKey: 'nav_orders' }], auth: false, width: 'wide', needsHeading: false };
+    case '/expenses':
+      return { titleKey: 'nav_expenses', section: 'expenses', trail: [HOME, { labelKey: 'nav_expenses' }], auth: false, width: 'wide', needsHeading: false };
     case '/agenda':
       return { titleKey: 'nav_agenda', section: 'agenda', trail: [HOME, { labelKey: 'nav_agenda' }], auth: false, width: 'wide', needsHeading: false };
     case '/booking':
@@ -62,6 +70,8 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
       return { titleKey: 'pkg_title', section: 'services', trail: [HOME, SERVICES, { labelKey: 'pkg_title' }], auth: false, width: 'wide', needsHeading: false };
     case '/review-items':
       return { titleKey: 'review_title', section: 'services', trail: [HOME, SERVICES, { labelKey: 'review_title' }], auth: false, width: 'form', needsHeading: false };
+    case '/reports/balance':
+      return { titleKey: 'rep_tab_balance', section: 'reports', trail: [HOME, { labelKey: 'nav_reports', href: '/reports' }, { labelKey: 'rep_tab_balance' }], auth: false, width: 'wide', needsHeading: false };
     case '/reports':
       return { titleKey: 'nav_reports', section: 'reports', trail: [HOME, { labelKey: 'nav_reports' }], auth: false, width: 'wide', needsHeading: false };
     case '/inventory':
@@ -81,7 +91,9 @@ export function describeRoute(pathname: string, search = ''): RouteInfo {
       // el checkout no debe competir con la barra lateral ni con las migas.
       return { titleKey: 'subscription_title', section: null, trail: [{ labelKey: 'subscription_title' }], auth: false, width: 'form', needsHeading: false, hideFloating: true, standalone: true };
     case '/profile':
-      return { titleKey: 'profile', section: 'settings', trail: [HOME, SETTINGS, { labelKey: 'profile' }], auth: false, width: 'form', needsHeading: false };
+      // Ancho normal del panel (como Inicio/Reportes), no el angosto de formulario: ya no es un formulario simple
+      // (foto, datos, cambio de contraseña y zona de peligro) y se veía apretado en pantallas anchas.
+      return { titleKey: 'profile', section: 'settings', trail: [HOME, SETTINGS, { labelKey: 'profile' }], auth: false, width: 'wide', needsHeading: false };
     case '/employees':
       return { titleKey: 'nav_employees', section: 'employees', trail: [HOME, { labelKey: 'nav_employees' }], auth: false, width: 'wide', needsHeading: false };
     case '/loyalty':

@@ -1,11 +1,13 @@
 import { and, desc, eq, gt, lt, sql } from 'drizzle-orm';
-import { businessUpdateSchema, cashOpeningSchema, phoneChangeConfirmSchema, phoneChangeRequestSchema, profileUpdateSchema, type CashOpening, type Language } from '@xiro/shared';
+import { businessUpdateSchema, cashOpeningSchema, changeMyPasswordSchema, deleteBusinessSchema, phoneChangeConfirmSchema, phoneChangeRequestSchema, profileUpdateSchema, type CashOpening, type Language } from '@xiro/shared';
 import type { FastifyInstance } from 'fastify';
+import { deleteOwnBusiness } from '../accountDeletion';
 import type { Ctx } from '../context';
 import { isUniqueViolation } from '../db/errors';
 import { businesses, cashOpenings, phoneChanges, users } from '../db/schema';
 import { AppError, parse } from '../errors';
 import { removeMedia, saveAvatarImage, saveImage } from '../media';
+import { hashPassword, verifyPassword } from '../passwords';
 import { toBusiness, toUser } from '../serializers';
 import { hmac, safeEqualHex, sixDigitCode } from '../security';
 
@@ -59,14 +61,14 @@ export function accountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { user } = await currentContext(request);
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    const file = await saveAvatarImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     try {
       const [updated] = await db.update(users).set({ photoFile: file }).where(eq(users.id, user.id)).returning();
-      await removeMedia(config.mediaDir, user.photoFile);
+      await removeMedia(ctx.media, user.photoFile);
       return toUser(updated!);
     } catch (error) {
-      await removeMedia(config.mediaDir, file);
+      await removeMedia(ctx.media, file);
       throw error;
     }
   });
@@ -75,9 +77,23 @@ export function accountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { user } = await currentContext(request);
     if (user.photoFile) {
       await db.update(users).set({ photoFile: null }).where(eq(users.id, user.id));
-      await removeMedia(config.mediaDir, user.photoFile);
+      await removeMedia(ctx.media, user.photoFile);
     }
     return toUser({ ...user, photoFile: null });
+  });
+
+  /**
+   * Cambio de la propia contraseña (dueño o empleado) desde una sesión ya iniciada. No cierra otras sesiones ni la
+   * propia (a diferencia de /auth/recover/reset, que ocurre SIN sesión y por eso sí las cierra todas): aquí la
+   * persona ya demostró quién es con su contraseña ACTUAL, así que no hay nada sospechoso que mitigar.
+   */
+  app.post('/me/password', async (request) => {
+    const { user } = await currentContext(request);
+    const input = parse(changeMyPasswordSchema, request.body);
+    if (!(await verifyPassword(input.currentPassword, user.passwordHash))) throw new AppError(400, 'invalid_current_password');
+    if (await verifyPassword(input.newPassword, user.passwordHash)) throw new AppError(400, 'password_same_as_current');
+    await db.update(users).set({ passwordHash: await hashPassword(input.newPassword) }).where(eq(users.id, user.id));
+    return { ok: true };
   });
 
   /**
@@ -159,11 +175,25 @@ export function accountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { business } = await currentContext(request);
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveImage(config.mediaDir, await part.toBuffer());
+    const file = await saveImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     const [updated] = await db.update(businesses).set({ logoFile: file }).where(eq(businesses.id, business.id)).returning();
-    await removeMedia(config.mediaDir, business.logoFile);
+    await removeMedia(ctx.media, business.logoFile);
     return toBusiness(updated!);
+  });
+
+  /**
+   * Eliminación definitiva del negocio — solo el dueño (authz.ts), y esta ruta vuelve a comprobarlo: "oculto el botón"
+   * nunca es el control de seguridad. Exige la contraseña ACTUAL del dueño (no basta con la sesión abierta) antes de
+   * borrar nada. El borrado en sí (transaccional, con auditoría que sobrevive siempre) vive en accountDeletion.ts.
+   */
+  app.delete('/business', async (request, reply) => {
+    const { user, business } = await currentContext(request);
+    if (user.role !== 'owner') throw new AppError(403, 'forbidden');
+    const input = parse(deleteBusinessSchema, request.body);
+    if (!(await verifyPassword(input.password, user.passwordHash))) throw new AppError(400, 'invalid_current_password');
+    await deleteOwnBusiness(ctx, request, business.id, { id: user.id, name: user.name, email: user.email, role: user.role }, business.name);
+    return reply.status(200).send({ ok: true });
   });
 
   app.get('/cash/today', async (request) => {

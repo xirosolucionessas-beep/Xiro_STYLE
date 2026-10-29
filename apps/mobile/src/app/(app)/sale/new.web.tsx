@@ -3,20 +3,24 @@
  * líneas a mano, y el pago — todo en una sola pantalla, pensada para ser rápida en el mostrador. Presentación en
  * src/web/screens/SaleForm.tsx.
  */
-import type { Client, SaleDto, SaleInput } from '@xiro/shared';
+import type { Client, Item, SaleDto, SaleInput } from '@xiro/shared';
 import { formatMoney, normalizePhone, whatsappLink, type Currency } from '@xiro/shared';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { actorOf, meets } from '@/lib/access';
 import { dayRange, formatClock, formatDay, localDate, localTime, summarizeItems, todayIn } from '@/lib/agenda';
-import { api, resolveMedia } from '@/lib/api';
+import { api, errorKey, resolveMedia } from '@/lib/api';
 import { apiErrors } from '@/lib/forms';
-import { useAppointments, useCategories, useClients, useEmployees, useInvalidateAfterSale, useItems } from '@/lib/queries';
-import { changeDue, filterCatalog, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, cartSubtotal, type CartLine, type PaymentRow } from '@/lib/sale';
+import { birthdaySalePreview } from '@/lib/birthdaySale';
+import { describeReward } from '@/lib/birthdayText';
+import { flatPages, useAppointments, useCategories, useClientBirthday, useClientSearch, useEmployees, useInvalidateAfterSale, useItemsPages } from '@/lib/queries';
+import { useOrderPrefill } from '@/lib/orderPrefill';
+import { changeDue, insufficientStockLines, paymentsTotal, remainingToPay, saleTotal, cartSubtotal, type CartLine, type PaymentRow } from '@/lib/sale';
 import { useAuthed } from '@/lib/session';
 import { Screen } from '@/ui/Screen';
 import { SaleFormView, type SaleAppointmentHint, type SaleCatalogRow, type SaleClientResult, type SaleEmployeeOption } from '@/web/screens/SaleForm';
 import { businessAddressLine, downloadInvoicePdf, downloadPosTicketPdf, toDataUrl, type InvoiceItem } from '@/web/services/invoicePdf';
+import { printTicket } from '@/web/services/print';
 import { useWebText } from '@/web/services/useWebText';
 import { parseAmountInput } from '@/web/money';
 
@@ -43,7 +47,8 @@ export default function SaleNewWeb() {
   const [selectedClient, setSelectedClient] = useState<{ id: string; name: string; phone: string | null } | null>(null);
   const [occasional, setOccasional] = useState(false);
   const searching = appliedQuery.length >= 2 && !selectedClient && !occasional;
-  const clientResults = useClients(appliedQuery, searching);
+  // Búsqueda en el servidor (primera página): no se descarga el directorio.
+  const clientResults = useClientSearch(appliedQuery, searching);
 
   const [newClientOpen, setNewClientOpen] = useState(false);
   const [newClientName, setNewClientName] = useState('');
@@ -84,7 +89,6 @@ export default function SaleNewWeb() {
   const todayKey = todayIn(business.timezone);
   const todayRange = useMemo(() => dayRange(todayKey, business.timezone, 1), [todayKey, business.timezone]);
   const appointments = useAppointments(todayRange, canAgenda && Boolean(selectedClient));
-  const items = useItems();
   const categories = useCategories();
   const clientAppointment = useMemo(() => {
     if (!selectedClient || !appointments.data) return null;
@@ -95,12 +99,16 @@ export default function SaleNewWeb() {
     ? { time: formatClock(localTime(clientAppointment.startsAt, business.timezone), language), items: summarizeItems(clientAppointment.items) }
     : null;
 
-  function loadAppointment() {
-    if (!clientAppointment || !items.data) return;
+  /** Carga la cita del cliente en el carrito con los precios del catálogo: pide SOLO esos artículos (por id). */
+  async function loadAppointment() {
+    if (!clientAppointment) return;
+    const ids = [...new Set(clientAppointment.items.filter((line) => line.kind !== 'package' && line.itemId).map((line) => line.itemId!))];
+    const fetched = await Promise.all(ids.map((id) => api.item(id).catch(() => null)));
+    const byId = new Map(fetched.filter((item): item is Item => item !== null).map((item) => [item.id, item]));
     const added: CartLine[] = [];
     for (const line of clientAppointment.items) {
       if (line.kind === 'package' || !line.itemId) continue; // los paquetes no tienen equivalente en ventas todavía
-      const catalogItem = items.data.find((i) => i.id === line.itemId);
+      const catalogItem = byId.get(line.itemId);
       if (!catalogItem) continue;
       added.push({
         key: nextKey(),
@@ -123,9 +131,16 @@ export default function SaleNewWeb() {
   const [tab, setTab] = useState<'service' | 'product'>('service');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [itemQuery, setItemQuery] = useState('');
+  const [appliedItemQuery, setAppliedItemQuery] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setAppliedItemQuery(itemQuery.trim()), 250);
+    return () => clearTimeout(id);
+  }, [itemQuery]);
+  // Catálogo del POS paginado: tipo, categoría y búsqueda (sin tildes) en el servidor; "Cargar más" al final.
+  const items = useItemsPages({ kind: tab, categoryId: categoryFilter ?? undefined, q: appliedItemQuery || undefined });
   const catalogRows: SaleCatalogRow[] = useMemo(
-    () => filterCatalog(items.data ?? [], itemQuery, categoryFilter, tab).map((i) => ({ id: i.id, name: i.name, price: i.price, stock: i.kind === 'product' ? i.stock : null, categoryId: i.categoryId })),
-    [items.data, itemQuery, categoryFilter, tab],
+    () => flatPages(items.data).map((i) => ({ id: i.id, name: i.name, price: i.price, stock: i.kind === 'product' ? i.stock : null, categoryId: i.categoryId })),
+    [items.data],
   );
 
   const [manualOpen, setManualOpen] = useState(false);
@@ -138,6 +153,29 @@ export default function SaleNewWeb() {
   /* ---------- Carrito ---------- */
   const [lines, setLines] = useState<CartLine[]>([]);
   const updateLine = (key: string, patch: Partial<CartLine>) => setLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+
+  // Entregar un pedido de la página pública (Pedidos → "Entregar y cobrar"): cliente y productos precargados; la venta lo marca entregado.
+  const { orderId } = useLocalSearchParams<{ orderId?: string }>();
+  // Declarado antes de precargar: un pedido con código de descuento trae ya su descuento.
+  const [discount, setDiscount] = useState(0);
+  const orderPrefill = useOrderPrefill(
+    orderId,
+    ({ client, lines: orderLines, discount: promised }) => {
+      setSelectedClient(client);
+      setOccasional(false);
+      setLines(orderLines);
+      if (promised > 0) setDiscount(promised);
+    },
+    nextKey,
+    canOverridePrice,
+  );
+  const orderNotice = orderPrefill.loading
+    ? { text: t('loading'), error: false }
+    : orderPrefill.error
+      ? { text: apiErrors(orderPrefill.error, t).general ?? t('unknown_error'), error: true }
+      : orderPrefill.order
+        ? { text: t('order_delivering', { name: orderPrefill.order.clientName }), error: false }
+        : null;
 
   function addCatalogLine(row: SaleCatalogRow) {
     setLines((prev) => {
@@ -166,12 +204,19 @@ export default function SaleNewWeb() {
   }, [employeesQuery.data, user.id, t]);
 
   /* ---------- Descuento, propina y pago ---------- */
-  const [discount, setDiscount] = useState(0);
   const [tip, setTip] = useState(0);
   const [payments, setPayments] = useState<PaymentRow[]>([{ key: 'pay-1', method: 'cash', amount: 0, receivedAmount: null }]);
 
   const subtotal = cartSubtotal(lines);
-  const total = saleTotal(subtotal, discount, tip);
+  // Recompensa de cumpleaños del cliente elegido: vista previa con la MISMA regla que el servidor (que la recalcula al cobrar).
+  const birthdayStatus = useClientBirthday(selectedClient?.id, Boolean(selectedClient));
+  // Se guarda PARA QUÉ cliente se marcó: al cambiar de cliente queda desmarcada sola.
+  const [birthdayFor, setBirthdayFor] = useState<string | null>(null);
+  const useBirthday = Boolean(selectedClient) && birthdayFor === selectedClient?.id;
+  const setUseBirthday = (checked: boolean) => setBirthdayFor(checked ? (selectedClient?.id ?? null) : null);
+  const birthday = birthdaySalePreview(birthdayStatus.data, lines, discount);
+  const birthdayAmount = useBirthday && birthday.kind === 'ready' ? birthday.amount : 0;
+  const total = saleTotal(subtotal, discount + birthdayAmount, tip);
 
   // Con un solo pago (el caso normal: cliente + un servicio + efectivo) el monto sigue siempre al total, así que en la
   // mayoría de las ventas no hace falta tocar el pago para nada. En cuanto se agrega un segundo pago (venta partida),
@@ -210,7 +255,8 @@ export default function SaleNewWeb() {
   function validate(): string | undefined {
     if (!selectedClient && !occasional) return t('sale_error_client_required');
     if (lines.length === 0) return t('sale_error_no_lines');
-    if (discount > subtotal) return t('sale_error_discount');
+    if (useBirthday && birthday.kind === 'blocked') return t(birthday.reason);
+    if (discount + birthdayAmount > subtotal) return t('sale_error_discount');
     if (insufficientStockLines(lines).length > 0) return t('sale_cart_insufficient_stock', { n: insufficientStockLines(lines)[0]!.stock ?? 0 });
     if (paymentsTotal(payments) !== total) return t('sale_error_payments_mismatch');
     return undefined;
@@ -238,6 +284,8 @@ export default function SaleNewWeb() {
           saveToCatalog: line.saveToCatalog,
         })),
         payments: payments.map((p) => ({ method: p.method, amount: p.amount, receivedAmount: p.receivedAmount })),
+        ...(orderPrefill.order ? { productOrderId: orderPrefill.order.id } : {}),
+        ...(birthdayAmount > 0 && birthday.kind === 'ready' ? { birthdayRewardId: birthday.reward.id } : {}),
       };
       const created = await api.createSale(body);
       await invalidateAfterSale();
@@ -250,11 +298,13 @@ export default function SaleNewWeb() {
   }
 
   function resetAll() {
+    orderPrefill.dismiss();
     setSelectedClient(null);
     setOccasional(false);
     setAppointmentLoaded(false);
     setLines([]);
     setDiscount(0);
+    setUseBirthday(false);
     setTip(0);
     setPayments([{ key: 'pay-1', method: 'cash', amount: 0, receivedAmount: null }]);
     setError(undefined);
@@ -287,6 +337,32 @@ export default function SaleNewWeb() {
       total: result.total,
       paymentLabel,
       currency,
+    });
+  }
+
+  /** Imprimir: un ticket vertical propio (ver web/services/print.ts), no la pantalla de la app (salía en blanco o recortada). */
+  function printReceipt() {
+    if (!result) return;
+    printTicket({
+      title: `${t('sale_print_receipt')} ${receiptNumber}`,
+      lang: language,
+      header: [business.name, businessAddressLine(business.address, business.city, business.country), business.whatsapp || ''],
+      meta: [
+        { label: t('sale_print_number'), value: receiptNumber },
+        { label: t('sale_print_date'), value: dateLabel },
+        { label: t('sale_print_client'), value: result.clientName },
+        ...(result.createdByName ? [{ label: t('sale_print_attended'), value: result.createdByName }] : []),
+      ],
+      lines: result.items.map((i) => ({ name: i.name, detail: i.quantity > 1 ? `${i.quantity} × ${formatMoney(i.unitPrice, currency)}` : undefined, amount: formatMoney(i.total, currency) })),
+      totals: [
+        { label: t('sale_print_subtotal'), value: formatMoney(result.subtotal, currency) },
+        ...(result.discount > 0 ? [{ label: t('sale_discount'), value: `-${formatMoney(result.discount, currency)}` }] : []),
+        ...(result.tip > 0 ? [{ label: t('sale_tip'), value: formatMoney(result.tip, currency) }] : []),
+        { label: t('sale_print_total'), value: formatMoney(result.total, currency), strong: true },
+        ...result.payments.map((p) => ({ label: t(`sale_pay_${p.method}`), value: formatMoney(p.amount, currency) })),
+        ...(result.changeGiven > 0 ? [{ label: t('sale_done_change'), value: formatMoney(result.changeGiven, currency) }] : []),
+      ],
+      footer: t('sale_receipt_thanks'),
     });
   }
 
@@ -328,10 +404,11 @@ export default function SaleNewWeb() {
     <Screen>
     <SaleFormView
       t={t}
+      orderNotice={orderNotice}
       currency={currency}
       clientQuery={clientQuery}
       onClientQuery={setClientQuery}
-      clientResults={(clientResults.data ?? []).map((c) => ({ id: c.id, name: c.name, phone: c.phone }))}
+      clientResults={(clientResults.data?.data ?? []).map((c) => ({ id: c.id, name: c.name, phone: c.phone }))}
       clientSearchLoading={clientResults.isFetching}
       selectedClient={selectedClient}
       occasional={occasional}
@@ -353,7 +430,7 @@ export default function SaleNewWeb() {
       newClientError={newClientError}
       appointmentHint={appointmentHint}
       appointmentLoaded={appointmentLoaded}
-      onLoadAppointment={loadAppointment}
+      onLoadAppointment={() => void loadAppointment()}
       tab={tab}
       onTab={setTab}
       categories={categories.data ?? []}
@@ -362,6 +439,13 @@ export default function SaleNewWeb() {
       itemQuery={itemQuery}
       onItemQuery={setItemQuery}
       catalogRows={catalogRows}
+      catalogLoading={items.isPending}
+      catalogPagination={{
+        hasMore: Boolean(items.hasNextPage),
+        loading: items.isFetchingNextPage,
+        error: items.isFetchNextPageError ? t(errorKey(items.error)) : undefined,
+        onLoadMore: () => void items.fetchNextPage(),
+      }}
       onAddCatalogItem={addCatalogLine}
       manualOpen={manualOpen}
       onToggleManual={() => setManualOpen((v) => !v)}
@@ -384,6 +468,17 @@ export default function SaleNewWeb() {
       onRemoveLine={(key) => setLines((prev) => prev.filter((l) => l.key !== key))}
       discount={discount}
       onDiscount={(raw) => setDiscount(parseAmountInput(raw))}
+      birthday={
+        birthday.kind === 'none'
+          ? null
+          : {
+              label: t('birthday_apply', { reward: describeReward(t, birthday.reward, currency) }),
+              amount: birthday.kind === 'ready' ? birthday.amount : 0,
+              checked: useBirthday && birthday.kind === 'ready',
+              blockedReason: birthday.kind === 'blocked' ? t(birthday.reason) : undefined,
+              onChange: setUseBirthday,
+            }
+      }
       tip={tip}
       onTip={(raw) => setTip(parseAmountInput(raw))}
       payments={payments}
@@ -404,7 +499,7 @@ export default function SaleNewWeb() {
       onWhatsapp={sendWhatsapp}
       onDownloadPdf={downloadPdf}
       onPosTicket={downloadPosTicket}
-      onPrint={() => window.print()}
+      onPrint={printReceipt}
       onNewSale={resetAll}
     />
     </Screen>

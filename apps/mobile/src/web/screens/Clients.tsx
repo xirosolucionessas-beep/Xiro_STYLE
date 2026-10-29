@@ -3,6 +3,7 @@ import { Ico } from '../icons';
 import { linkProps } from '../ui/link';
 import { Avatar, EmptyPanel, ErrorPanel, KpiRow, LoadingRows, SearchField, type KpiView } from '../ui/Page';
 import { useWebStyles } from '../ui/shared';
+import { LoadMore, type LoadMoreState } from '../ui/LoadMore';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 
@@ -35,10 +36,12 @@ export interface ClientsViewProps {
   note?: string;
   emptyAction?: ReactNode;
   navigate: (href: string) => void;
+  /** Paginación por cursor: "Cargar más" al pie de la tabla. */
+  pagination?: LoadMoreState;
 }
 
 /** Sección Clientes: indicadores, buscador y tabla (en móvil, tarjetas). Solo datos reales; lo que no se conoce se muestra "—". */
-export function ClientsView({ t, kpis, search, onSearch, appliedQuery, rows, showServiceCols, state, errorMessage, onRetry, note, emptyAction, navigate }: ClientsViewProps) {
+export function ClientsView({ t, kpis, search, onSearch, appliedQuery, rows, showServiceCols, state, errorMessage, onRetry, note, emptyAction, navigate, pagination }: ClientsViewProps) {
   useWebStyles();
   return (
     <div className="xw-section">
@@ -115,6 +118,7 @@ export function ClientsView({ t, kpis, search, onSearch, appliedQuery, rows, sho
               </tbody>
             </table>
           </div>
+          {pagination ? <LoadMore state={pagination} t={t} /> : null}
           {note ? <p className="xw-hint">{note}</p> : null}
         </>
       ) : null}

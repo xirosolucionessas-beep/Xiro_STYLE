@@ -4,13 +4,14 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
 import { actorOf, meets } from '@/lib/access';
 import { api, errorKey } from '@/lib/api';
-import { useClient, useInvalidateClients, useServiceRecords } from '@/lib/queries';
-import { clientHistory } from '@/lib/sections';
+import { birthdayStatusText, birthdayWhatsappUrl, formatDay } from '@/lib/birthdayText';
+import { flatPages, useClient, useClientBirthday, useInvalidateClients, useServiceRecordsPages, useServiceRecordsSummary } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { Button } from '@/ui/Button';
 import { useDialogs } from '@/ui/Dialogs';
 import { Card, EmptyState, SectionTitle } from '@/ui/Kit';
+import { PagedFooter } from '@/ui/PagedFooter';
 import { Header, Screen } from '@/ui/Screen';
 import { AppText } from '@/ui/Text';
 import { radius } from '@/ui/theme';
@@ -43,7 +44,10 @@ export default function ClientDetail() {
   const canRecords = meets(actor, ['services_record']);
   const canManage = meets(actor, ['clients_manage']);
   const { data: client, isPending } = useClient(id);
-  const records = useServiceRecords(id, canRecords && Boolean(id));
+  // Historial paginado (50 por página, "Ver más") e indicadores calculados en el servidor sobre TODO el historial.
+  const records = useServiceRecordsPages(id, canRecords && Boolean(id));
+  const stats = useServiceRecordsSummary({ clientId: id }, canRecords && Boolean(id));
+  const birthday = useClientBirthday(id);
   const invalidate = useInvalidateClients();
   const [busy, setBusy] = useState(false);
   const [anonymizing, setAnonymizing] = useState(false);
@@ -82,13 +86,13 @@ export default function ClientDetail() {
     }
   }
 
-  const summary = records.data ? clientHistory(records.data) : null;
+  const summary = stats.data ? { count: stats.data.count, total: stats.data.total, last: stats.data.lastAt } : null;
   const kpis = [
     { id: 'count', label: t('sec_cd_kpi_services'), value: summary ? String(summary.count) : '—' },
     { id: 'spent', label: t('sec_cd_kpi_spent'), value: summary ? formatMoney(summary.total, currency) : '—' },
     { id: 'last', label: t('sec_cd_kpi_last'), value: summary?.last ? date.format(new Date(summary.last)) : '—' },
   ];
-  const history = (records.data ?? []).slice().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const history = flatPages(records.data);
 
   return (
     <Screen header={<Header title={client.name} subtitle={t('sec_cd_since', { date: date.format(new Date(client.createdAt)) })} />}>
@@ -97,7 +101,33 @@ export default function ClientDetail() {
         <Detail label={t('email')} value={client.email ?? ''} />
         <Detail label={t('address')} value={client.address} />
         <Detail label={t('client_notes')} value={client.notes} />
+        {client.birthDate ? <Detail label={t('birth_date')} value={formatDay(client.birthDate)} /> : null}
       </Card>
+
+      {/* Programa de cumpleaños: estado (sin fecha ni edad) y felicitación por WhatsApp preparada para enviar a mano. */}
+      {birthday.data ? (
+        <Card style={{ marginTop: 18, gap: 8 }}>
+          <AppText variant="label" tone="gold">
+            {t('birthday_status_title')}
+          </AppText>
+          <AppText accessibilityLiveRegion="polite">{birthdayStatusText(t, birthday.data, currency)}</AppText>
+          {birthday.data.programEnabled && birthday.data.reward?.state === 'available' && client.phone ? (
+            <>
+              <Button
+                label={t('birthday_whatsapp')}
+                icon="logo-whatsapp"
+                variant="secondary"
+                onPress={() =>
+                  void Linking.openURL(birthdayWhatsappUrl(t, { phone: client.phone!, clientName: client.name, businessName: business.name, reward: birthday.data!.reward!, message: birthday.data!.message, currency })).catch(() => toast(t('unknown_error')))
+                }
+              />
+              <AppText variant="small" tone="muted">
+                {t('birthday_whatsapp_note')}
+              </AppText>
+            </>
+          ) : null}
+        </Card>
+      ) : null}
       {client.phone ? (
         <>
           <Button label="WhatsApp" icon="logo-whatsapp" onPress={() => void Linking.openURL(whatsappLink(client.phone!, ''))} style={{ marginTop: 18 }} />
@@ -109,11 +139,11 @@ export default function ClientDetail() {
         <>
           <View style={styles.kpis}>
             {kpis.map((kpi) => (
-              <View key={kpi.id} style={[styles.kpi, { backgroundColor: colors.surface, borderColor: colors.border }]} accessible accessibilityLabel={`${kpi.label}: ${records.isLoading ? '' : kpi.value}`}>
+              <View key={kpi.id} style={[styles.kpi, { backgroundColor: colors.surface, borderColor: colors.border }]} accessible accessibilityLabel={`${kpi.label}: ${stats.isLoading ? '' : kpi.value}`}>
                 <AppText variant="small" tone="muted" numberOfLines={1}>
                   {kpi.label}
                 </AppText>
-                {records.isLoading ? (
+                {stats.isLoading ? (
                   <ActivityIndicator size="small" color={colors.gold} style={{ alignSelf: 'flex-start' }} />
                 ) : (
                   <AppText variant="bodyStrong" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
@@ -151,6 +181,13 @@ export default function ClientDetail() {
                 </View>
               ))
             )}
+            {history.length > 0 && (records.hasNextPage || records.isFetchNextPageError) ? (
+              records.isFetchNextPageError || records.isFetchingNextPage ? (
+                <PagedFooter loading={records.isFetchingNextPage} error={records.isFetchNextPageError ? records.error : null} onRetry={() => void records.fetchNextPage()} />
+              ) : (
+                <Button label={t('load_more')} variant="ghost" compact onPress={() => void records.fetchNextPage()} style={{ marginTop: 8, alignSelf: 'center' }} />
+              )
+            ) : null}
           </Card>
         </>
       ) : null}

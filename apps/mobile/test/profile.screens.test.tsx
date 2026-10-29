@@ -25,11 +25,14 @@ function profile(overrides: Partial<ProfileViewProps> = {}) {
     t,
     user,
     businessName: 'Studio Ana',
+    isOwner: true,
     onSaveName: vi.fn(async () => ({ ok: true as const })),
     onChangePhoto: vi.fn(async () => ({ ok: true as const })),
     onRemovePhoto: vi.fn(async () => ({ ok: true as const })),
     onRequestPhoneChange: vi.fn(async () => ({ ok: true as const })),
     onConfirmPhoneChange: vi.fn(async () => ({ ok: true as const })),
+    onChangePassword: vi.fn(async () => ({ ok: true as const })),
+    onDeleteBusiness: vi.fn(async () => ({ ok: true as const })),
     onLogout: vi.fn(),
     ...overrides,
   };
@@ -103,5 +106,73 @@ describe('ProfileView', () => {
     await u.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(screen.queryByRole('heading', { level: 2, name: 'Cambiar celular' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Cambiar' })).toBeTruthy();
+  });
+
+  it('changes the password: validates the two new ones match, then calls onChangePassword and shows success', async () => {
+    const onChangePassword = vi.fn(async () => ({ ok: true as const }));
+    profile({ onChangePassword });
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText('Contraseña actual'), 'Actual123');
+    await u.type(screen.getByLabelText('Contraseña nueva'), 'Nueva456');
+    await u.type(screen.getByLabelText('Confirmar contraseña nueva'), 'Nueva789'); // no coincide
+    await u.click(screen.getByRole('button', { name: 'Cambiar contraseña' }));
+    expect(await screen.findByText('Las dos contraseñas nuevas no coinciden.')).toBeTruthy();
+    expect(onChangePassword).not.toHaveBeenCalled();
+
+    await u.clear(screen.getByLabelText('Confirmar contraseña nueva'));
+    await u.type(screen.getByLabelText('Confirmar contraseña nueva'), 'Nueva456');
+    await u.click(screen.getByRole('button', { name: 'Cambiar contraseña' }));
+    await waitFor(() => expect(onChangePassword).toHaveBeenCalledWith('Actual123', 'Nueva456'));
+    expect(await screen.findByText('Tu contraseña se actualizó.')).toBeTruthy();
+  });
+
+  it('shows the server error (e.g. wrong current password) without touching the business-deletion zone', async () => {
+    const onChangePassword = vi.fn(async () => ({ ok: false as const, error: 'La contraseña actual no es correcta.' }));
+    profile({ onChangePassword });
+    const u = userEvent.setup();
+    await u.type(screen.getByLabelText('Contraseña actual'), 'Incorrecta');
+    await u.type(screen.getByLabelText('Contraseña nueva'), 'Nueva456');
+    await u.type(screen.getByLabelText('Confirmar contraseña nueva'), 'Nueva456');
+    await u.click(screen.getByRole('button', { name: 'Cambiar contraseña' }));
+    expect(await screen.findByText('La contraseña actual no es correcta.')).toBeTruthy();
+  });
+
+  it('only an owner sees the danger zone; an employee never sees the delete-business button', async () => {
+    profile({ isOwner: false });
+    expect(screen.queryByText('Zona de peligro')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Eliminar negocio definitivamente' })).toBeNull();
+  });
+
+  it('danger zone: the confirm button stays disabled during the countdown, "Cancelar" always works, and a real submit calls onDeleteBusiness', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const onDeleteBusiness = vi.fn(async () => ({ ok: true as const }));
+    profile({ onDeleteBusiness });
+    const u = userEvent.setup({ delay: null });
+    await u.click(screen.getByRole('button', { name: 'Opciones avanzadas del negocio' }));
+    await u.click(screen.getByRole('button', { name: 'Eliminar negocio definitivamente' }));
+    expect(screen.getByRole('heading', { name: '¿Eliminar tu negocio para siempre?' })).toBeTruthy();
+    await u.type(screen.getByLabelText('Confirma con tu contraseña actual'), 'Secreta123');
+
+    const waitingBtn = screen.getByRole('button', { name: /Espera \d s…/ });
+    expect(waitingBtn.hasAttribute('disabled')).toBe(true);
+    expect(onDeleteBusiness).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    const confirmBtn = await screen.findByRole('button', { name: 'Sí, eliminar definitivamente' });
+    expect(confirmBtn.hasAttribute('disabled')).toBe(false);
+    await u.click(confirmBtn);
+    await waitFor(() => expect(onDeleteBusiness).toHaveBeenCalledWith('Secreta123'));
+    vi.useRealTimers();
+  });
+
+  it('danger zone: "Cancelar" closes the modal without ever calling onDeleteBusiness', async () => {
+    const onDeleteBusiness = vi.fn(async () => ({ ok: true as const }));
+    profile({ onDeleteBusiness });
+    const u = userEvent.setup();
+    await u.click(screen.getByRole('button', { name: 'Opciones avanzadas del negocio' }));
+    await u.click(screen.getByRole('button', { name: 'Eliminar negocio definitivamente' }));
+    await u.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('heading', { name: '¿Eliminar tu negocio para siempre?' })).toBeNull();
+    expect(onDeleteBusiness).not.toHaveBeenCalled();
   });
 });

@@ -13,6 +13,7 @@ import {
 } from '@xiro/shared';
 import type { DbExecutor } from './db/client';
 import { subscriptionEvents, subscriptionInvoices, subscriptions } from './db/schema';
+import { accessGrantStatus } from './platform/grants';
 
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
 
@@ -24,6 +25,34 @@ export const graceDeadline = (now: Date = new Date()): Date => addDays(now, GRAC
 export async function getSubscriptionRow(db: DbExecutor, businessId: string): Promise<SubscriptionRow | null> {
   const [row] = await db.select().from(subscriptions).where(eq(subscriptions.businessId, businessId)).limit(1);
   return row ?? null;
+}
+
+/**
+ * Política de bloqueo del servidor (ver `authenticate` en app.ts): SIN escribir nada (a diferencia de
+ * `toSubscriptionResponse`, pensada para `GET /api/subscription`), así que es segura de llamar en CADA petición
+ * autenticada.
+ *
+ * DELIBERADAMENTE CONSERVADORA — solo bloquea cuando el estado derivado a HOY es `expired` (tuvo acceso y se le
+ * acabó, incluida la gracia): es el único caso que la propia interfaz ya trata como bloqueo real (ver
+ * `subscriptionNotice` en packages/shared/subscription.ts, que devuelve `'blocked'` solo para `expired`/`past_due`
+ * sin acceso). Dos estados con `hasAccess: false` se dejan pasar a propósito, sin bloquear, porque bloquearlos sería
+ * una decisión de producto nueva que esta corrección no debe tomar en silencio:
+ *   - `none` (el negocio se registró pero todavía no eligió un plan ni empezó la prueba): bloquearlo dejaría a
+ *     CUALQUIER negocio recién registrado sin poder usar nada hasta iniciar su prueba explícitamente.
+ *   - `canceled` (cancelación ya confirmada por el proveedor, no "se cancela al final del período" — eso sigue
+ *     `active` hasta que el período termina): la propia interfaz tampoco lo marca como bloqueado hoy.
+ * Ver el informe de la Fase 1 para la decisión pendiente sobre estos dos casos.
+ *
+ * Antes de bloquear por vencimiento, revisa si una concesión del fundador (`accessGrantStatus`) cubre este instante
+ * — eso SIEMPRE da acceso, sin importar el estado de pago.
+ */
+export async function isAccessBlocked(db: DbExecutor, businessId: string, now: Date = new Date()): Promise<boolean> {
+  const row = await getSubscriptionRow(db, businessId);
+  if (!row) return false; // "none": ver nota arriba, no se bloquea en esta corrección
+  const status = deriveEffectiveStatus({ status: row.status as SubscriptionStatus, trialEndsAt: row.trialEndsAt, currentPeriodEnd: row.currentPeriodEnd, gracePeriodEndsAt: row.gracePeriodEndsAt }, now);
+  if (status !== 'expired') return false;
+  const grant = await accessGrantStatus(db, businessId, now);
+  return !grant.coversNow;
 }
 
 /**
@@ -94,6 +123,8 @@ export interface ProviderPatch {
  * Único punto de entrada para los 3 webhooks (RevenueCat = iOS/Android, Stripe/PayPal = Web): aplica el cambio de
  * estado y deja el registro de auditoría, de forma idempotente (un mismo evento reenviado por el proveedor no se
  * aplica dos veces) gracias al índice único (source, externalEventId) — ver sub_events_external_uq en el esquema.
+ * Registrar el evento y aplicar el cambio van en UNA transacción: si aplicar fallara, el evento tampoco queda
+ * registrado y el reintento del proveedor lo vuelve a procesar (antes quedaba "duplicado" sin haberse aplicado nunca).
  */
 export async function applyProviderEvent(
   db: DbExecutor,
@@ -104,20 +135,22 @@ export async function applyProviderEvent(
   externalEventId: string | null,
   payload: unknown,
 ): Promise<'applied' | 'duplicate'> {
-  const inserted = await db
-    .insert(subscriptionEvents)
-    .values({ businessId, type, source, externalEventId, payload: payload as object })
-    .onConflictDoNothing({ target: [subscriptionEvents.source, subscriptionEvents.externalEventId] })
-    .returning();
-  if (externalEventId && inserted.length === 0) return 'duplicate'; // el proveedor ya nos había avisado de este evento
+  return db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(subscriptionEvents)
+      .values({ businessId, type, source, externalEventId, payload: payload as object })
+      .onConflictDoNothing({ target: [subscriptionEvents.source, subscriptionEvents.externalEventId] })
+      .returning();
+    if (externalEventId && inserted.length === 0) return 'duplicate' as const; // el proveedor ya nos había avisado de este evento
 
-  const existing = await getSubscriptionRow(db, businessId);
-  if (!existing) {
-    await db.insert(subscriptions).values({ businessId, ...patch });
-  } else {
-    await db.update(subscriptions).set({ ...patch, updatedAt: new Date() }).where(eq(subscriptions.businessId, businessId));
-  }
-  return 'applied';
+    const existing = await getSubscriptionRow(tx, businessId);
+    if (!existing) {
+      await tx.insert(subscriptions).values({ businessId, ...patch });
+    } else {
+      await tx.update(subscriptions).set({ ...patch, updatedAt: new Date() }).where(eq(subscriptions.businessId, businessId));
+    }
+    return 'applied' as const;
+  });
 }
 
 export interface RecordInvoiceInput {

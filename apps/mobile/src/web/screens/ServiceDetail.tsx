@@ -19,6 +19,10 @@ export interface ServiceDetailItem {
   price: number;
   published: boolean;
   photos: string[];
+  /** Solo servicios: duración en minutos. */
+  durationMinutes?: number | null;
+  /** Estilos/variantes con su precio (y duración) reales, si tiene. */
+  variants?: Array<{ id: string; name: string; price: number; durationMinutes: number | null }>;
 }
 
 export interface ServiceDetailViewProps {
@@ -41,7 +45,7 @@ export function ServiceDetailView({ t, item, currency, publicUrl, onEdit, onShar
 
   return (
     <div className="xw-section">
-    <div className="xw-detail">
+    <div className="xw-detail xw-detail--preview">
       <div className="xw-detail-media">
         <GalleryViewer photos={item.photos} name={item.name} t={t} />
       </div>
@@ -49,9 +53,25 @@ export function ServiceDetailView({ t, item, currency, publicUrl, onEdit, onShar
       <div className="xw-detail-side">
         <Panel title={t('sec_sd_info')} icon="eye" action={item.published ? null : <Badge tone="muted">{t('hidden_from_catalog')}</Badge>}>
           <div className="xw-detail-actions" style={{ marginTop: 0 }}>
-            <p className="xw-detail-price">{formatMoney(item.price, currency)}</p>
+            <p className="xw-detail-price">
+              {item.variants && item.variants.length > 0 ? t('preview_from', { price: formatMoney(Math.min(item.price, ...item.variants.map((v) => v.price)), currency) }) : formatMoney(item.price, currency)}
+              {item.durationMinutes ? <span className="xw-detail-duration"> · {t('minutes_short', { minutes: item.durationMinutes })}</span> : null}
+            </p>
             {description ? <p className="xw-detail-desc">{description}</p> : null}
-            {item.detail ? <p className="xw-detail-desc">{item.detail}</p> : null}
+            {item.detail ? <p className="xw-detail-desc xw-detail-desc--pre">{item.detail}</p> : null}
+            {item.variants && item.variants.length > 0 ? (
+              <ul className="xw-detail-variants">
+                {item.variants.map((variant) => (
+                  <li key={variant.id}>
+                    <span>{variant.name}</span>
+                    <span>
+                      {formatMoney(variant.price, currency)}
+                      {variant.durationMinutes ? ` · ${t('minutes_short', { minutes: variant.durationMinutes })}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         </Panel>
 

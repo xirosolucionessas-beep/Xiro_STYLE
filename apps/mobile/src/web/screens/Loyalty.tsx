@@ -5,6 +5,7 @@ import { Button, Input, Select } from '../ui';
 import { Checkbox, FormMessage } from '../ui/auth';
 import { Modal } from '../ui/Modal';
 import { KpiRow, type KpiView } from '../ui/Page';
+import { LoadMore, type LoadMoreState } from '../ui/LoadMore';
 import { useWebStyles } from '../ui/shared';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
@@ -18,6 +19,10 @@ export interface LoyaltyViewProps {
   items: Item[];
   clientsProgress: LoyaltyClientProgress[];
   redemptions: LoyaltyRedemption[];
+  /** Indicadores calculados en el servidor (no sobre lo ya cargado). */
+  summary?: { rewardsAvailable: number; redeemed: number | null };
+  clientsPagination?: LoadMoreState;
+  redemptionsPagination?: LoadMoreState;
   onSaveProgram: (input: { enabled: boolean; goal: number; resetOnRedeem: boolean; rewardMessage: string; itemIds: string[] }) => Promise<ActionResult>;
   onRecordService: (input: { clientId: string; itemId: string; amount?: number; note: string }) => Promise<{ ok: true; rewardJustEarned: boolean } | { ok: false; error: string }>;
   onRedeem: (clientId: string) => Promise<ActionResult>;
@@ -170,7 +175,7 @@ function RecordServiceModal({ t, currency, clientName, items, onClose, onSubmit 
   );
 }
 
-function ClientsTab({ t, currency, program, items, clientsProgress, onRecordService, onRedeem, businessName, canRedeem }: Pick<LoyaltyViewProps, 't' | 'currency' | 'program' | 'items' | 'clientsProgress' | 'onRecordService' | 'onRedeem' | 'businessName'> & { canRedeem: boolean }) {
+function ClientsTab({ t, currency, program, items, clientsProgress, onRecordService, onRedeem, businessName, canRedeem, clientsPagination }: Pick<LoyaltyViewProps, 't' | 'currency' | 'program' | 'items' | 'clientsProgress' | 'onRecordService' | 'onRedeem' | 'businessName' | 'clientsPagination'> & { canRedeem: boolean }) {
   const [recordingFor, setRecordingFor] = useState<LoyaltyClientProgress | null>(null);
   const [justEarnedFor, setJustEarnedFor] = useState<string | null>(null);
   const [redeeming, setRedeeming] = useState<string | null>(null);
@@ -242,14 +247,16 @@ function ClientsTab({ t, currency, program, items, clientsProgress, onRecordServ
           </div>
         </div>
       ))}
+      {clientsPagination ? <LoadMore state={clientsPagination} t={t} /> : null}
       {recordingFor ? <RecordServiceModal t={t} currency={currency} clientName={recordingFor.clientName} items={items} onClose={() => setRecordingFor(null)} onSubmit={recordService} /> : null}
     </div>
   );
 }
 
-function HistoryTab({ t, redemptions }: Pick<LoyaltyViewProps, 't' | 'redemptions'>) {
+function HistoryTab({ t, redemptions, redemptionsPagination }: Pick<LoyaltyViewProps, 't' | 'redemptions' | 'redemptionsPagination'>) {
   if (redemptions.length === 0) return <p className="xw-hint">{t('loyalty_history_empty')}</p>;
   return (
+    <>
     <ul className="xw-loy-history">
       {redemptions.map((r) => (
         <li key={r.id} className="xw-loy-history-row">
@@ -259,18 +266,20 @@ function HistoryTab({ t, redemptions }: Pick<LoyaltyViewProps, 't' | 'redemption
         </li>
       ))}
     </ul>
+    {redemptionsPagination ? <LoadMore state={redemptionsPagination} t={t} /> : null}
+    </>
   );
 }
 
-export function LoyaltyView({ t, currency, businessName, program, items, clientsProgress, redemptions, onSaveProgram, onRecordService, onRedeem, canConfigure = true, canRedeem = true }: LoyaltyViewProps) {
+export function LoyaltyView({ t, currency, businessName, program, items, clientsProgress, redemptions, onSaveProgram, onRecordService, onRedeem, canConfigure = true, canRedeem = true, summary, clientsPagination, redemptionsPagination }: LoyaltyViewProps) {
   useWebStyles();
   const [tab, setTab] = useState<Tab>(program.enabled || !canConfigure ? 'clients' : 'config');
 
   const kpis: KpiView[] = [
     { id: 'status', icon: 'gift', label: t('sec_loy_kpi_status'), value: program.enabled ? t('sec_loy_on') : t('sec_loy_off') },
     { id: 'goal', icon: 'star', label: t('sec_loy_kpi_goal'), value: String(program.goal) },
-    { id: 'rewards', icon: 'crown', label: t('sec_loy_kpi_rewards'), value: String(clientsProgress.filter((c) => c.rewardAvailable).length) },
-    ...(canRedeem ? [{ id: 'redeemed', icon: 'circle-check' as const, label: t('sec_loy_kpi_redeemed'), value: String(redemptions.length) }] : []),
+    { id: 'rewards', icon: 'crown', label: t('sec_loy_kpi_rewards'), value: summary ? String(summary.rewardsAvailable) : String(clientsProgress.filter((c) => c.rewardAvailable).length) },
+    ...(canRedeem ? [{ id: 'redeemed', icon: 'circle-check' as const, label: t('sec_loy_kpi_redeemed'), value: summary?.redeemed != null ? String(summary.redeemed) : String(redemptions.length) }] : []),
   ];
 
   const tabs: Array<{ id: Tab; label: string }> = [
@@ -294,10 +303,10 @@ export function LoyaltyView({ t, currency, businessName, program, items, clients
         {tab === 'config' ? <ConfigTab t={t} items={items} program={program} onSaveProgram={onSaveProgram} /> : null}
       </div>
       <div role="tabpanel" id="xw-loy-panel-clients" aria-labelledby="xw-loy-tab-clients" hidden={tab !== 'clients'}>
-        {tab === 'clients' ? <ClientsTab t={t} currency={currency} program={program} items={items} clientsProgress={clientsProgress} onRecordService={onRecordService} onRedeem={onRedeem} businessName={businessName} canRedeem={canRedeem} /> : null}
+        {tab === 'clients' ? <ClientsTab t={t} currency={currency} program={program} items={items} clientsProgress={clientsProgress} onRecordService={onRecordService} onRedeem={onRedeem} businessName={businessName} canRedeem={canRedeem} clientsPagination={clientsPagination} /> : null}
       </div>
       <div role="tabpanel" id="xw-loy-panel-history" aria-labelledby="xw-loy-tab-history" hidden={tab !== 'history'}>
-        {tab === 'history' ? <HistoryTab t={t} redemptions={redemptions} /> : null}
+        {tab === 'history' ? <HistoryTab t={t} redemptions={redemptions} redemptionsPagination={redemptionsPagination} /> : null}
       </div>
       </div>
     </div>

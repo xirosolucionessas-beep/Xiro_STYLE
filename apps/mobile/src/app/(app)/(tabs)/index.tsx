@@ -8,11 +8,12 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-n
 import { actorOf, meets } from '@/lib/access';
 import { dayRange, localDate, todayIn, upcoming } from '@/lib/agenda';
 import { relativeTime } from '@/lib/alerts';
-import { api } from '@/lib/api';
-import { buildActivity, daySummary, lowStockList } from '@/lib/dashboard';
-import { formatCompactMoney, lowStock, salesToday, TEAM_LABEL_KEYS } from '@/lib/homeMetrics';
+import { api, errorKey } from '@/lib/api';
+import { dailyCashFlow } from '@/lib/cashFlow';
+import { buildActivity } from '@/lib/dashboard';
+import { formatCompactMoney, TEAM_LABEL_KEYS } from '@/lib/homeMetrics';
 import { menuFor } from '@/lib/menu';
-import { keys, useAppointments, useCashToday, useClassification, useClients, useEmployees, useItems, useServiceRecords } from '@/lib/queries';
+import { keys, useAppointments, useCashCloseSummary, useCashClosings, useCashToday, useClassification, useClientsSummary, useEmployees, useItemsQuery, useItemsSummary, useOrdersSummary, useRecentClients, useRecentServiceRecords, useServiceRecordsSummary } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { useGreetingKey } from '@/lib/useGreeting';
@@ -20,6 +21,7 @@ import { useCookieConsent } from '@/lib/useCookieConsent';
 import { useHomeAlerts } from '@/lib/useHomeAlerts';
 import { useDialogs } from '@/ui/Dialogs';
 import { AlertsCard } from '@/ui/home/AlertsCard';
+import { CashFlowCard } from '@/ui/home/CashFlowCard';
 import { AssistantChat } from '@/ui/home/AssistantChat';
 import { ActivityCard, DaySummaryCard, StockAlertsCard, type ActivityRow, type SummaryStat } from '@/ui/home/DashboardCards';
 import { HomeHeader } from '@/ui/home/HomeHeader';
@@ -61,13 +63,23 @@ export default function Home() {
   const canSales = meets(actor, ['services_record']);
 
   const cash = useCashToday(isOwner);
-  const clients = useClients('', canClients);
-  const items = useItems(canCatalog);
-  const records = useServiceRecords(undefined, canSales);
+  // Flujo de caja diario (solo el dueño: el resumen de caja es suyo, el servidor exige lo mismo).
+  const daySummary = useCashCloseSummary(todayIn(business.timezone), isOwner);
+  const todayClosings = useCashClosings(isOwner ? { from: todayIn(business.timezone), to: todayIn(business.timezone) } : null, isOwner);
   const employees = useEmployees(isOwner);
   const canAgenda = meets(actor, ['agenda_own']);
   const canReview = meets(actor, ['catalog_manage']);
   const today = todayIn(business.timezone);
+  // Nada de listas completas: indicadores y paneles salen de resúmenes y de páginas pequeñas calculadas en el servidor.
+  const todayRange = useMemo(() => dayRange(today, business.timezone, 1), [today, business.timezone]);
+  const clientsSummary = useClientsSummary(undefined, canClients);
+  const recentClients = useRecentClients(6, canClients);
+  const itemsSummary = useItemsSummary(canCatalog);
+  // Pedidos de la página pública por atender (insignia del menú "Pedidos").
+  const ordersSummary = useOrdersSummary(canSales);
+  const lowItems = useItemsQuery({ low: true, sort: 'stock', limit: 6 }, canCatalog);
+  const todaySummary = useServiceRecordsSummary(todayRange, canSales);
+  const recentRecords = useRecentServiceRecords(6, canSales);
   const week = useMemo(() => dayRange(today, business.timezone, 7), [today, business.timezone]);
   const appointments = useAppointments(week, canAgenda);
   const classification = useClassification(canReview);
@@ -98,15 +110,15 @@ export default function Home() {
   const opening = cash.data?.opening;
 
   /* ---------- Paneles del día (mismas funciones que el tablero web) ---------- */
-  const dashboard = useMemo(() => {
-    const now = new Date();
-    return {
-      summary: records.data ? daySummary(records.data, business.timezone, now) : null,
-      lowStock: items.data ? lowStockList(items.data, 4) : [],
-      stockCounts: items.data ? lowStock(items.data) : null,
-      activity: buildActivity({ records: records.data, clients: clients.data, items: items.data, limit: 6 }),
-    };
-  }, [records.data, clients.data, items.data, business.timezone]);
+  const dashboard = useMemo(
+    () => ({
+      summary: todaySummary.data ?? null,
+      lowStock: (lowItems.data?.data ?? []).slice(0, 4),
+      stockCounts: itemsSummary.data?.stock ?? null,
+      activity: buildActivity({ records: recentRecords.data?.data, clients: recentClients.data?.data, items: lowItems.data?.data, limit: 6 }),
+    }),
+    [todaySummary.data, lowItems.data, itemsSummary.data, recentRecords.data, recentClients.data],
+  );
 
   // Citas de HOY: las concretadas (completadas) frente a las que siguen en pie (sin canceladas ni inasistencias).
   const todayAppointments = canAgenda && appointments.data ? appointments.data.filter((a) => localDate(a.startsAt, business.timezone) === today && a.status !== 'cancelled' && a.status !== 'no_show') : null;
@@ -116,8 +128,8 @@ export default function Home() {
   const activeEmployees = employees.data?.filter((employee) => employee.active).length;
   const metrics: Metric[] = [
     { id: 'appointments', icon: 'calendar-outline', value: todayAppointments ? String(todayAppointments.length) : '—', label: t('metric_appointments'), loading: canAgenda && appointments.isLoading, onPress: canAgenda ? () => go('/agenda') : undefined },
-    { id: 'sales', icon: 'cash-outline', value: canSales && records.data ? formatCompactMoney(salesToday(records.data, business.timezone), business.currency as Currency) : '—', label: t('metric_sales'), loading: canSales && records.isLoading, onPress: canSales ? () => go('/sales-today') : undefined },
-    { id: 'clients', icon: 'people-outline', value: canClients && clients.data ? String(clients.data.length) : '—', label: t('metric_clients'), loading: canClients && clients.isLoading, onPress: canClients ? () => go('/clients') : undefined },
+    { id: 'sales', icon: 'cash-outline', value: canSales && todaySummary.data ? formatCompactMoney(todaySummary.data.total, business.currency as Currency) : '—', label: t('metric_sales'), loading: canSales && todaySummary.isLoading, onPress: canSales ? () => go('/sales-today') : undefined },
+    { id: 'clients', icon: 'people-outline', value: canClients && clientsSummary.data ? String(clientsSummary.data.total) : '—', label: t('metric_clients'), loading: canClients && clientsSummary.isLoading, onPress: canClients ? () => go('/clients') : undefined },
     { id: 'team', icon: 'cut-outline', value: activeEmployees !== undefined ? String(activeEmployees) : '—', label: t(TEAM_LABEL_KEYS[business.type]), loading: isOwner && employees.isLoading, onPress: isOwner ? () => go('/employees') : undefined },
   ];
 
@@ -147,16 +159,18 @@ export default function Home() {
     time: relativeTime(event.at, nowMs, language),
     amount: event.amount !== undefined ? money(event.amount) : undefined,
   }));
-  const activityLoading = (canSales && records.isLoading) || (canClients && clients.isLoading) || (canCatalog && items.isLoading);
+  const activityLoading = (canSales && recentRecords.isLoading) || (canClients && recentClients.isLoading) || (canCatalog && lowItems.isLoading);
 
   /* ---------- Botón "+": Registrar venta es la acción principal; nuevo servicio y nuevo cliente se conservan ---------- */
   const fabActions: FabAction[] = [
     ...(canSales ? [{ id: 'sale', label: t('home_fab_sale'), icon: 'cash-outline' as IconName, onPress: () => router.push('/sale/new'), primary: true }] : []),
     ...(meets(actor, ['catalog_manage']) ? [{ id: 'service', label: t('home_fab_service'), icon: 'add-circle-outline' as IconName, onPress: () => router.push('/item/form') }] : []),
     ...(meets(actor, ['clients_manage']) ? [{ id: 'client', label: t('home_fab_client'), icon: 'person-add-outline' as IconName, onPress: () => router.push('/client/form') }] : []),
+    // Finanzas: "Registrar gasto" (abre Gastos con el formulario de alta ya abierto).
+    ...(meets(actor, ['finance']) ? [{ id: 'expense', label: t('home_register_expense'), icon: 'wallet-outline' as IconName, onPress: () => router.push({ pathname: '/expenses', params: { new: '1' } }) }] : []),
   ];
 
-  const refresh = () => Promise.all([keys.cash, keys.clients, keys.items, keys.employees, keys.serviceRecords, keys.subscription, keys.appointments, keys.classification].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
+  const refresh = () => Promise.all([keys.cash, keys.cashCloseSummary, keys.cashClosings, keys.clients, keys.items, keys.employees, keys.serviceRecords, keys.subscription, keys.appointments, keys.classification].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
 
   const changeLanguage = (next: 'es' | 'en') => {
     setLanguage(next);
@@ -187,6 +201,17 @@ export default function Home() {
         <View style={styles.body}>
           <MetricCards metrics={metrics} />
 
+          {isOwner ? (
+            <CashFlowCard
+              flow={daySummary.data ? dailyCashFlow(daySummary.data, todayClosings.data ?? []) : null}
+              loading={daySummary.isLoading}
+              error={daySummary.isError ? t(errorKey(daySummary.error)) : undefined}
+              currency={business.currency as Currency}
+              onSeeClose={() => router.push('/cash-close')}
+              onOpenCash={() => router.push('/cash-opening')}
+            />
+          ) : null}
+
           {canSales || isOwner ? (
             <DaySummaryCard
               title={t('home_summary_title')}
@@ -194,7 +219,7 @@ export default function Home() {
               revenue={canSales ? (summary ? money(summary.total) : '—') : '—'}
               stats={summaryStats}
               note={summary?.topLabel ? t('home_summary_top', { name: summary.topLabel }) : undefined}
-              loading={canSales && records.isLoading}
+              loading={canSales && todaySummary.isLoading}
               seeAll={canSales ? { label: t('home_see_all'), onPress: () => router.push('/sales-today') } : undefined}
               cash={
                 isOwner
@@ -230,7 +255,7 @@ export default function Home() {
             <StockAlertsCard
               title={t('home_stock_title')}
               rows={stockRows}
-              loading={items.isLoading}
+              loading={lowItems.isLoading}
               emptyText={t('home_stock_all_good')}
               seeAll={{ label: t('home_stock_see_all'), onPress: () => go(`/inventory?status=${dashboard.stockCounts && dashboard.stockCounts.outOfStock > 0 ? 'out_of_stock' : 'reorder'}`) }}
             />
@@ -276,7 +301,7 @@ export default function Home() {
         pathname={pathname}
         business={{ name: business.name, type: business.type, logoUrl: business.logoUrl }}
         user={{ name: user.name, role: user.role, photoUrl: user.photoUrl }}
-        badges={{ inventory: items.data ? lowStock(items.data).count : undefined }}
+        badges={{ inventory: itemsSummary.data ? itemsSummary.data.stock.reorder + itemsSummary.data.stock.outOfStock : undefined, orders: ordersSummary.data ? ordersSummary.data.pending + ordersSummary.data.ready : undefined }}
         language={language}
         dark={theme === 'dark'}
         onLanguage={changeLanguage}

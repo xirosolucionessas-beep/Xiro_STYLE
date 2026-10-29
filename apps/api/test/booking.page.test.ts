@@ -1,12 +1,13 @@
 import type { BookingAdminSettings, PublicAppointmentDto, PublicBookingProfile, PublicBookingResult } from '@xiro/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import pg from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app';
 import type { BookingContext } from '../src/booking/availability';
 import { openStatus } from '../src/booking/view';
 import { appointments, clients } from '../src/db/schema';
-import { auth, book, register, setupBiz, workday } from './helpers/booking';
+import { at, auth, book, publicPayload, register, setupBiz, workday, type Biz } from './helpers/booking';
 import { createTestDatabase, testAppConfig, type TestDatabase } from './helpers/db';
 
 /** Contexto mínimo (zona de Bogotá, UTC-5): lunes a sábado 09:00–19:00, domingo cerrado. */
@@ -93,6 +94,38 @@ describe('¿se puede reservar en línea? (acceptsBookings / readiness)', () => {
 
 const rowsOf = async (businessId: string) => testDb.db.select().from(appointments).where(eq(appointments.businessId, businessId));
 
+/**
+ * Ejecuta `run` y, en la `nth` consulta SQL que cumpla `match`, ejecuta `interleave` hasta el final (antes de enviar esa
+ * consulta o después de recibir su resultado). Orden exacto y repetible, sin esperas por tiempo. Falla si nunca ocurrió.
+ */
+async function pauseAtQuery<T>(match: (text: string) => boolean, nth: number, when: 'before' | 'after', interleave: () => Promise<void>, run: () => Promise<T>): Promise<T> {
+  const proto = pg.Client.prototype as unknown as { query: (...args: unknown[]) => unknown };
+  const original = proto.query;
+  let seen = 0;
+  let fired = false;
+  proto.query = function (this: unknown, ...args: unknown[]) {
+    const first = args[0] as string | { text?: string } | undefined;
+    const text = typeof first === 'string' ? first : (first?.text ?? '');
+    if (!fired && match(text) && ++seen === nth) {
+      fired = true;
+      proto.query = original; // lo que haga `interleave` no se intercepta
+      if (when === 'before') return interleave().then(() => original.apply(this, args));
+      return Promise.resolve(original.apply(this, args)).then(async (result) => {
+        await interleave();
+        return result;
+      });
+    }
+    return original.apply(this, args);
+  };
+  try {
+    const result = await run();
+    expect(fired, 'la consulta a interceptar nunca ocurrió: la prueba no reprodujo la carrera').toBe(true);
+    return result;
+  } finally {
+    proto.query = original;
+  }
+}
+
 describe('confirmación idempotente', () => {
   it('repetir la MISMA confirmación devuelve la misma cita y el mismo enlace: no crea otra ni dice "horario ocupado"', async () => {
     const biz = await setupBiz(app, 'Idem');
@@ -132,6 +165,56 @@ describe('confirmación idempotente', () => {
     expect(results.map((r) => r.statusCode).sort()).toEqual([200, 200, 200, 200, 201]);
     expect(new Set(results.map((r) => r.json<PublicBookingResult>().token)).size).toBe(1);
     expect(await rowsOf(biz.session.business.id)).toHaveLength(1);
+  });
+
+  // Carrera determinista (sin temporizadores): se detiene el segundo envío en un punto exacto de su transacción, el primero
+  // se completa y se confirma entero, y luego el segundo sigue. Antes respondía 409/429 aunque esa clave ya tenía su cita.
+  const sameAttempt = (biz: Biz, date: string, time: string) => publicPayload(biz, date, time, { idempotencyKey: crypto.randomUUID() });
+  const send = (biz: Biz, payload: object) => app.inject({ method: 'POST', url: `${biz.base}/appointments`, payload });
+
+  it('el primer envío se confirma después de que el segundo buscó la clave: el segundo recibe esa misma cita, no "horario ocupado"', async () => {
+    const biz = await setupBiz(app, 'Carrera horario');
+    const payload = sameAttempt(biz, workday(4), '11:00');
+    let first: Awaited<ReturnType<typeof send>> | undefined;
+    // 1.ª búsqueda de la clave: la de la ruta; 2.ª: la de createAppointment, justo antes de evaluar el horario.
+    const second = await pauseAtQuery((text) => /^select/i.test(text) && text.includes('"idempotency_hash" = $'), 2, 'after', async () => {
+      first = await send(biz, payload);
+    }, () => send(biz, payload));
+    expect(first?.statusCode).toBe(201);
+    expect(second.statusCode).toBe(200);
+    expect(second.json<PublicBookingResult>().token).toBe(first!.json<PublicBookingResult>().token);
+    expect(second.json<PublicBookingResult>().appointment).toEqual(first!.json<PublicBookingResult>().appointment);
+    expect(await rowsOf(biz.session.business.id)).toHaveLength(1);
+  });
+
+  it('el primer envío se confirma después de que el segundo vio el horario libre: con tope de 1 pendiente, el segundo recibe esa cita, no "demasiadas pendientes"', async () => {
+    const biz = await setupBiz(app, 'Carrera pendientes');
+    expect((await app.inject({ method: 'PUT', url: '/api/booking/settings', headers: auth(biz.session), payload: { maxPendingPerPhone: 1 } })).statusCode).toBe(200);
+    const payload = sameAttempt(biz, workday(4), '11:00');
+    let first: Awaited<ReturnType<typeof send>> | undefined;
+    // El bloqueo por teléfono del cliente llega después de evaluar el horario y antes de contar sus citas pendientes.
+    const second = await pauseAtQuery((text) => text.includes('pg_advisory_xact_lock'), 1, 'before', async () => {
+      first = await send(biz, payload);
+    }, () => send(biz, payload));
+    expect(first?.statusCode).toBe(201);
+    expect(second.statusCode).toBe(200);
+    expect(second.json<PublicBookingResult>().token).toBe(first!.json<PublicBookingResult>().token);
+    expect(await rowsOf(biz.session.business.id)).toHaveLength(1);
+  });
+
+  it('la clave ya usada con OTRO horario no reserva ese horario: devuelve la cita original y el otro horario sigue libre para los demás', async () => {
+    const biz = await setupBiz(app, 'Clave reutilizada');
+    const date = workday(4);
+    const payload = sameAttempt(biz, date, '11:00');
+    const first = await send(biz, payload);
+    expect(first.statusCode).toBe(201);
+    const reused = await send(biz, { ...payload, startsAt: at(date, '14:00') });
+    expect(reused.statusCode).toBe(200);
+    expect(reused.json<PublicBookingResult>().appointment).toEqual(first.json<PublicBookingResult>().appointment);
+    expect(await rowsOf(biz.session.business.id)).toHaveLength(1);
+    expect((await book(app, biz, date, '14:00')).statusCode).toBe(201);
+    // Y un conflicto real se sigue respetando: otra clave sobre el horario ya tomado es "horario ocupado".
+    expect((await book(app, biz, date, '11:00', { idempotencyKey: crypto.randomUUID() })).statusCode).toBe(409);
   });
 
   it('la clave es por negocio: la misma clave en otro negocio no devuelve la cita del primero', async () => {

@@ -23,6 +23,7 @@ const subscriptionsConfig: SubscriptionsConfig = {
   paypalEnv: 'sandbox',
   bankTransferInstructions: null,
   adminSecret: null,
+  adminAllowedIps: [],
 };
 
 let app: FastifyInstance;
@@ -146,7 +147,7 @@ describe('checkout sin proveedores configurados', () => {
 });
 
 describe('transferencia bancaria de punta a punta (con ADMIN_SECRET configurado)', () => {
-  const ADMIN_SECRET = 'test-admin-secret';
+  const ADMIN_SECRET = 'test-admin-secret-con-mas-de-32-caracteres';
   let bankApp: FastifyInstance;
 
   beforeAll(async () => {
@@ -182,6 +183,46 @@ describe('transferencia bancaria de punta a punta (con ADMIN_SECRET configurado)
     const invoiceList = invoices.json<{ invoices: Array<{ id: string; plan: string; amount: number; paymentMethod: string }> }>().invoices;
     expect(invoiceList).toHaveLength(1);
     expect(invoiceList[0]).toMatchObject({ id: confirmed.invoiceId, plan: 'yearly', paymentMethod: 'bank_transfer', amount: 349_000 });
+  });
+});
+
+describe('endpoint de administración endurecido', () => {
+  const ADMIN_SECRET = 'otro-secreto-de-administracion-muy-largo-123';
+  let adminApp: FastifyInstance;
+  let allowApp: FastifyInstance;
+  const confirm = (target: FastifyInstance, secret: string | undefined, businessId: string, ip = '203.0.113.10') =>
+    target.inject({ method: 'POST', url: '/api/admin/subscription/confirm-bank-transfer', headers: secret === undefined ? {} : { 'x-admin-secret': secret }, payload: { businessId, plan: 'monthly' }, remoteAddress: ip });
+
+  beforeAll(async () => {
+    const { config } = testAppConfig({ rateLimit: { enabled: true, globalPerMinute: 10_000, userPerMinute: 10_000, authPerMinute: 1_000 } });
+    adminApp = await buildApp({ db: testDb.db, config: { ...config, subscriptions: { ...subscriptionsConfig, adminSecret: ADMIN_SECRET } } });
+    allowApp = await buildApp({ db: testDb.db, config: { ...testAppConfig().config, subscriptions: { ...subscriptionsConfig, adminSecret: ADMIN_SECRET, adminAllowedIps: ['10.0.0.5'] } } });
+  });
+  afterAll(async () => {
+    await adminApp.close();
+    await allowApp.close();
+  });
+
+  it('rechaza sin secreto, con uno parecido o con el correcto + 1 caracter (comparación exacta en tiempo constante)', async () => {
+    const id = '00000000-0000-4000-8000-000000000001';
+    for (const secret of [undefined, '', ADMIN_SECRET.slice(0, -1), ADMIN_SECRET + 'x', ADMIN_SECRET.toUpperCase()]) expect((await confirm(adminApp, secret, id, '198.51.100.' + Math.floor(Math.random() * 200))).statusCode).toBe(401);
+  });
+
+  it('un negocio inexistente responde 404 (antes era un 500 por la llave foránea)', async () => {
+    expect((await confirm(adminApp, ADMIN_SECRET, '00000000-0000-4000-8000-0000000000ff', '198.51.100.250')).statusCode).toBe(404);
+  });
+
+  it('límite estricto por IP: 5 intentos cada 15 minutos', async () => {
+    const ip = '192.0.2.200';
+    for (let i = 0; i < 5; i += 1) expect((await confirm(adminApp, 'incorrecto', '00000000-0000-4000-8000-000000000002', ip)).statusCode).toBe(401);
+    const blocked = await confirm(adminApp, ADMIN_SECRET, '00000000-0000-4000-8000-000000000002', ip);
+    expect(blocked.statusCode).toBe(429);
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('con lista blanca, otra IP recibe 404 aunque traiga el secreto correcto', async () => {
+    expect((await confirm(allowApp, ADMIN_SECRET, '00000000-0000-4000-8000-000000000003', '203.0.113.77')).statusCode).toBe(404);
+    expect((await confirm(allowApp, ADMIN_SECRET, '00000000-0000-4000-8000-000000000003', '10.0.0.5')).statusCode).toBe(404); // IP permitida: llega a validar y el negocio no existe
   });
 });
 
@@ -339,5 +380,66 @@ describe('push de facturación al recibir un webhook', () => {
     await app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH }, payload: { event: { id: 'evt_push_off2', type: 'EXPIRATION', app_user_id: session.business.id } } });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('webhooks endurecidos (Fase 3)', () => {
+  const revenuecat = (payload: unknown, raw = false) =>
+    app.inject({ method: 'POST', url: '/api/webhooks/revenuecat', headers: { authorization: REVENUECAT_AUTH, 'content-type': 'application/json' }, payload: raw ? (payload as string) : JSON.stringify(payload) });
+  const eventsFor = async (externalEventId: string) => (await testDb.pool.query('select count(*)::int as n from subscription_events where external_event_id = $1', [externalEventId])).rows[0].n as number;
+
+  it('JSON malformado o campos con otro tipo → 400 (no 500 que el proveedor reintentaría sin fin)', async () => {
+    expect((await revenuecat('{"event": {"id": ', true)).statusCode).toBe(400);
+    const session = await register();
+    const wrongType = await revenuecat({ event: { id: 'evt_tipo', type: 'RENEWAL', app_user_id: session.business.id, expiration_at_ms: 'mañana' } });
+    expect(wrongType.statusCode).toBe(400);
+    expect(await eventsFor('evt_tipo')).toBe(0);
+  });
+
+  it('un app_user_id que no es un negocio nuestro se ignora con 200 (sin error de llave foránea ni registro)', async () => {
+    for (const [id, appUserId] of [['evt_anon', '$RCAnonymousID:abc123'], ['evt_ajeno', '00000000-0000-4000-8000-0000000000aa']]) {
+      const res = await revenuecat({ event: { id, type: 'INITIAL_PURCHASE', app_user_id: appUserId, product_id: 'xiro_monthly' } });
+      expect(res.statusCode, appUserId).toBe(200);
+      expect(res.json()).toMatchObject({ ok: true, ignored: 'unknown app_user_id' });
+      expect(await eventsFor(id!)).toBe(0);
+    }
+  });
+
+  it('registrar el evento y aplicarlo es atómico: si aplicar falla, el reintento del proveedor sí lo procesa', async () => {
+    const { applyProviderEvent } = await import('../src/subscriptions');
+    const session = await register();
+    await expect(applyProviderEvent(testDb.db, session.business.id, 'revenuecat', 'RENEWAL', { status: 'active', platform: 'ios', paymentMethod: 'card', plan: 'monthly', currentPeriodEnd: new Date(Number.NaN) }, 'evt_atomico', {})).rejects.toThrow();
+    expect(await eventsFor('evt_atomico')).toBe(0); // antes quedaba registrado y el reintento salía como "duplicado"
+    expect(await applyProviderEvent(testDb.db, session.business.id, 'revenuecat', 'RENEWAL', { status: 'active', platform: 'ios', paymentMethod: 'card', plan: 'monthly' }, 'evt_atomico', {})).toBe('applied');
+    expect(await eventsFor('evt_atomico')).toBe(1);
+  });
+});
+
+describe('checkout: la URL de retorno solo usa orígenes permitidos (Fase 3, redirección abierta)', () => {
+  it('Origin ajeno → vuelve al propio servidor; Origin de CORS_ORIGINS → se respeta', async () => {
+    const created = testAppConfig({ corsOrigins: ['https://app.xirostyle.com'] });
+    const paypalApp = await buildApp({ db: testDb.db, config: { ...created.config, subscriptions: { ...subscriptionsConfig, paypalClientId: 'id', paypalClientSecret: 'secret', paypalPlanMonthly: 'P-MONTH' } } });
+    try {
+      const session = await (async () => {
+        counter += 1;
+        const res = await paypalApp.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'Ana', businessName: `Retorno ${counter}`, businessType: 'beauty_salon', email: `retorno${counter}@correo.com`, password: 'Secreta123', acceptTerms: true, language: 'es' } });
+        return res.json<AuthSession>();
+      })();
+      const returnUrls: string[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url).endsWith('/v1/oauth2/token')) return new Response(JSON.stringify({ access_token: 't' }), { status: 200 });
+        returnUrls.push(JSON.parse(String(init!.body)).application_context.return_url);
+        return new Response(JSON.stringify({ links: [{ rel: 'approve', href: 'https://www.sandbox.paypal.com/approve' }] }), { status: 201 });
+      }));
+      const checkout = (origin: string) => paypalApp.inject({ method: 'POST', url: '/api/subscription/checkout/paypal', headers: { ...auth(session), origin, host: 'api.xirostyle.com' }, payload: { plan: 'monthly' } });
+      expect((await checkout('https://sitio-malicioso.example')).statusCode).toBe(200);
+      expect((await checkout('https://app.xirostyle.com')).statusCode).toBe(200);
+      expect(returnUrls[0]).toBe('http://api.xirostyle.com/subscription?checkout=success');
+      expect(returnUrls[1]).toBe('https://app.xirostyle.com/subscription?checkout=success');
+    } finally {
+      vi.unstubAllGlobals();
+      await paypalApp.close();
+      created.cleanup();
+    }
   });
 });

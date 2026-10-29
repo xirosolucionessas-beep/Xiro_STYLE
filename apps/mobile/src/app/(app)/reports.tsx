@@ -6,7 +6,7 @@
  * guardan o comparten desde la hoja del sistema. También comparte un resumen en texto (WhatsApp, correo, notas…).
  */
 import { addDays, formatMoney, todayIn, type Currency } from '@xiro/shared';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Share } from 'react-native';
 import { resolveMedia } from '@/lib/api';
@@ -15,14 +15,11 @@ import { businessAddressLine } from '@/lib/exports/address';
 import { imageDataUrl, shareGeneratedFile, type ShareResult } from '@/lib/exports/nativeFiles';
 import { buildReportsWorkbook, reportsExcelFileName } from '@/lib/exports/reportsExcel';
 import { buildReportsPdf, reportsPdfFileName } from '@/lib/exports/reportsPdf';
-import { lowStock } from '@/lib/homeMetrics';
-import { useCashOpenings, useClients, useItems, useSales } from '@/lib/queries';
+import { useCashOpenings, useClientsSummary, useItemsSummary, useSales } from '@/lib/queries';
 import {
   cashBalance as cashBalanceOf,
   employeePerformance,
-  inventoryValue,
   isTruncated,
-  newClientsInPeriod,
   openingBaseTotal,
   paymentMethodBreakdown,
   reportBuckets,
@@ -37,6 +34,7 @@ import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
 import { useDialogs } from '@/ui/Dialogs';
 import { ReportsView, type ReportBar, type ReportKpi, type ShareRow } from '@/ui/reports/ReportsView';
+import { ReportsTabs } from '@/ui/reports/ReportsTabs';
 import { Header, Screen } from '@/ui/Screen';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
@@ -51,7 +49,14 @@ function trendView(trend: Trend, t: T): ReportKpi['trend'] {
 
 const PAYMENT_METHOD_LABEL_KEY: Record<string, string> = { cash: 'sale_pay_cash', card: 'sale_pay_card', nequi: 'sale_pay_nequi', bank_transfer: 'sale_pay_bank_transfer', other: 'sale_pay_other' };
 
+/** Reportes → Ventas es solo del dueño; quien entra con "Finanzas" llega directo a Reportes → Balance general. */
 export default function Reports() {
+  const { user } = useAuthed();
+  if (user.role !== 'owner') return <Redirect href="/reports/balance" />;
+  return <SalesReports />;
+}
+
+function SalesReports() {
   const router = useRouter();
   const { t, language } = useSettings();
   const { business } = useAuthed();
@@ -80,8 +85,9 @@ export default function Reports() {
   const salesCurrent = useSales(range?.current ?? null, Boolean(range));
   const salesPrevious = useSales(range?.previous ?? null, Boolean(range));
   const cashOpeningsQuery = useCashOpenings(range ? { from: range.current.startDate, to: addDays(range.current.startDate, range.current.days - 1) } : null, Boolean(range));
-  const clients = useClients('');
-  const items = useItems();
+  // Clientes nuevos del periodo EXACTO [desde, hasta) e inventario: calculados en el servidor (sin descargar listas).
+  const clients = useClientsSummary(range ? { from: range.current.from, to: range.current.to } : undefined, Boolean(range));
+  const items = useItemsSummary();
 
   const report = useMemo(() => {
     const currentSales = salesCurrent.data ?? [];
@@ -119,7 +125,7 @@ export default function Reports() {
       topClients: topSaleClients(currentSales),
       paymentMethods: paymentMethodBreakdown(currentSales),
       employees: employeePerformance(currentSales),
-      newClients: clients.data && range ? newClientsInPeriod(clients.data, business.timezone, range.current.days, now) : null,
+      newClients: range ? (clients.data?.newInRange ?? null) : null,
     };
     // `money`/`t` solo dependen de moneda e idioma, ya listados.
   }, [salesCurrent.data, salesPrevious.data, clients.data, range, business.timezone, now, language, currency]);
@@ -152,8 +158,8 @@ export default function Reports() {
 
   const times = (n: number) => (n === 1 ? t('sec_rep_time_one') : t('sec_rep_times', { n }));
   const visits = (n: number) => (n === 1 ? t('sec_rep_visit_one') : t('sec_rep_visits', { n }));
-  const stockInfo = items.data ? lowStock(items.data) : null;
-  const stockValue = items.data ? inventoryValue(items.data) : null;
+  const stockInfo = items.data ? { count: items.data.stock.reorder + items.data.stock.outOfStock, outOfStock: items.data.stock.outOfStock } : null;
+  const stockValue = items.data ? items.data.inventoryValue : null;
 
   const paymentMethods: ShareRow[] = report.paymentMethods.map((row) => ({ id: row.method, label: t(PAYMENT_METHOD_LABEL_KEY[row.method] ?? 'sale_pay_other'), amountLabel: money(row.total), percent: row.percent }));
   const employees: ShareRow[] = report.employees.map((row) => ({ id: row.employeeId, label: row.employeeName || t('sec_rep_employee_unknown'), amountLabel: money(row.total), sub: `${times(row.count)} · ${t('sec_rep_percent_of_total', { n: row.percent })}`, percent: row.percent }));
@@ -254,6 +260,7 @@ export default function Reports() {
 
   return (
     <Screen header={<Header title={t('menu_reports')} subtitle={t('sec_reports_sub')} />} refreshing={salesCurrent.isRefetching} onRefresh={refresh}>
+      <ReportsTabs active="sales" showSales />
       <ReportsView
         period={period}
         onPeriod={setPeriod}

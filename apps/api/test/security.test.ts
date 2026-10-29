@@ -235,15 +235,15 @@ describe('validación y sanitización de entradas', () => {
     expect((await testDb.db.select({ id: users.id }).from(users).limit(1)).length).toBe(1);
     expect((await app.inject({ method: 'GET', url: '/api/me', headers: bearer(session.accessToken) })).statusCode).toBe(200);
     const search = await app.inject({ method: 'GET', url: `/api/clients?q=${encodeURIComponent("' OR '1'='1")}`, headers: bearer(session.accessToken) });
-    expect(search.json<Client[]>()).toEqual([]);
+    expect(search.json<{ data: Client[] }>().data).toEqual([]);
     const byName = await app.inject({ method: 'GET', url: `/api/clients?q=${encodeURIComponent('DROP TABLE')}`, headers: bearer(session.accessToken) });
-    expect(byName.json<Client[]>()).toHaveLength(1);
+    expect(byName.json<{ data: Client[] }>().data).toHaveLength(1);
   });
 
   it('la búsqueda trata % y _ como texto literal', async () => {
     const session = await register();
     for (const name of ['Ana 100%', 'Luis', 'Mar_ta']) await app.inject({ method: 'POST', url: '/api/clients', headers: bearer(session.accessToken), payload: { name } });
-    const find = async (q: string) => (await app.inject({ method: 'GET', url: `/api/clients?q=${encodeURIComponent(q)}`, headers: bearer(session.accessToken) })).json<Client[]>().map((c) => c.name);
+    const find = async (q: string) => (await app.inject({ method: 'GET', url: `/api/clients?q=${encodeURIComponent(q)}`, headers: bearer(session.accessToken) })).json<{ data: Client[] }>().data.map((c) => c.name);
     expect(await find('%')).toEqual(['Ana 100%']);
     expect(await find('_')).toEqual(['Mar_ta']);
     expect(await find('\\')).toEqual([]);
@@ -329,5 +329,88 @@ describe('integridad a nivel de base de datos', () => {
     await expect(insert({ categoryId: ownCat.id, stockStatus: 'inventado' })).rejects.toMatchObject({ cause: { code: '23514' } });
     await expect(testDb.db.insert(clients).values({ businessId: '00000000-0000-4000-8000-000000000000', name: 'huérfano' })).rejects.toMatchObject({ cause: { code: '23503' } });
     await expect(testDb.db.update(businesses).set({ currency: 'XXX' }).where(eq(businesses.id, a.business.id))).rejects.toMatchObject({ cause: { code: '23514' } });
+  });
+});
+
+/**
+ * Sesión del panel web en cookie HttpOnly (Fase 3): el refresh token ya no está al alcance de JavaScript (XSS).
+ * La app móvil (sin la cabecera) sigue exactamente igual.
+ */
+describe('sesión web: refresh token en cookie HttpOnly', () => {
+  const COOKIE_MODE = { 'x-xiro-session': 'cookie' };
+  const cookieOf = (res: { headers: Record<string, unknown> }) => {
+    const raw = res.headers['set-cookie'];
+    return String(Array.isArray(raw) ? raw[0] : raw ?? '');
+  };
+  const valueOf = (setCookie: string) => setCookie.split(';')[0]!; // "xrt=…" listo para reenviar en Cookie
+  async function webLogin(remember = true) {
+    const email = `web${Date.now()}${Math.random()}@correo.com`;
+    await app.inject({ method: 'POST', url: '/api/auth/register', remoteAddress: '10.20.0.1', payload: { name: 'Ana', businessName: `Web ${Date.now()}`, email, password: 'Secreta123', acceptTerms: true } });
+    return app.inject({ method: 'POST', url: '/api/auth/login', remoteAddress: '10.20.0.1', headers: { ...COOKIE_MODE, ...(remember ? {} : { 'x-xiro-remember': '0' }) }, payload: { identifier: email, password: 'Secreta123' } });
+  }
+
+  it('con la cabecera: cookie HttpOnly, SameSite=Strict, solo /api/auth; el JSON no trae el token', async () => {
+    const res = await webLogin();
+    expect(res.statusCode).toBe(200);
+    expect(res.json<AuthSession>().refreshToken).toBe('');
+    expect(res.json<AuthSession>().accessToken.length).toBeGreaterThan(20);
+    const cookie = cookieOf(res);
+    expect(cookie).toMatch(/^xrt=[^;]{20,}/);
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Strict');
+    expect(cookie).toContain('Path=/api/auth');
+    expect(cookie).toContain('Max-Age=2592000');
+    // "Recordarme" desmarcado: cookie de sesión del navegador (sin Max-Age).
+    expect(cookieOf(await webLogin(false))).not.toContain('Max-Age');
+  });
+
+  it('refresh con la cookie rota el token; la cookie vieja deja de servir; sin la cabecera la cookie se ignora (CSRF)', async () => {
+    const first = valueOf(cookieOf(await webLogin()));
+    const withoutHeader = await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: { cookie: first }, payload: {} });
+    expect(withoutHeader.statusCode).toBe(401);
+    const refreshed = await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: { ...COOKIE_MODE, cookie: first }, payload: {} });
+    expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.json<AuthSession>().refreshToken).toBe('');
+    const second = valueOf(cookieOf(refreshed));
+    expect(second).not.toBe(first);
+    expect((await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: { ...COOKIE_MODE, cookie: second }, payload: {} })).statusCode).toBe(200);
+  });
+
+  it('cerrar sesión borra la cookie y revoca el token', async () => {
+    const cookie = valueOf(cookieOf(await webLogin()));
+    const out = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { ...COOKIE_MODE, cookie }, payload: {} });
+    expect(out.statusCode).toBe(204);
+    expect(cookieOf(out)).toContain('Max-Age=0');
+    const after = await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: { ...COOKIE_MODE, cookie }, payload: {} });
+    expect(after.statusCode).toBe(401);
+    expect(cookieOf(after)).toContain('Max-Age=0'); // y le pide al navegador olvidarla
+  });
+
+  it('migración: un token viejo de localStorage se canjea una vez por la cookie', async () => {
+    const legacy = await register();
+    const res = await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: COOKIE_MODE, payload: { refreshToken: legacy.refreshToken } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<AuthSession>().refreshToken).toBe('');
+    expect(cookieOf(res)).toContain('HttpOnly');
+  });
+
+  it('app móvil (sin la cabecera): el token sigue en el cuerpo y no hay cookie', async () => {
+    const session = await register();
+    expect(session.refreshToken.length).toBeGreaterThan(20);
+    const res = await app.inject({ method: 'POST', url: '/api/auth/refresh', payload: { refreshToken: session.refreshToken } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<AuthSession>().refreshToken.length).toBeGreaterThan(20);
+    expect(res.headers['set-cookie']).toBeUndefined();
+  });
+
+  it('CORS: credenciales solo en /api/auth y solo para orígenes permitidos', async () => {
+    const corsApp = await makeApp({ corsOrigins: ['http://localhost:8081'] });
+    const preflight = (url: string, origin: string) => corsApp.inject({ method: 'OPTIONS', url, headers: { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type,x-xiro-session' } });
+    const auth = await preflight('/api/auth/refresh', 'http://localhost:8081');
+    expect(auth.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+    expect(auth.headers['access-control-allow-credentials']).toBe('true');
+    expect(String(auth.headers['access-control-allow-headers']).toLowerCase()).toContain('x-xiro-session');
+    expect((await preflight('/api/auth/refresh', 'https://evil.example')).headers['access-control-allow-origin']).toBeUndefined();
+    expect((await preflight('/api/items', 'http://localhost:8081')).headers['access-control-allow-credentials']).toBeUndefined();
   });
 });

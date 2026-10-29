@@ -1,36 +1,7 @@
-import { createHmac, randomBytes, randomInt, scrypt, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 
-const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 } as const;
-
-function scryptAsync(password: string, salt: Buffer, params: { N: number; r: number; p: number; keylen: number }) {
-  return new Promise<Buffer>((resolve, reject) => {
-    scrypt(password, salt, params.keylen, { N: params.N, r: params.r, p: params.p }, (error, key) =>
-      error ? reject(error) : resolve(key),
-    );
-  });
-}
-
-export async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16);
-  const key = await scryptAsync(password, salt, SCRYPT);
-  return ['scrypt', SCRYPT.N, SCRYPT.r, SCRYPT.p, salt.toString('base64'), key.toString('base64')].join('$');
-}
-
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [scheme, n, r, p, saltB64, keyB64] = stored.split('$');
-  if (scheme !== 'scrypt' || !n || !r || !p || !saltB64 || !keyB64) return false;
-  const expected = Buffer.from(keyB64, 'base64');
-  const actual = await scryptAsync(password, Buffer.from(saltB64, 'base64'), {
-    N: Number(n),
-    r: Number(r),
-    p: Number(p),
-    keylen: expected.length,
-  });
-  return timingSafeEqual(actual, expected);
-}
-
-/** Hash de referencia para igualar el tiempo de respuesta cuando el usuario no existe. */
-export const DUMMY_HASH = await hashPassword(randomBytes(12).toString('hex'));
+// Contraseñas: argon2id con cola acotada y verificación de los hashes scrypt anteriores (ver passwords.ts).
+export { DUMMY_HASH, hashPassword, needsRehash, verifyPassword } from './passwords';
 
 export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString('base64url');
@@ -61,6 +32,17 @@ export function readableTempPassword(length = 10): string {
 
 export function hmac(secret: string, value: string): string {
   return createHmac('sha256', secret).update(value).digest('hex');
+}
+
+/**
+ * Compara dos secretos en tiempo constante SIN revelar su longitud: se comparan sus HMAC (siempre 32 bytes) con una
+ * clave aleatoria del proceso, en vez de los textos (timingSafeEqual exige igual longitud y la longitud se filtraría).
+ */
+const SECRET_COMPARE_KEY = randomBytes(32);
+export function safeEqualSecret(provided: string, expected: string): boolean {
+  const a = createHmac('sha256', SECRET_COMPARE_KEY).update(provided).digest();
+  const b = createHmac('sha256', SECRET_COMPARE_KEY).update(expected).digest();
+  return timingSafeEqual(a, b);
 }
 
 export function safeEqualHex(a: string, b: string): boolean {

@@ -1,10 +1,10 @@
 import type { AuthSession, Business, User } from '@xiro/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, ApiError, configureSession, setAccessToken } from './api';
+import { api, ApiError, configureSession, setAccessToken, usesCookieSession } from './api';
 import { push } from './push';
 import { useSettings } from './settings';
-import { secureStorage } from './storage';
+import { remembersSession, secureStorage } from './storage';
 
 const REFRESH_KEY = 'xiro.refresh';
 
@@ -34,9 +34,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const apply = useCallback(
     async (session: AuthSession) => {
-      refreshToken.current = session.refreshToken;
+      // Web: la API entrega el refresh token en una cookie HttpOnly y aquí llega vacío (nada que guardar en JavaScript);
+      // se borra cualquier copia vieja de localStorage. Nativo: Keychain/Keystore, como siempre.
+      refreshToken.current = session.refreshToken || null;
       setAccessToken(session.accessToken);
-      await secureStorage.set(REFRESH_KEY, session.refreshToken);
+      if (session.refreshToken) await secureStorage.set(REFRESH_KEY, session.refreshToken);
+      else await secureStorage.remove(REFRESH_KEY);
       setUser(session.user);
       setBusiness(session.business);
       setLanguage(session.user.language);
@@ -59,6 +62,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     configureSession({
       getRefreshToken: () => refreshToken.current,
+      remembers: remembersSession,
       onTokens: (session) => void apply(session),
       onSignedOut: () => void clear(),
     });
@@ -69,8 +73,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!ready) return;
     let active = true;
     (async () => {
+      // Web: se intenta con la cookie aunque no haya nada guardado; un token viejo de localStorage (sesiones de antes de la
+      // cookie) se canjea UNA vez por la cookie y `apply` lo borra.
       const stored = await secureStorage.get(REFRESH_KEY);
-      if (!stored) {
+      if (!stored && !usesCookieSession) {
         if (active) setStatus('signedOut');
         return;
       }
@@ -92,7 +98,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const token = refreshToken.current;
     // Un dispositivo con la sesión cerrada no debe seguir recibiendo avisos del negocio (aún hay access token para autorizar el borrado).
     await push.disable().catch(() => undefined);
-    if (token) await api.logout(token).catch(() => undefined);
+    if (token || usesCookieSession) await api.logout(token).catch(() => undefined);
     await clear();
   }, [clear]);
 

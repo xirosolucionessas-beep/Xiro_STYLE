@@ -5,8 +5,9 @@ import { formatAmountInput } from '../money';
 import { BancolombiaBadge, NequiBadge } from '../brand/logos';
 import { Ico } from '../icons';
 import { Button, Input, Select } from '../ui';
-import { RadioGroup } from '../ui/auth';
+import { Checkbox, RadioGroup } from '../ui/auth';
 import { Avatar, EmptyPanel, FilterChips, SearchField } from '../ui/Page';
+import { LoadMore, type LoadMoreState } from '../ui/LoadMore';
 import { useWebStyles } from '../ui/shared';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
@@ -64,6 +65,8 @@ export interface SaleFormViewProps {
   newClientBusy: boolean;
   newClientError?: string;
   appointmentHint: SaleAppointmentHint | null;
+  /** Entregando un pedido de la página pública (Pedidos → "Entregar y cobrar"): texto del aviso, o null. */
+  orderNotice?: { text: string; error: boolean } | null;
   appointmentLoaded: boolean;
   onLoadAppointment: () => void;
 
@@ -76,6 +79,10 @@ export interface SaleFormViewProps {
   itemQuery: string;
   onItemQuery: (v: string) => void;
   catalogRows: SaleCatalogRow[];
+  /** Catálogo paginado: "Cargar más" al pie de la lista. */
+  catalogPagination?: LoadMoreState;
+  /** La primera página del catálogo aún no llega. */
+  catalogLoading?: boolean;
   onAddCatalogItem: (row: SaleCatalogRow) => void;
   manualOpen: boolean;
   onToggleManual: () => void;
@@ -102,6 +109,8 @@ export interface SaleFormViewProps {
   // Descuento, propina, pagos
   discount: number;
   onDiscount: (raw: string) => void;
+  /** Recompensa de cumpleaños del cliente elegido (si tiene una disponible). `blockedReason`: por qué no se puede usar ahora. */
+  birthday?: { label: string; amount: number; checked: boolean; blockedReason?: string; onChange: (checked: boolean) => void } | null;
   tip: number;
   onTip: (raw: string) => void;
   payments: PaymentRow[];
@@ -217,6 +226,13 @@ export function SaleFormView(props: SaleFormViewProps) {
           </>
         )}
 
+        {props.orderNotice ? (
+          <div className="xw-sale-appt-hint" role={props.orderNotice.error ? 'alert' : 'status'}>
+            <Ico name="shopping-bag" size={18} />
+            <span className="xw-cell-text">{props.orderNotice.text}</span>
+          </div>
+        ) : null}
+
         {props.appointmentHint ? (
           <div className="xw-sale-appt-hint">
             <Ico name="calendar-days" size={18} />
@@ -255,7 +271,11 @@ export function SaleFormView(props: SaleFormViewProps) {
           ) : null}
         </div>
 
-        {props.catalogRows.length === 0 ? (
+        {props.catalogLoading ? (
+          <p className="xw-hint" role="status">
+            {t('loading')}
+          </p>
+        ) : props.catalogRows.length === 0 ? (
           <EmptyPanel icon="search" title={t(props.tab === 'service' ? 'sale_items_empty_services' : 'sale_items_empty_products')} />
         ) : (
           <ul className="xw-sale-catalog">
@@ -276,6 +296,7 @@ export function SaleFormView(props: SaleFormViewProps) {
             })}
           </ul>
         )}
+        {props.catalogPagination && props.catalogRows.length > 0 ? <LoadMore state={props.catalogPagination} t={t} /> : null}
 
         <button type="button" className="xw-sale-manual-toggle" onClick={props.onToggleManual} aria-expanded={props.manualOpen}>
           <Ico name={props.manualOpen ? 'chevron-down' : 'plus'} size={16} />
@@ -371,6 +392,22 @@ export function SaleFormView(props: SaleFormViewProps) {
           <Input label={t('sale_discount')} value={amountValue(props.discount)} onChange={props.onDiscount} inputMode="numeric" prefix={currency} />
           <Input label={t('sale_tip')} value={amountValue(props.tip)} onChange={props.onTip} inputMode="numeric" prefix={currency} />
         </div>
+        {props.birthday ? (
+          props.birthday.blockedReason ? (
+            <p className="xw-hint" role="status">
+              {props.birthday.label}: {props.birthday.blockedReason}
+            </p>
+          ) : (
+            <>
+              <Checkbox checked={props.birthday.checked} onChange={props.birthday.onChange} name="birthdayReward">
+                {props.birthday.label}
+              </Checkbox>
+              <p className="xw-hint" style={{ marginTop: 0 }}>
+                {t('birthday_applied')}: -{money(props.birthday.amount, currency)}
+              </p>
+            </>
+          )
+        ) : null}
 
         <header className="xw-panel-head">
           <h2 className="xw-panel-title">{t('sale_pay_title')}</h2>
@@ -418,6 +455,12 @@ export function SaleFormView(props: SaleFormViewProps) {
             <div className="xw-summary-row">
               <dt>{t('sale_summary_discount')}</dt>
               <dd>-{money(props.discount, currency)}</dd>
+            </div>
+          ) : null}
+          {props.birthday?.checked && !props.birthday.blockedReason ? (
+            <div className="xw-summary-row">
+              <dt>{t('birthday_applied')}</dt>
+              <dd>-{money(props.birthday.amount, currency)}</dd>
             </div>
           ) : null}
           {props.tip > 0 ? (

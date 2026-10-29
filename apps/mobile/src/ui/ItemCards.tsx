@@ -1,17 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
 import { formatMoney, type Currency, type Item } from '@xiro/shared';
-import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import type { ComponentProps, ReactElement, ReactNode } from 'react';
+import { FlatList, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSettings } from '@/lib/settings';
 import { Photo, StatusPill, stockColor } from './Kit';
 import { AppText } from './Text';
 import { MAX_CONTENT_WIDTH, radius } from './theme';
 
-/** Cuadrícula responsiva: 2 columnas en teléfono, 3 en pantallas anchas. */
-export function ItemGrid({ children }: { children: ReactNode }) {
+/** 2 columnas en teléfono, 3 en pantallas anchas. */
+function useGridColumns() {
   const { width } = useWindowDimensions();
   const columns = Math.min(width, MAX_CONTENT_WIDTH) >= 560 ? 3 : 2;
-  const cell = `${100 / columns - 2}%` as const;
+  return { columns, cell: `${100 / columns - 2}%` as const };
+}
+
+/** Cuadrícula responsiva: 2 columnas en teléfono, 3 en pantallas anchas. */
+export function ItemGrid({ children }: { children: ReactNode }) {
+  const { cell } = useGridColumns();
   const nodes = Array.isArray(children) ? children : [children];
   return (
     <View style={styles.grid}>
@@ -21,6 +26,46 @@ export function ItemGrid({ children }: { children: ReactNode }) {
         </View>
       ))}
     </View>
+  );
+}
+
+/**
+ * La misma cuadrícula, virtualizada (FlatList con columnas) para listas paginadas: solo se dibuja lo que está en
+ * pantalla y la página siguiente se pide al acercarse al final (`onEndReached`). Mismos anchos y espaciado que ItemGrid.
+ */
+export function ItemFlatGrid<T extends { id: string }>(props: {
+  data: readonly T[];
+  renderItem: (item: T) => ReactElement;
+  header?: ReactElement;
+  empty?: ReactElement;
+  footer?: ReactElement | null;
+  onEndReached?: () => void;
+  refreshControl?: ComponentProps<typeof FlatList>['refreshControl'];
+}) {
+  const { columns, cell } = useGridColumns();
+  return (
+    <FlatList
+      // Cambiar de 2 a 3 columnas exige volver a montar la lista (restricción de FlatList).
+      key={columns}
+      data={props.data}
+      numColumns={columns}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => <View style={{ width: cell }}>{props.renderItem(item)}</View>}
+      columnWrapperStyle={styles.gridRow}
+      ListHeaderComponent={props.header}
+      ListEmptyComponent={props.empty}
+      ListFooterComponent={props.footer}
+      onEndReached={props.onEndReached}
+      onEndReachedThreshold={0.6}
+      initialNumToRender={8}
+      maxToRenderPerBatch={10}
+      windowSize={9}
+      removeClippedSubviews
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.gridContent}
+      refreshControl={props.refreshControl}
+    />
   );
 }
 
@@ -95,6 +140,8 @@ export { StatusPill };
 
 const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between' },
+  gridRow: { justifyContent: 'space-between', marginBottom: 12 },
+  gridContent: { paddingBottom: 32 },
   card: { borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden', marginBottom: 2 },
   photo: { borderRadius: 0, aspectRatio: 1.25 },
   body: { padding: 11, gap: 3 },

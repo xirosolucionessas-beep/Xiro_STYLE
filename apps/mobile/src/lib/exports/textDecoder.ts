@@ -1,7 +1,11 @@
 /**
  * `TextDecoder` mínimo para Android/iOS. jsPDF crea `new TextDecoder('latin1')` al cargarse (su lector de PNG) y usa
- * UTF-8 al leer texto; React Native no trae `TextDecoder` propio y, según la versión de Hermes, puede no existir. Solo se
- * instala si falta: donde ya existe (navegador, Node, Hermes reciente) no toca nada. Importarlo ANTES que jsPDF.
+ * UTF-8 al leer texto. Según la versión de Hermes/React Native, `TextDecoder` puede no existir, O existir pero sin
+ * soportar "latin1" (confirmado en un Hermes reciente: `new TextDecoder('latin1')` existe como función pero su
+ * `decode()` lanza `RangeError: Unknown encoding: latin1` — jsPDF entonces no carga y cualquier pantalla que lo
+ * importe, aunque sea indirectamente, revienta al abrir). Por eso la condición de más abajo no solo comprueba que
+ * `TextDecoder` exista: prueba que de verdad decodifique latin1 antes de confiar en el nativo. Donde el nativo sí
+ * funciona (navegador, Node) no se toca nada. Importarlo ANTES que jsPDF.
  */
 type Input = ArrayBuffer | ArrayBufferView | undefined;
 
@@ -61,7 +65,17 @@ class MinimalTextDecoder {
   }
 }
 
+/** `new TextDecoder('latin1').decode(...)` sin lanzar Y con el resultado correcto (0xe9 → 'é'): algunas versiones de
+ * Hermes aceptan la etiqueta pero devuelven basura en vez de decodificar de verdad. */
+function nativeTextDecoderHandlesLatin1(ctor: unknown): boolean {
+  try {
+    return new (ctor as { new (label: string): { decode(input: Uint8Array): string } })('latin1').decode(new Uint8Array([0xe9])) === 'é';
+  } catch {
+    return false;
+  }
+}
+
 const scope = globalThis as { TextDecoder?: unknown };
-if (typeof scope.TextDecoder !== 'function') scope.TextDecoder = MinimalTextDecoder;
+if (typeof scope.TextDecoder !== 'function' || !nativeTextDecoderHandlesLatin1(scope.TextDecoder)) scope.TextDecoder = MinimalTextDecoder;
 
 export {};

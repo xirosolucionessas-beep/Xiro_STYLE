@@ -19,6 +19,7 @@ import { downloadTextFile, safeFileName } from '../lib/ics';
 import { managePath, navigate, profilePath } from '../lib/route';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
+import { TotalRows } from '../ui/TotalRows';
 
 /**
  * Pantalla final: datos de la cita, agregar al calendario (.ics armado en el navegador), escribirle al negocio por WhatsApp con el
@@ -117,10 +118,7 @@ export function DoneStep({ result, profile, language, customerName, onClose }: {
               </div>
             ) : null}
           </dl>
-          <div className="xp-summary-total">
-            <span>{t('pub_summary_total')}</span>
-            <span className="xp-price xp-price--lg">{money(appointment.totalPrice, business.currency)}</span>
-          </div>
+          <TotalRows total={appointment.totalPrice} discount={appointment.discount} currency={business.currency} t={t} />
         </div>
 
         <div className="xp-actions">

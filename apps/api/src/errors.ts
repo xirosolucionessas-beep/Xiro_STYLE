@@ -2,6 +2,7 @@ import type { ApiErrorBody } from '@xiro/shared';
 import type { FastifyError, FastifyInstance } from 'fastify';
 import { ZodError, type ZodType } from 'zod';
 import { isUnavailable } from './db/errors';
+import { reportError } from './monitoring';
 
 export class AppError extends Error {
   constructor(
@@ -72,6 +73,9 @@ export function installErrorHandler(app: FastifyInstance): void {
       return reply.status(503).header('Retry-After', '2').send({ code: 'service_unavailable', message: 'Service temporarily unavailable' } satisfies ApiErrorBody);
     }
     request.log.error(error);
+    // Solo lo inesperado va a Sentry (si está configurado), con el id de la petición para cruzarlo con los logs.
+    const user = (request as { user?: { sub?: string; bid?: string } }).user;
+    reportError(error, { requestId: request.id, method: request.method, route: request.routeOptions.url, userId: user?.sub, businessId: user?.bid });
     return reply.status(500).send({ code: 'internal_error', message: 'Internal server error' } satisfies ApiErrorBody);
   });
 }

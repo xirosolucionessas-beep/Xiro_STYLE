@@ -3,7 +3,10 @@
  * aquí: se verifica con un código de un solo uso antes de aplicarse (POST /api/me/phone/request + /confirm).
  * Presentación en src/web/screens/Profile.tsx.
  */
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { api } from '@/lib/api';
+import { useSubscription } from '@/lib/queries';
 import { apiErrors } from '@/lib/forms';
 import { useSession } from '@/lib/session';
 import { Header, Screen } from '@/ui/Screen';
@@ -11,10 +14,16 @@ import { ProfileView } from '@/web/screens/Profile';
 import { photoToFormData } from '@/web/services/imageUpload.web';
 import { useWebText } from '@/web/services/useWebText';
 import { validatePhotoFile } from '@/web/ui/PhotoPicker';
+import { SubscriptionStatusView } from '@/web/ui/SubscriptionStatusView';
 
 export default function ProfileWeb() {
-  const { t } = useWebText();
+  const { t, language } = useWebText();
   const { user, business, setUser, signOut } = useSession();
+  const router = useRouter();
+  const subscription = useSubscription();
+  const { refetch } = subscription;
+  // Al volver al perfil (p. ej. desde la notificación de acceso ampliado) se vuelve a consultar: refleja el cambio real.
+  useFocusEffect(useCallback(() => void refetch(), [refetch]));
   if (!user || !business) return null;
 
   async function changePhoto(file: File) {
@@ -70,17 +79,51 @@ export default function ProfileWeb() {
     }
   }
 
+  async function changePassword(currentPassword: string, newPassword: string) {
+    try {
+      await api.changeMyPassword({ currentPassword, newPassword });
+      return { ok: true as const };
+    } catch (error) {
+      // apiErrors() separa errores de validación (p. ej. contraseña nueva débil) en `fields`, sin `general`: antes
+      // esa rama caía siempre en "Ocurrió un error inesperado" sin decir qué campo estaba mal.
+      const result = apiErrors(error, t);
+      return { ok: false as const, error: result.fields.newPassword ?? result.fields.currentPassword ?? result.general ?? t('unknown_error') };
+    }
+  }
+
+  async function deleteBusiness(password: string) {
+    try {
+      await api.deleteBusiness(password);
+      await signOut();
+      return { ok: true as const };
+    } catch (error) {
+      return { ok: false as const, error: apiErrors(error, t).general ?? t('unknown_error') };
+    }
+  }
+
   return (
     <Screen header={<Header title={t('profile')} subtitle={user.email ?? undefined} />}>
+    <SubscriptionStatusView
+      t={t}
+      language={language}
+      timezone={business.timezone}
+      isOwner={user.role !== 'employee'}
+      state={subscription.data ? { kind: 'ready', subscription: subscription.data } : subscription.error ? { kind: 'error', retrying: subscription.isFetching } : { kind: 'loading' }}
+      onRetry={() => void subscription.refetch()}
+      onManage={() => router.push('/subscription')}
+    />
     <ProfileView
       t={t}
       user={user}
       businessName={business.name}
+      isOwner={user.role === 'owner'}
       onSaveName={saveName}
       onChangePhoto={changePhoto}
       onRemovePhoto={removePhoto}
       onRequestPhoneChange={requestPhoneChange}
       onConfirmPhoneChange={confirmPhoneChange}
+      onChangePassword={changePassword}
+      onDeleteBusiness={deleteBusiness}
       onLogout={() => {
         if (window.confirm(t('logout_sub'))) void signOut();
       }}

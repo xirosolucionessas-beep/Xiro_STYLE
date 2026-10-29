@@ -50,9 +50,14 @@ const profile: PublicBookingProfile = {
   openNow: true,
   openStatus: { open: true, changesAt: '2026-10-06T00:00:00.000Z' },
   acceptsBookings: true,
+  acceptsProductOrders: false,
   rating: { average: null, count: 0 },
   rules: { slotIntervalMinutes: 30, maxDaysAhead: 60, cancelUntilHours: 2, maxModifications: 2, requireEmail: true, customFields: [] },
   captchaSiteKey: null,
+  accentColor: null,
+  bookingTitle: '',
+  trustBadges: [],
+  features: { waitlist: false, discountCodes: false, rememberCustomer: false, noPrepayBadge: false, customerNotes: true }, businessType: 'barbershop',
 };
 
 const catalog: PublicBookingCatalog = {
@@ -75,6 +80,7 @@ const appointmentFixture: PublicAppointmentDto = {
   modificationsLeft: 2,
   changeableUntil: '2026-10-06T12:00:00.000Z',
   canReview: false,
+  discount: null,
 };
 
 const days = vi.mocked(publicApi.days);
@@ -84,7 +90,7 @@ const download = vi.mocked(downloadTextFile);
 
 const nine = { time: '09:00', startsAt: '2026-10-06T14:00:00.000Z', state: 'available' as const };
 const ten = { time: '10:00', startsAt: '2026-10-06T15:00:00.000Z', state: 'available' as const };
-const team = [{ id: '22222222-2222-4222-8222-222222222222', name: 'Ana', bio: 'Colorista', photoUrl: null, serviceIds: [] }];
+const team = [{ id: '22222222-2222-4222-8222-222222222222', name: 'Ana', bio: 'Colorista', specialty: '', rating: null, photoUrl: null, serviceIds: [] }];
 
 function renderFlow(over: Partial<PublicBookingProfile> = {}, options: { team?: typeof team; initial?: InitialChoice } = {}) {
   vi.resetAllMocks();

@@ -11,6 +11,10 @@ export function buildEmployeesCss(): string {
 .xw-emp-tab.is-active { color: var(--xw-accent); border-color: var(--xw-accent); }
 
 .xw-emp-team { display: flex; flex-direction: column; gap: var(--xw-space-4); align-items: flex-start; }
+/* Cupos de empleados activos ("3 de 5"). */
+.xw-emp-quota { width: 100%; padding: var(--xw-space-3); border: 1px solid var(--xw-border); border-radius: var(--xw-radius-md); }
+.xw-emp-quota p { margin: var(--xw-space-1) 0 0; }
+.xw-emp-quota .is-danger { color: var(--xw-danger); }
 .xw-emp-list { display: flex; flex-direction: column; gap: var(--xw-space-3); width: 100%; margin: 0; padding: 0; list-style: none; }
 .xw-emp-card { box-sizing: border-box; padding: var(--xw-space-4); background: var(--xw-surface); border: 1px solid var(--xw-border-subtle); border-radius: var(--xw-radius-lg); }
 .xw-emp-card.is-inactive { opacity: 0.7; }

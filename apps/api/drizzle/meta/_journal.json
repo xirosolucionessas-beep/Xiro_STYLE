@@ -169,6 +169,125 @@
       "when": 1791258745237,
       "tag": "0023_strange_omega_flight",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791747598142,
+      "tag": "0024_search_and_tenant_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791837860387,
+      "tag": "0025_product_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791842862825,
+      "tag": "0026_business_branding",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791853417178,
+      "tag": "0027_professional_specialty",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791854351800,
+      "tag": "0028_phase4_feature_flags",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791854612209,
+      "tag": "0029_discount_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791855209496,
+      "tag": "0030_waitlist",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791858730653,
+      "tag": "0031_discount_fk_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791875480690,
+      "tag": "0032_public_page_options",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791880377116,
+      "tag": "0033_finance_expenses",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791881844172,
+      "tag": "0034_expense_adjustments",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791948698171,
+      "tag": "0035_service_records_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791999234151,
+      "tag": "0036_finance_covering_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792266615411,
+      "tag": "0037_platform_admin",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792376672812,
+      "tag": "0038_notification_sound",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1792386006530,
+      "tag": "0039_birthday_program",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792724768877,
+      "tag": "0040_catalog_clients_rls",
+      "breakpoints": true
     }
   ]
 }

@@ -1,10 +1,12 @@
 import { translate, type ClientAccountDto, type Language } from '@xiro/shared';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { publicApi } from '../api';
-import { BookingFlow, type InitialChoice } from '../booking/BookingFlow';
+import type { InitialChoice } from '../booking/BookingFlow';
+
 import { useInView } from '../lib/useInView';
 import { errorKey, useAsync } from '../lib/useAsync';
-import { replacePath, profilePath } from '../lib/route';
+import { useBrand } from '../lib/brand';
+import { itemPath, replacePath, profilePath } from '../lib/route';
 import { GallerySection } from '../profile/GallerySection';
 import { Hero } from '../profile/Hero';
 import { HoursSection } from '../profile/HoursSection';
@@ -15,13 +17,17 @@ import { StickyBook } from '../profile/StickyBook';
 import { TeamSection } from '../profile/TeamSection';
 import { LocationCard } from '../ui/LocationCard';
 import { ProfileSkeleton } from '../ui/Skeleton';
+import { PublicFooter } from '../profile/PublicFooter';
+
+// Fase 5 (carga diferida): el flujo de reserva se descarga al abrirlo, no con la página (que así aparece antes).
+const BookingFlow = lazy(() => import('../booking/BookingFlow').then((m) => ({ default: m.BookingFlow })));
 
 /**
  * Página pública de reservas de un negocio (/reservar/:slug). Orden: encabezado, sobre el negocio, Servicios, Profesionales,
  * Galería, Productos, Reseñas, Horarios y Ubicación y contacto. Una sección sin contenido, o apagada en "Mi página web",
  * no se dibuja. Sin sesión: cualquier persona puede reservar.
  */
-export function ProfilePage({ slug, language, account }: { slug: string; language: Language; account?: ClientAccountDto | null }) {
+export function ProfilePage({ slug, itemId, language, account }: { slug: string; itemId?: string; language: Language; account?: ClientAccountDto | null }) {
   const t = (key: string, params?: Record<string, string | number>) => translate(language, key, params);
   const profileState = useAsync(() => publicApi.profile(slug), [slug]);
   const [booking, setBooking] = useState<InitialChoice | null>(null);
@@ -30,10 +36,12 @@ export function ProfilePage({ slug, language, account }: { slug: string; languag
 
   // Dirección anterior del negocio: la API la resuelve igual, pero la barra de direcciones debe mostrar la vigente.
   useEffect(() => {
-    if (profileState.data && profileState.data.slug !== slug) replacePath(profilePath(profileState.data.slug));
-  }, [profileState.data, slug]);
+    if (profileState.data && profileState.data.slug !== slug) replacePath(itemId ? itemPath(profileState.data.slug, itemId) : profilePath(profileState.data.slug));
+  }, [profileState.data, slug, itemId]);
 
   const profile = profileState.data;
+  // La marca del negocio (su color de acento, con contraste garantizado) en toda la página.
+  useBrand(profile?.accentColor);
   const currentSlug = profile?.slug ?? slug;
   const sections = profile?.sections;
   const catalogState = useAsync(() => (sections?.services || sections?.products ? publicApi.catalog(currentSlug) : Promise.resolve(null)), [currentSlug, sections?.services, sections?.products]);
@@ -44,7 +52,7 @@ export function ProfilePage({ slug, language, account }: { slug: string; languag
     if (profile) document.title = `${profile.name} · ${t('pub_book_cta')}`;
   }, [profile?.name, language]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (profileState.loading) return <ProfileSkeleton label={t('loading')} />;
+  if (profileState.loading) return <ProfileSkeleton label={t('loading')} slow={{ text: t('pub_slow_loading'), cta: t('retry'), onRetry: profileState.reload }} />;
   if (profileState.error || !profile) {
     return (
       <div className="xp-empty" role="alert">
@@ -57,6 +65,8 @@ export function ProfilePage({ slug, language, account }: { slug: string; languag
   const catalog = catalogState.data ?? null;
   const hasLocation = (profile.latitude !== null && profile.longitude !== null) || Boolean(profile.address || profile.whatsapp || profile.phone);
   const openFlow = (choice: InitialChoice = {}) => setBooking(choice);
+  // Al cerrar el detalle abierto por un enlace directo, la dirección vuelve a la del negocio (recargar no lo reabre).
+  const closeLinkedItem = () => itemId && replacePath(profilePath(currentSlug));
 
   return (
     <div className="xp-page">
@@ -72,11 +82,11 @@ export function ProfilePage({ slug, language, account }: { slug: string; languag
             </section>
           ) : null}
 
-          {sections?.services ? <ServicesSection profile={profile} catalog={catalog} loading={catalogState.loading} language={language} onBook={openFlow} /> : null}
+          {sections?.services ? <ServicesSection profile={profile} catalog={catalog} loading={catalogState.loading} language={language} onBook={openFlow} initialOpenId={itemId} onDetailClose={closeLinkedItem} /> : null}
           {sections?.team ? <TeamSection team={teamState.data ?? []} services={catalog?.services ?? []} language={language} /> : null}
           {sections?.gallery ? <GallerySection photos={profile.gallery} language={language} /> : null}
-          {sections?.products && catalog ? <ProductsSection profile={profile} products={catalog.products} language={language} onBook={openFlow} /> : null}
-          {sections?.reviews ? <ReviewsSection reviews={reviewsState.data ?? []} language={language} /> : null}
+          {sections?.products && catalog ? <ProductsSection profile={profile} products={catalog.products} language={language} onBook={openFlow} initialOpenId={itemId} onDetailClose={closeLinkedItem} /> : null}
+          {sections?.reviews ? <ReviewsSection reviews={reviewsState.data ?? []} language={language} profile={profile} slug={currentSlug} account={account} /> : null}
           <HoursSection profile={profile} language={language} />
 
           {hasLocation ? (
@@ -88,14 +98,15 @@ export function ProfilePage({ slug, language, account }: { slug: string; languag
         </div>
       </main>
 
-      <footer className="xp-footer">
-        <p>{t('pub_footer_rights', { year: new Date().getFullYear(), name: profile.name })}</p>
-        <p>{t('pub_footer_powered')}</p>
-      </footer>
+      <PublicFooter profile={profile} language={language} hasLocation={hasLocation} />
 
-      {profile.acceptsBookings ? <StickyBook visible={!heroCtaVisible && !booking} language={language} onBook={() => openFlow()} /> : null}
+      {profile.acceptsBookings || profile.acceptsProductOrders ? <StickyBook visible={!heroCtaVisible && !booking} language={language} label={profile.acceptsBookings ? 'pub_book_cta' : 'pub_order_cta'} onBook={() => openFlow()} /> : null}
 
-      {booking ? <BookingFlow slug={currentSlug} profile={profile} catalog={catalog ?? { services: [], packages: [], products: [] }} catalogLoading={catalogState.loading} team={teamState.data ?? []} language={language} initial={booking} account={account} onClose={() => setBooking(null)} /> : null}
+      {booking ? (
+        <Suspense fallback={<div className="xp-overlay xp-overlay--loading" role="status"><span className="xp-spinner" aria-hidden="true" /></div>}>
+          <BookingFlow slug={currentSlug} profile={profile} catalog={catalog ?? { services: [], packages: [], products: [] }} catalogLoading={catalogState.loading} team={teamState.data ?? []} language={language} initial={booking} account={account} onClose={() => setBooking(null)} />
+        </Suspense>
+      ) : null}
       {catalogState.error ? (
         <p className="xp-sr" role="alert">
           {t(errorKey(catalogState.error))}

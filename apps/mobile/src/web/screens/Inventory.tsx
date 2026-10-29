@@ -3,6 +3,7 @@ import { Ico } from '../icons';
 import { linkProps } from '../ui/link';
 import { Badge, EmptyPanel, ErrorPanel, FilterChips, KpiRow, LoadingRows, type FilterOption, type KpiView } from '../ui/Page';
 import { useWebStyles } from '../ui/shared';
+import { LoadMore, type LoadMoreState } from '../ui/LoadMore';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 
@@ -36,6 +37,8 @@ export interface InventoryViewProps {
   onRetry: () => void;
   emptyAction?: ReactNode;
   navigate: (href: string) => void;
+  /** Paginación por cursor: "Cargar más" al pie de la tabla. */
+  pagination?: LoadMoreState;
   /** Publicar/despublicar: ausente = sin permiso de catálogo (no se ofrece ni la casilla ni los botones). */
   canPublish?: boolean;
   selected: string[];
@@ -71,6 +74,7 @@ export function InventoryView({
   onQuickPublish,
   onBulkPublish,
   bulkBusy,
+  pagination,
 }: InventoryViewProps) {
   useWebStyles();
   const allIds = rows.map((r) => r.id);
@@ -183,6 +187,7 @@ export function InventoryView({
               </tbody>
             </table>
           </div>
+          {pagination ? <LoadMore state={pagination} t={t} /> : null}
         </>
       ) : null}
     </div>

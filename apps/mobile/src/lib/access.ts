@@ -30,13 +30,18 @@ const ROUTES: Array<[pattern: RegExp, requires: Requirement]> = [
   [/^\/booking$/, ['public_page_manage']],
   [/^\/packages$/, ['catalog_view']],
   [/^\/review-items$/, ['catalog_manage']],
-  [/^\/reports$/, 'owner'],
+  // Reportes: el dueño ve Ventas y Balance general; con "Finanzas", solo el Balance (/reports lo lleva a /reports/balance).
+  [/^\/reports$/, ['finance']],
+  [/^\/reports\/balance$/, ['finance']],
   [/^\/business$/, 'owner'],
   [/^\/subscription$/, 'owner'],
   [/^\/cash-opening$/, 'owner'],
   [/^\/cash-close$/, 'owner'],
   [/^\/sale\/new$/, ['services_record']],
   [/^\/sales-today$/, ['services_record']],
+  [/^\/orders$/, ['services_record']],
+  // Finanzas: solo el dueño o quien tenga el permiso "finance" (la API responde 403 a cualquier otro).
+  [/^\/expenses$/, ['finance']],
 ];
 
 /** Requisito de una ruta de la app; `undefined` = abierta a cualquier sesión (inicio, Ajustes, perfil). */

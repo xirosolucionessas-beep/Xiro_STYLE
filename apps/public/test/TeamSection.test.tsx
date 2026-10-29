@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { TeamSection } from '../src/profile/TeamSection';
 
 const service = (over: Partial<PublicServiceDto> = {}): PublicServiceDto => ({ id: 'svc1', name: 'Corte', category: 'Cabello', description: '', price: 30_000, durationMinutes: 30, image: null, images: [], variants: [], ...over });
-const member = (over: Partial<PublicTeamMemberDto> = {}): PublicTeamMemberDto => ({ id: 'm1', name: 'Ana Ríos', bio: '', photoUrl: null, serviceIds: [], ...over });
+const member = (over: Partial<PublicTeamMemberDto> = {}): PublicTeamMemberDto => ({ id: 'm1', name: 'Ana Ríos', bio: '', specialty: '', rating: null, photoUrl: null, serviceIds: [], ...over });
 
 describe('TeamSection', () => {
   it('sin profesionales, no dibuja nada', () => {
@@ -43,5 +43,14 @@ describe('TeamSection', () => {
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe('TeamSection: especialidad y calificación (Fase 3)', () => {
+  it('muestra la especialidad y la calificación con un nombre accesible; sin reseñas, ninguna calificación', () => {
+    render(<TeamSection team={[member({ specialty: 'Colorista', rating: { average: 4.75, count: 12 } }), member({ id: 'm2', name: 'Luis', rating: { average: null, count: 0 } })]} services={[]} language="es" />);
+    expect(screen.getByText('Colorista')).toBeTruthy();
+    expect(screen.getByLabelText('Calificación 4,8 de 5, 12 reseñas')).toBeTruthy();
+    expect(screen.queryAllByLabelText(/Calificación/)).toHaveLength(1);
   });
 });

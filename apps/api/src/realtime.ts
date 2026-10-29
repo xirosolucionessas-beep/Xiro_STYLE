@@ -5,9 +5,12 @@ import { poolOptions } from './db/client';
 
 const CHANNEL = 'appointments_changed';
 
+/** Qué cambió: las citas (la Agenda) o los pedidos de productos (Pedidos). */
+export type RealtimeKind = 'appointments' | 'orders';
+
 export interface RealtimeBus {
-  /** Se llama cada vez que algo cambió en las citas de ESE negocio. Devuelve la función para dejar de escuchar. */
-  onBusiness(businessId: string, handler: () => void): () => void;
+  /** Se llama cada vez que algo cambió en las citas o pedidos de ESE negocio. Devuelve la función para dejar de escuchar. */
+  onBusiness(businessId: string, handler: (kind: RealtimeKind) => void): () => void;
   close(): Promise<void>;
 }
 
@@ -27,12 +30,14 @@ export function createRealtimeBus(config: DatabaseConfig, log: (line: string) =>
   function connect(): void {
     if (closed) return;
     const options = poolOptions(config);
-    const c = new pg.Client({ connectionString: options.connectionString, ssl: options.ssl });
+    // LISTEN exige una sesión fija: nunca a través de PgBouncer en modo transacción (`directUrl`, ver config.ts).
+    const c = new pg.Client({ connectionString: config.directUrl ?? options.connectionString, ssl: options.ssl });
     client = c;
     c.on('notification', (msg) => {
       try {
-        const { businessId } = JSON.parse(msg.payload ?? '{}') as { businessId?: string };
-        if (businessId) emitter.emit(businessId);
+        const { businessId, kind } = JSON.parse(msg.payload ?? '{}') as { businessId?: string; kind?: string };
+        // Sin `kind` (el aviso del trigger de citas, ver 0009) = citas, como siempre.
+        if (businessId) emitter.emit(businessId, kind === 'orders' ? 'orders' : 'appointments');
       } catch {
         // Aviso con un payload que no es el que manda el disparador: se ignora, nunca debe tumbar el proceso.
       }

@@ -268,3 +268,44 @@ describe('seguridad: restablecer la contraseña avisa a esa persona', () => {
     expect(list.notifications).toMatchObject([{ category: 'security', titleKey: 'push_security_password_changed_title' }]);
   });
 });
+
+describe('Web Push: solo servicios de push reales (Fase 3, SSRF)', () => {
+  it('registrar un endpoint interno o arbitrario → 400; el de un navegador real se acepta', async () => {
+    const biz = await setupBiz(app, 'PushSSRF');
+    const keys = { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' };
+    for (const endpoint of ['http://169.254.169.254/latest/meta-data/', 'https://localhost:3000/api/admin', 'https://intranet.empresa.local/x']) {
+      const res = await app.inject({ method: 'POST', url: '/api/notifications/register', headers: auth(biz.session), payload: { platform: 'web', endpoint, keys } });
+      expect(res.statusCode, endpoint).toBe(400);
+    }
+    const ok = await app.inject({ method: 'POST', url: '/api/notifications/register', headers: auth(biz.session), payload: { platform: 'web', endpoint: 'https://fcm.googleapis.com/fcm/send/abc123', keys } });
+    expect(ok.statusCode).toBeLessThan(300);
+  });
+});
+
+describe('sonido de Xiro en los push nativos', () => {
+  const tokenRow = async (token: string) => (await testDb.pool.query<{ custom_sound: boolean; platform: string }>(`select custom_sound, platform from push_tokens where token = $1`, [token])).rows[0];
+
+  it('el registro guarda si el build trae el sonido; re-registrar el mismo token lo actualiza; la web nunca lo marca', async () => {
+    const biz = await setupBiz(app, 'Sonido');
+    const token = `ExponentPushToken[sonido-${Date.now()}]`;
+    const register = (payload: object) => app.inject({ method: 'POST', url: '/api/notifications/register', headers: auth(biz.session), payload });
+
+    expect((await register({ platform: 'expo', token })).statusCode).toBeLessThan(300);
+    expect(await tokenRow(token)).toEqual({ custom_sound: false, platform: 'expo' }); // build anterior: como siempre
+    expect((await register({ platform: 'expo', token, customSound: true })).statusCode).toBeLessThan(300);
+    expect((await tokenRow(token))?.custom_sound).toBe(true); // misma instalación, ya actualizada
+    expect((await testDb.pool.query(`select count(*)::int as n from push_tokens where token = $1`, [token])).rows[0].n).toBe(1);
+
+    const endpoint = 'https://fcm.googleapis.com/fcm/send/sonido-web';
+    // En la web el sonido lo pone la página: aunque un cliente lo envíe, nunca se marca.
+    expect((await register({ platform: 'web', endpoint, keys: { p256dh: 'p', auth: 'a' }, customSound: true })).statusCode).toBeLessThan(300);
+    expect((await tokenRow(endpoint))?.custom_sound).toBe(false);
+  });
+
+  it('solo los dispositivos con el sonido reciben `sound` y el canal de Android; los demás, el mensaje de siempre', async () => {
+    const { expoMessage } = await import('../src/push');
+    const text = { title: 'Nueva cita', body: 'Mañana 10:00' };
+    expect(expoMessage({ token: 'old', customSound: false }, text, { url: '/agenda' })).toEqual({ to: 'old', ...text, data: { url: '/agenda' } });
+    expect(expoMessage({ token: 'new', customSound: true }, text, { url: '/agenda' })).toEqual({ to: 'new', ...text, data: { url: '/agenda' }, sound: 'xiro_notification.wav', channelId: 'xiro_alerts' });
+  });
+});

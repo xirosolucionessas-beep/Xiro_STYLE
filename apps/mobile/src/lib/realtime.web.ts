@@ -12,6 +12,16 @@ const RETRY_MS = 5_000;
  * con un ticket nuevo unos segundos después, porque el viejo ya no vale.
  */
 export function useRealtimeAppointments(onChange: () => void): void {
+  useRealtimeEvent('appointments', onChange);
+}
+
+/** Igual, para los pedidos de productos de la página pública (pantalla Pedidos). */
+export function useRealtimeOrders(onChange: () => void): void {
+  useRealtimeEvent('orders', onChange);
+}
+
+/** El mismo stream lleva `appointments` (citas) y `orders` (pedidos): cada pantalla escucha solo lo suyo. */
+function useRealtimeEvent(event: 'appointments' | 'orders', onChange: () => void): void {
   const onChangeRef = useRef(onChange);
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -29,7 +39,7 @@ export function useRealtimeAppointments(onChange: () => void): void {
         if (closed) return;
         const es = new EventSource(`${apiBaseUrl()}/api/booking/events?ticket=${encodeURIComponent(ticket)}`);
         source = es;
-        es.addEventListener('appointments', () => onChangeRef.current());
+        es.addEventListener(event, () => onChangeRef.current());
         es.onerror = () => {
           es.close();
           if (source === es) source = null;
@@ -46,5 +56,5 @@ export function useRealtimeAppointments(onChange: () => void): void {
       clearTimeout(retryTimer);
       source?.close();
     };
-  }, []);
+  }, [event]);
 }

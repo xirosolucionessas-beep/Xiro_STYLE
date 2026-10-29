@@ -54,6 +54,11 @@ const remembers = () => {
   }
 };
 
+/** "Recordarme": la API lo usa para dar una cookie persistente (30 días) o de sesión del navegador. */
+export function remembersSession(): boolean {
+  return remembers();
+}
+
 const session = (): Storage | null => {
   try {
     return window.sessionStorage;

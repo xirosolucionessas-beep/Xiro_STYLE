@@ -2,6 +2,7 @@ import { Ico } from '../icons';
 import { Button } from '../ui';
 import { EmptyPanel, KpiRow, LoadingRows, Panel, type KpiView } from '../ui/Page';
 import { useWebStyles } from '../ui/shared';
+import { LoadMore, type LoadMoreState } from '../ui/LoadMore';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 
@@ -18,7 +19,7 @@ export interface ClientDetailViewProps {
   /** Filas ya formateadas; "—" cuando no hay dato. */
   rows: Array<{ id: string; label: string; value: string; href?: string }>;
   /** null: esta persona no puede ver los registros de servicio. */
-  history: { loading: boolean; rows: HistoryRowView[] } | null;
+  history: { loading: boolean; rows: HistoryRowView[]; pagination?: LoadMoreState } | null;
   kpis: KpiView[];
   whatsappHref?: string;
   callHref?: string;
@@ -29,10 +30,12 @@ export interface ClientDetailViewProps {
   /** Derecho de supresión (Ley 1581): borra los datos identificables y conserva el historial. */
   anonymizing: boolean;
   onAnonymize: () => void;
+  /** Programa de cumpleaños: estado en palabras (sin fecha ni edad) y, si hay recompensa disponible, el WhatsApp preparado. */
+  birthday?: { text: string; whatsappHref?: string } | null;
 }
 
 /** Ficha de cliente: contacto, indicadores e historial real de servicios, con las mismas acciones que la nativa (WhatsApp, llamar, editar, eliminar datos, eliminar). */
-export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHref, deleting, onEdit, onDelete, canManage, anonymizing, onAnonymize }: ClientDetailViewProps) {
+export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHref, deleting, onEdit, onDelete, canManage, anonymizing, onAnonymize, birthday }: ClientDetailViewProps) {
   useWebStyles();
   return (
     <div className="xw-section">
@@ -49,6 +52,25 @@ export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHre
               ))}
             </dl>
           </Panel>
+
+          {birthday ? (
+            <Panel title={t('birthday_status_title')}>
+              <p role="status" style={{ margin: 0 }}>
+                {birthday.text}
+              </p>
+              {birthday.whatsappHref ? (
+                <>
+                  <div className="xw-detail-actions">
+                    <a className="xw-btn xw-btn--secondary" href={birthday.whatsappHref} target="_blank" rel="noopener noreferrer">
+                      <Ico name="message-circle" size={18} />
+                      <span>{t('birthday_whatsapp')}</span>
+                    </a>
+                  </div>
+                  <p className="xw-hint">{t('birthday_whatsapp_note')}</p>
+                </>
+              ) : null}
+            </Panel>
+          ) : null}
 
           <Panel title={t('sec_cd_actions')}>
             <div className="xw-detail-actions" style={{ marginTop: 0 }}>
@@ -104,6 +126,7 @@ export function ClientDetailView({ t, rows, history, kpis, whatsappHref, callHre
                 ))}
               </ul>
             ) : null}
+            {history.pagination && history.rows.length > 0 ? <LoadMore state={history.pagination} t={t} /> : null}
           </Panel>
         ) : null}
       </div>

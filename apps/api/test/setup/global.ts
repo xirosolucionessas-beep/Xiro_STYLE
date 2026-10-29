@@ -11,6 +11,17 @@ declare module 'vitest' {
   }
 }
 
+// embedded-postgres registra (vía async-exit-hook) un manejador de 'beforeExit' que llama a process.exit(0) y borra el
+// código de salida que Vitest fija al fallar una prueba: la suite fallaba y el CI la daba por buena. Se restaura aquí.
+let failedExitCode: number | undefined;
+process.prependListener('beforeExit', () => {
+  const code = Number(process.exitCode ?? 0);
+  if (code !== 0) failedExitCode = code;
+});
+process.on('exit', () => {
+  if (failedExitCode !== undefined && Number(process.exitCode ?? 0) === 0) process.exitCode = failedExitCode;
+});
+
 const freePort = () =>
   new Promise<number>((resolve, reject) => {
     const server = net.createServer();
@@ -39,8 +50,20 @@ export default async function setup(project: TestProject) {
   await server.start();
   project.provide('pgAdminUrl', `postgres://xiro:xiro@127.0.0.1:${port}/postgres`);
 
+  // En Windows y con mucha carga, PostgreSQL puede retener su carpeta temporal tras detenerse (EBUSY/EPERM), tanto al
+  // borrarla `stop()` (persistent: false) como aquí. Es limpieza, no el resultado de una prueba: se avisa con la ruta en vez
+  // de fallar el cierre. Cualquier otro error sí falla.
+  const tolerateLockedDir = (error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EBUSY' && code !== 'EPERM') throw error;
+    console.warn(`[pruebas] no se pudo borrar la carpeta temporal de PostgreSQL (${code}): ${dir}`);
+  };
   return async () => {
-    await server.stop();
-    rmSync(dir, { recursive: true, force: true });
+    await server.stop().catch(tolerateLockedDir);
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (error) {
+      tolerateLockedDir(error);
+    }
   };
 }

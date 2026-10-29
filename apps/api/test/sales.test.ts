@@ -88,7 +88,7 @@ describe('registrar una venta', () => {
     const sale = res.json<SaleDto>();
     expect(sale.items[0]).toMatchObject({ itemId: null, name: 'Peinado especial', unitPrice: 45000 });
 
-    const items = await send(owner, 'GET', '/api/items').then((r) => r.json<Item[]>());
+    const items = await send(owner, 'GET', '/api/items').then((r) => r.json<{ data: Item[] }>().data);
     expect(items.some((i) => i.name === 'Peinado especial')).toBe(false);
 
     const saved = await createSale(owner, {
@@ -97,7 +97,7 @@ describe('registrar una venta', () => {
       payments: [{ method: 'cash', amount: 50000 }],
     });
     expect(saved.statusCode).toBe(201);
-    const itemsAfter = await send(owner, 'GET', '/api/items').then((r) => r.json<Item[]>());
+    const itemsAfter = await send(owner, 'GET', '/api/items').then((r) => r.json<{ data: Item[] }>().data);
     expect(itemsAfter.some((i) => i.name === 'Peinado con guardado' && i.price === 50000)).toBe(true);
   });
 
@@ -149,7 +149,7 @@ describe('registrar una venta', () => {
     const b = await createSale(owner, { occasional: true, lines: [{ kind: 'service', itemId: service.id, quantity: 1 }], payments: [{ method: 'cash', amount: 10000 }] });
     expect(a.json<SaleDto>().clientName).toBe('Alguien');
     expect(b.json<SaleDto>().clientName).toBe('Cliente ocasional');
-    const directory = await send(owner, 'GET', '/api/clients').then((r) => r.json<Array<{ name: string }>>());
+    const directory = await send(owner, 'GET', '/api/clients').then((r) => r.json<{ data: Array<{ name: string }> }>().data);
     expect(directory.some((c) => c.name === 'Cliente ocasional')).toBe(false);
   });
 });

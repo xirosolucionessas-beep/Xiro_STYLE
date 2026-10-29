@@ -219,7 +219,8 @@ describe('qué puede hacer un empleado', () => {
     const viewer = await createEmployee(owner, ['catalog_view']);
     const seen = (await app.inject({ method: 'GET', url: `/api/items/${item.id}`, headers: auth(viewer.session) })).json<Item>();
     expect(seen).toMatchObject({ name: 'Corte', price: 30000, internalUnitCost: 0, internalNotes: '' });
-    const list = (await app.inject({ method: 'GET', url: '/api/items', headers: auth(viewer.session) })).json<Item[]>();
+    const list = (await app.inject({ method: 'GET', url: '/api/items', headers: auth(viewer.session) })).json<{ data: Item[] }>().data;
+    expect(list.length).toBeGreaterThan(0);
     expect(JSON.stringify(list)).not.toContain('NOTA-SECRETA');
 
     const manager = await createEmployee(owner, ['catalog_manage']);
@@ -265,7 +266,7 @@ describe('aislamiento entre negocios', () => {
     expect((await app.inject({ method: 'GET', url: '/api/employees', headers: auth(ownerA) })).json<Employee[]>().map((e) => e.id)).toEqual([a.employee.id]);
     expect(await status(ownerB, 'PATCH', `/api/employees/${a.employee.id}`, { active: false })).toBe(404);
     expect(await status(a.session, 'GET', '/api/clients')).toBe(200);
-    const clientsSeenByA = (await app.inject({ method: 'GET', url: '/api/clients', headers: auth(a.session) })).json<Array<{ id: string }>>();
+    const clientsSeenByA = (await app.inject({ method: 'GET', url: '/api/clients', headers: auth(a.session) })).json<{ data: Array<{ id: string }> }>().data;
     expect(clientsSeenByA.map((c) => c.id)).not.toContain(clientB.id);
     expect(await status(a.session, 'GET', `/api/clients/${clientB.id}`)).toBe(404);
     expect(await status(a.session, 'PUT', `/api/clients/${clientB.id}`, { name: 'Hackeado' })).toBe(404);

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { PUBLIC_SECTIONS, type BookingAdminSettings, type PickedLocation, type PublicProfileInput } from '@xiro/shared';
+import { brandAccent, DEFAULT_ACCENT, PUBLIC_SECTIONS, type BookingAdminSettings, type PickedLocation, type PublicProfileInput } from '@xiro/shared';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { api } from '@/lib/api';
@@ -7,20 +7,23 @@ import { pickFromLibrary, uploadableImage } from '@/lib/images';
 import { keys } from '@/lib/queries';
 import { useAuthed, useSession } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
-import { Button } from '../Button';
 import { useDialogs } from '../Dialogs';
 import { Field } from '../Field';
-import { Photo, SectionTitle, ToggleRow } from '../Kit';
+import { Photo } from '../Kit';
+import { Button, SectionTitle, ToggleRow } from './PanelKit';
 import { AppText } from '../Text';
 import { LocationPicker } from './LocationPicker';
 import { useAction } from './useAction';
 
 const MAX_GALLERY = 8;
+const HEX = /^#[0-9a-f]{6}$/i;
+/** Colores sugeridos para la marca (el negocio puede escribir cualquier otro): neutros, para cualquier tipo de negocio. */
+const ACCENT_PRESETS = ['#c5a059', '#d4af37', '#1f4e79', '#2e7d5b', '#b4446c', '#6b4fa0', '#c2552d', '#2b2b2b'];
 const isUrl = (value: string) => value === '' || /^https?:\/\/\S+$/i.test(value);
 
 /** Cómo se presenta el negocio en su página: textos, redes, ubicación, secciones visibles, portada y galería. */
 export function InfoTab({ data }: { data: BookingAdminSettings }) {
-  const { t } = useSettings();
+  const { t, theme } = useSettings();
   const { toast, confirm } = useDialogs();
   const queryClient = useQueryClient();
   const { business } = useAuthed();
@@ -60,11 +63,14 @@ export function InfoTab({ data }: { data: BookingAdminSettings }) {
   }
 
   const set = (key: keyof typeof form) => (value: string) => setForm((c) => ({ ...c, [key]: value }));
+  // Vista previa con los MISMOS tonos que verá la página (contraste garantizado), en el tema con que se mira el panel.
+  const accentPreview = brandAccent(HEX.test(form.accentColor.trim()) ? form.accentColor.trim() : null)[theme === 'light' ? 'light' : 'dark'];
   const refresh = () => queryClient.invalidateQueries({ queryKey: keys.bookingSettings });
 
   async function submit() {
     const found: Record<string, string> = {};
     for (const key of ['instagram', 'facebook', 'tiktok', 'website'] as const) if (!isUrl(form[key].trim())) found[key] = t('bk_err_url');
+    if (form.accentColor.trim() && !HEX.test(form.accentColor.trim())) found.accentColor = t('bk_accent_invalid');
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
@@ -84,6 +90,10 @@ export function InfoTab({ data }: { data: BookingAdminSettings }) {
       mapAddress: location?.address ?? '',
       placeId: location?.placeId ?? null,
       sections,
+      // Marca (Fase 3): '' = dorado por defecto; los avisos vacíos no se guardan.
+      accentColor: form.accentColor.trim() ? form.accentColor.trim().toLowerCase() : null,
+      bookingTitle: form.bookingTitle.trim(),
+      trustBadges: [form.badge1, form.badge2, form.badge3].map((b) => b.trim()).filter(Boolean),
     };
     const saved = await save.run(() => api.saveBookingProfile(body));
     if (!saved) return;
@@ -118,7 +128,8 @@ export function InfoTab({ data }: { data: BookingAdminSettings }) {
   return (
     <View>
       <SectionTitle>{t('bk_cover')}</SectionTitle>
-      <Photo url={p.coverUrl} icon="image-outline" />
+      {/* Vista previa compacta de la portada (16:9, ancho máximo): no ocupa media pantalla. */}
+      <Photo url={p.coverUrl} icon="image-outline" style={{ aspectRatio: 16 / 9, maxWidth: 480, borderRadius: 14 }} />
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
         <Button label={p.coverUrl ? t('bk_cover_change') : t('bk_cover_add')} icon="image-outline" variant="secondary" compact loading={media.busy} onPress={() => void chooseCover()} />
         {p.coverUrl ? (
@@ -163,6 +174,50 @@ export function InfoTab({ data }: { data: BookingAdminSettings }) {
       <Field label={t('bk_description')} value={form.description} onChangeText={set('description')} multiline maxLength={2000} error={save.fields.description} />
       <Field label={t('bk_conditions')} value={form.conditions} onChangeText={set('conditions')} hint={t('bk_conditions_hint')} multiline maxLength={1500} error={save.fields.conditions} />
       <Field label={t('bk_privacy')} value={form.privacyPolicy} onChangeText={set('privacyPolicy')} hint={t('bk_privacy_hint')} multiline maxLength={8000} error={save.fields.privacyPolicy} />
+
+      <SectionTitle>{t('bk_brand_title')}</SectionTitle>
+      <AppText variant="small" tone="muted" style={{ marginBottom: 8 }}>
+        {t('bk_brand_hint')}
+      </AppText>
+      <AppText variant="label" style={{ marginBottom: 6 }}>
+        {t('bk_accent')}
+      </AppText>
+      <View style={styles.swatches} accessibilityRole="radiogroup" accessibilityLabel={t('bk_accent')}>
+        {ACCENT_PRESETS.map((color) => {
+          const selected = (form.accentColor.trim().toLowerCase() || DEFAULT_ACCENT) === color;
+          return (
+            <Pressable
+              key={color}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              accessibilityLabel={color === DEFAULT_ACCENT ? t('bk_accent_default') : color}
+              onPress={() => setForm((c) => ({ ...c, accentColor: color === DEFAULT_ACCENT ? '' : color }))}
+              style={[styles.swatch, { backgroundColor: color, borderColor: selected ? accentPreview.accentText : 'transparent' }]}
+            />
+          );
+        })}
+      </View>
+      <Field label={t('bk_accent_custom')} value={form.accentColor} onChangeText={set('accentColor')} placeholder={DEFAULT_ACCENT} autoCapitalize="none" maxLength={7} error={errors.accentColor ?? save.fields.accentColor} />
+      <View style={styles.previewRow} accessible accessibilityLabel={t('bk_brand_preview')}>
+        <AppText variant="small" tone="muted">
+          {t('bk_brand_preview')}
+        </AppText>
+        <View style={[styles.previewButton, { backgroundColor: accentPreview.accent }]}>
+          <AppText variant="bodyStrong" style={{ color: accentPreview.onAccent }}>
+            {t('pub_submit_cta')}
+          </AppText>
+        </View>
+      </View>
+      <Field label={t('bk_booking_title')} value={form.bookingTitle} onChangeText={set('bookingTitle')} hint={t('bk_booking_title_hint')} maxLength={60} error={save.fields.bookingTitle} />
+      <AppText variant="label" style={{ marginBottom: 4 }}>
+        {t('bk_trust_badges')}
+      </AppText>
+      <AppText variant="small" tone="muted" style={{ marginBottom: 6 }}>
+        {t('bk_trust_badges_hint')}
+      </AppText>
+      {(['badge1', 'badge2', 'badge3'] as const).map((key, i) => (
+        <Field key={key} label={String(i + 1)} value={form[key]} onChangeText={set(key)} maxLength={60} />
+      ))}
 
       <SectionTitle>{t('bk_contact_title')}</SectionTitle>
       <Field label={t('bk_phone')} value={form.phone} onChangeText={set('phone')} keyboardType="phone-pad" maxLength={30} />
@@ -217,6 +272,11 @@ function toForm(p: BookingAdminSettings['profile']) {
     facebook: p.facebook,
     tiktok: p.tiktok,
     website: p.website,
+    accentColor: p.accentColor ?? '',
+    bookingTitle: p.bookingTitle,
+    badge1: p.trustBadges[0] ?? '',
+    badge2: p.trustBadges[1] ?? '',
+    badge3: p.trustBadges[2] ?? '',
   };
 }
 
@@ -226,5 +286,9 @@ function toLocation(p: BookingAdminSettings['profile']): PickedLocation | null {
 
 const styles = StyleSheet.create({
   gallery: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
+  swatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 3 },
+  previewRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 },
+  previewButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999 },
   remove: { position: 'absolute', top: -6, right: -6, width: 24, height: 24, borderRadius: 12, backgroundColor: '#c53d3d', alignItems: 'center', justifyContent: 'center', borderColor: '#fff', borderWidth: 1 },
 });

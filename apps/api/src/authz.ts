@@ -20,6 +20,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'DELETE /me/photo': 'any',
   'POST /me/phone/request': 'any',
   'POST /me/phone/confirm': 'any',
+  'POST /me/password': 'any',
 
   // Mensajes: chat interno entre personas del mismo negocio, cada quien ve y escribe solo lo suyo.
   'GET /messages/people': 'any',
@@ -33,12 +34,26 @@ export const POLICY: Record<string, PolicyRule> = {
   'GET /business': 'any',
   'PATCH /business': 'owner',
   'PUT /business/logo': 'owner',
+  'DELETE /business': 'owner',
   'GET /cash/today': 'owner',
   'GET /cash/openings': 'owner',
   'POST /cash/opening': 'owner',
-  'GET /expenses': 'owner',
-  'POST /expenses': 'owner',
+  // Gastos (módulo Finanzas): el dueño o un empleado con el permiso "finance".
+  'GET /expenses': ['finance'],
+  'GET /expenses/payees': ['finance'],
+  'GET /expenses/:id': ['finance'],
+  'POST /expenses': ['finance'],
+  'PUT /expenses/:id': ['finance'],
+  'POST /expenses/:id/void': ['finance'],
+  // Balance general (Reportes): las mismas reglas que Gastos.
+  'GET /reports/balance': ['finance'],
+  'GET /reports/balance/movements': ['finance'],
+  'GET /reports/balance/export.pdf': ['finance'],
+  'GET /reports/balance/export.xlsx': ['finance'],
+  'GET /expenses/export.xlsx': ['finance'],
+  'GET /expenses/page': ['finance'],
   'GET /cash/close-summary': 'owner',
+  'GET /cash/day-sales': 'owner',
   'GET /cash/closings': 'owner',
   'GET /cash/closings/:id': 'owner',
   'POST /cash/close': 'owner',
@@ -50,6 +65,7 @@ export const POLICY: Record<string, PolicyRule> = {
   'PATCH /categories/:id': ['catalog_manage'],
   'DELETE /categories/:id': ['catalog_manage'],
   'GET /items': ['catalog_view'],
+  'GET /items/summary': ['catalog_view'],
   'GET /items/:id': ['catalog_view'],
   'POST /items': ['catalog_manage'],
   'PUT /items/:id': ['catalog_manage'],
@@ -62,6 +78,7 @@ export const POLICY: Record<string, PolicyRule> = {
 
   // Clientes
   'GET /clients': ['clients_view'],
+  'GET /clients/summary': ['clients_view'],
   'GET /clients/:id': ['clients_view'],
   'POST /clients': ['clients_manage'],
   'PUT /clients/:id': ['clients_manage'],
@@ -78,12 +95,35 @@ export const POLICY: Record<string, PolicyRule> = {
   'POST /sales': ['services_record'],
   'POST /sales/:id/void': 'owner',
 
+  // Pedidos de productos de la página pública: los atiende quien registra ventas (entregar = registrar la venta).
+  'GET /orders': ['services_record'],
+  'GET /orders/summary': ['services_record'],
+  'GET /orders/:id': ['services_record'],
+  'POST /orders/:id/ready': ['services_record'],
+  'POST /orders/:id/cancel': ['services_record'],
+
+  // Códigos de descuento de la página pública (Fase 4): los gestiona quien gestiona la página.
+  'GET /discount-codes': ['public_page_manage'],
+  'POST /discount-codes': ['public_page_manage'],
+  'PUT /discount-codes/:id': ['public_page_manage'],
+  'DELETE /discount-codes/:id': ['public_page_manage'],
+  // Lista de espera: ver a TODA la gente que espera es de quien ve la agenda completa o gestiona la página (donde se activa).
+  'GET /waitlist': ['agenda_all', 'public_page_manage'],
+  'POST /waitlist/:id/cancel': ['agenda_all', 'public_page_manage'],
+
   // Servicios realizados y fidelización (la configuración del programa es del dueño)
   'GET /service-records': ['services_record'],
+  'GET /service-records/summary': ['services_record'],
+  'GET /service-records/by-client': ['services_record'],
   'POST /service-records': ['services_record'],
+  // Programa de cumpleaños: configurarlo es del dueño; el estado de un cliente lo ve quien ve clientes o cobra en caja.
+  'GET /birthday/program': 'owner',
+  'PUT /birthday/program': 'owner',
+  'GET /clients/:id/birthday': ['clients_view', 'services_record'],
   'GET /loyalty/program': ['services_record', 'loyalty_redeem'],
   'PUT /loyalty/program': 'owner',
   'GET /loyalty/clients': ['loyalty_redeem', 'services_record'],
+  'GET /loyalty/summary': ['loyalty_redeem', 'services_record'],
   'GET /loyalty/redemptions': ['loyalty_redeem'],
   'POST /loyalty/clients/:clientId/redeem': ['loyalty_redeem'],
 
@@ -163,11 +203,21 @@ export const POLICY: Record<string, PolicyRule> = {
 
   // Equipo y bitácora
   'GET /employees': 'owner',
+  'GET /employees/quota': 'owner',
   'POST /employees': 'owner',
   'PATCH /employees/:id': 'owner',
   'PUT /employees/:id/photo': 'owner',
   'DELETE /employees/:id/photo': 'owner',
   'GET /audit-logs': 'owner',
+
+  // Asistente de negocio (Fase A): una sola ruta sirve preguntas con distinto permiso según `question` (ventas, caja,
+  // finanzas, inventario, equipo, suscripción) — no una regla fija por URL como el resto de esta tabla. Por eso es
+  // 'any' aquí: la ruta exige el permiso de CADA pregunta puntual en su propio código (ver requireQuestionAccess en
+  // routes/assistant.ts), nunca confiando en que llegar a la ruta ya autorizó nada.
+  'GET /assistant/catalog': 'any',
+  'GET /assistant/ask': 'any',
+  // Foto de un producto → comparación local contra el inventario: igual permiso que verlo (GET /items).
+  'POST /assistant/image-match': ['catalog_view'],
 };
 
 /** `/api/items/:id` → `/items/:id`; HEAD se rige por la política de GET. */

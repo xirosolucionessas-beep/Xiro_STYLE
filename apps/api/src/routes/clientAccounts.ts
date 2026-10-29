@@ -8,15 +8,18 @@ import {
   clientRegisterSchema,
   clientUpdateProfileSchema,
   publicCancelInputSchema,
+  publicReviewInputSchema,
   type ClientAccountDto,
   type ClientAppointmentDto,
+  type ClientBirthdayDto,
   type ClientSessionDeviceDto,
   type Language,
 } from '@xiro/shared';
 import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { assertClientMayChange, toPublicAppointment, transitionAppointment } from '../booking/appointments';
+import { birthdayStatus, getBirthdayProgram } from '../birthday';
+import { assertClientMayChange, submitReview, toPublicAppointment, transitionAppointment } from '../booking/appointments';
 import { loadContext } from '../booking/availability';
 import { withBusiness, type Tx } from '../booking/scope';
 import { loadProfileRow, resolveSlug } from '../booking/view';
@@ -27,9 +30,10 @@ import { isUniqueViolation } from '../db/errors';
 import { appointments, clientAccounts, clientRecoveryCodes, clientResetTokens, clientSessions, clients, loyaltyPrograms, loyaltyProgress } from '../db/schema';
 import { AppError, notFound, parse } from '../errors';
 import { cancelReminder } from '../jobs/reminders';
+import { onSlotReleased } from '../booking/waitlist';
 import { mediaUrl, removeMedia, saveAvatarImage } from '../media';
 import { formatPushMoment, notifyAppointment } from '../push';
-import { DUMMY_HASH, hashPassword, hmac, randomToken, safeEqualHex, sixDigitCode, verifyPassword } from '../security';
+import { DUMMY_HASH, hashPassword, hmac, needsRehash, randomToken, safeEqualHex, sixDigitCode, verifyPassword } from '../security';
 import type { BusinessRow } from '../serializers';
 
 const RECOVERY_TTL_MS = 10 * 60 * 1000;
@@ -38,7 +42,7 @@ const MAX_RECOVERY_ATTEMPTS = 5;
 
 const slugParams = z.object({ slug: z.string().min(1).max(60) });
 
-function toAccountDto(account: AccountRow): ClientAccountDto {
+function toAccountDto(account: AccountRow, birthDate: string | null): ClientAccountDto {
   return {
     id: account.id,
     name: account.name,
@@ -46,6 +50,7 @@ function toAccountDto(account: AccountRow): ClientAccountDto {
     email: account.email,
     photoUrl: account.photoFile ? mediaUrl(account.photoFile) : null,
     mustChangePassword: account.mustChangePassword,
+    birthDate,
   };
 }
 
@@ -58,19 +63,32 @@ function toAccountDto(account: AccountRow): ClientAccountDto {
  * (`/api/public/booking/<slug>`), así el navegador nunca la envía en peticiones a otro negocio; y, por si acaso,
  * cada ruta protegida vuelve a comprobar que la cuenta de la sesión pertenece al negocio resuelto de la URL.
  */
+/** Cambios de foto por cuenta de cliente en 24 h. */
+const CLIENT_PHOTO_UPLOADS_PER_DAY = 20;
+
 export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
   const { db, config } = ctx;
   const limit = (max: number) => ({ config: { rateLimit: { max, timeWindow: '1 minute' } } });
   const recoveryLimiter = ctx.accountLimiter;
+  const clientPhotoLimiter = ctx.rates.limiter('client-photo', 24 * 60 * 60_000);
   const attempts = config.rateLimit.accountAttempts;
 
-  const guardAccount = (key: string) => {
-    if (config.rateLimit.enabled && recoveryLimiter.count(key) >= attempts) {
-      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(recoveryLimiter.retryAfterSeconds(key)) });
+  // Bloqueo temporal por cuenta (teléfono en ese negocio) y por IP (una IP probando muchos teléfonos).
+  const ipLimiter = ctx.rates.limiter('client-login-ip', config.rateLimit.accountWindowMinutes * 60_000);
+  const ipAttempts = attempts * 5;
+  const guardAccount = async (key: string, ip?: string) => {
+    if (!config.rateLimit.enabled) return;
+    if ((await recoveryLimiter.count(key)) >= attempts) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await recoveryLimiter.retryAfterSeconds(key)) });
+    }
+    if (ip && (await ipLimiter.count(ip)) >= ipAttempts) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await ipLimiter.retryAfterSeconds(ip)) });
     }
   };
-  const failAccount = (key: string) => {
-    if (config.rateLimit.enabled) recoveryLimiter.hit(key);
+  const failAccount = async (key: string, ip?: string) => {
+    if (!config.rateLimit.enabled) return;
+    await recoveryLimiter.hit(key);
+    if (ip) await ipLimiter.hit(ip);
   };
 
   async function publishedBusiness(slug: string): Promise<BusinessRow> {
@@ -102,6 +120,12 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
 
   const currentAccount = (request: FastifyRequest, business: BusinessRow) => resolveClientAccount(db, config.jwtSecret, parseCookies(request.headers.cookie)[COOKIE_NAME], business);
 
+  /** La fecha de nacimiento vive en la ficha del cliente del negocio (una sola fuente, la misma que ve el negocio). */
+  async function accountDto(account: AccountRow): Promise<ClientAccountDto> {
+    const [client] = await db.select({ birthDate: clients.birthDate }).from(clients).where(and(eq(clients.id, account.clientId), eq(clients.businessId, account.businessId))).limit(1);
+    return toAccountDto(account, client?.birthDate ?? null);
+  }
+
   async function requireAccount(request: FastifyRequest, business: BusinessRow): Promise<AccountRow> {
     const account = await currentAccount(request, business);
     if (!account) throw new AppError(401, 'unauthorized');
@@ -127,8 +151,8 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
         // Si ya existía (lo creó el negocio antes de que el cliente se registrara), se refresca con sus propios datos
         // — nombre y correo que acaba de escribir él mismo —, sin perder lo que el negocio ya tuviera si no mandó correo.
         const client = existingClient
-          ? (await tx.update(clients).set({ name: input.name, email: input.email ?? existingClient.email }).where(eq(clients.id, existingClient.id)).returning())[0]!
-          : (await tx.insert(clients).values({ businessId: business.id, name: input.name, phone: input.phone, email: input.email ?? null }).returning())[0]!;
+          ? (await tx.update(clients).set({ name: input.name, email: input.email ?? existingClient.email, ...(input.birthDate ? { birthDate: input.birthDate } : {}) }).where(eq(clients.id, existingClient.id)).returning())[0]!
+          : (await tx.insert(clients).values({ businessId: business.id, name: input.name, phone: input.phone, email: input.email ?? null, birthDate: input.birthDate ?? null }).returning())[0]!;
         const [created] = await tx
           .insert(clientAccounts)
           .values({ businessId: business.id, clientId: client.id, phoneE164: input.phone, passwordHash, name: input.name, email: input.email ?? null })
@@ -140,7 +164,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       throw error;
     }
     await issueSession(reply, business, account, input.remember);
-    return reply.status(201).send(toAccountDto(account));
+    return reply.status(201).send(await accountDto(account));
   });
 
   app.post('/:slug/account/login', limit(20), async (request, reply) => {
@@ -148,20 +172,22 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     const input = parse(clientLoginSchema, request.body);
     const key = `client-login:${business.id}:${input.phone}`;
-    guardAccount(key);
+    await guardAccount(key, request.ip);
 
     const account = await findAccount(business.id, input.phone);
     const valid = await verifyPassword(input.password, account?.passwordHash ?? DUMMY_HASH);
     if (!account || !valid) {
-      failAccount(key);
+      await failAccount(key, request.ip);
       throw new AppError(401, 'invalid_credentials');
     }
-    recoveryLimiter.reset(key);
+    await recoveryLimiter.reset(key);
     if (account.disabledAt) throw new AppError(403, 'account_disabled');
 
-    await db.update(clientAccounts).set({ lastLoginAt: new Date() }).where(eq(clientAccounts.id, account.id));
+    // Re-hash transparente a argon2id (hash anterior o parámetros viejos), en la misma escritura del último acceso.
+    const rehash = needsRehash(account.passwordHash) ? { passwordHash: await hashPassword(input.password) } : {};
+    await db.update(clientAccounts).set({ lastLoginAt: new Date(), ...rehash }).where(eq(clientAccounts.id, account.id));
     await issueSession(reply, business, account, input.remember);
-    return toAccountDto(account);
+    return accountDto(account);
   });
 
   app.post('/:slug/account/logout', async (request, reply) => {
@@ -180,7 +206,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     const account = await currentAccount(request, business);
     if (!account) return reply.status(204).send(); // sin sesión: la página sigue para invitados, no es un error
-    return toAccountDto(account);
+    return accountDto(account);
   });
 
   app.put('/:slug/account/me', async (request): Promise<ClientAccountDto> => {
@@ -189,11 +215,13 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const account = await requireAccount(request, business);
     const input = parse(clientUpdateProfileSchema, request.body);
     const changes = { ...(input.name !== undefined ? { name: input.name } : {}), ...(input.email !== undefined ? { email: input.email } : {}) };
-    const [updated] = await db.update(clientAccounts).set(changes).where(eq(clientAccounts.id, account.id)).returning();
+    const [updated] = Object.keys(changes).length > 0 ? await db.update(clientAccounts).set(changes).where(eq(clientAccounts.id, account.id)).returning() : [account];
+    // Fecha de nacimiento (opcional, para el programa de cumpleaños): omitida = sin cambio; null = la quita.
+    if (input.birthDate !== undefined) await db.update(clients).set({ birthDate: input.birthDate }).where(and(eq(clients.id, account.clientId), eq(clients.businessId, business.id)));
     // Mismo cambio en su ficha del directorio del negocio ("Clientes"): el panel nunca debe quedarse con un nombre o
     // correo desactualizado después de que la persona lo corrige ella misma en "Mi perfil".
     if (Object.keys(changes).length > 0) await db.update(clients).set(changes).where(eq(clients.id, account.clientId));
-    return toAccountDto(updated!);
+    return accountDto(updated!);
   });
 
   /**
@@ -205,16 +233,20 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { slug } = parse(slugParams, request.params);
     const business = await publishedBusiness(slug);
     const account = await requireAccount(request, business);
+    // Una cuenta de cliente cambia su foto pocas veces: tope diario por cuenta (además del límite por IP).
+    if (config.rateLimit.enabled && (await clientPhotoLimiter.hit(account.id)) > CLIENT_PHOTO_UPLOADS_PER_DAY) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await clientPhotoLimiter.retryAfterSeconds(account.id)) });
+    }
     const part = await request.file();
     if (!part) throw new AppError(400, 'photo_invalid');
-    const file = await saveAvatarImage(config.mediaDir, await part.toBuffer());
+    const file = await saveAvatarImage(ctx.media, await part.toBuffer());
     if (!file) throw new AppError(400, 'photo_invalid');
     const [clientRow] = await db.select({ photoFile: clients.photoFile }).from(clients).where(eq(clients.id, account.clientId)).limit(1);
     const [updated] = await db.update(clientAccounts).set({ photoFile: file }).where(eq(clientAccounts.id, account.id)).returning();
     await db.update(clients).set({ photoFile: file }).where(eq(clients.id, account.clientId));
-    await removeMedia(config.mediaDir, account.photoFile);
-    await removeMedia(config.mediaDir, clientRow?.photoFile ?? null);
-    return toAccountDto(updated!);
+    await removeMedia(ctx.media, account.photoFile);
+    await removeMedia(ctx.media, clientRow?.photoFile ?? null);
+    return accountDto(updated!);
   });
 
   app.post('/:slug/account/change-password', async (request) => {
@@ -240,7 +272,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     // el archivo que se borra abajo dejaría una imagen rota en "Clientes". Una foto distinta que el negocio haya
     // puesto por su cuenta no se toca.
     if (account.photoFile) await db.update(clients).set({ photoFile: null }).where(and(eq(clients.id, account.clientId), eq(clients.photoFile, account.photoFile)));
-    await removeMedia(config.mediaDir, account.photoFile);
+    await removeMedia(ctx.media, account.photoFile);
     reply.header('Set-Cookie', expiredSessionCookie(COOKIE_NAME, accountPath(business.slug), config.production));
     return reply.status(204).send();
   });
@@ -274,8 +306,8 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     const input = parse(clientRecoverRequestSchema, request.body);
     const key = `client-otp-request:${business.id}:${input.phone}`;
-    if (config.rateLimit.enabled && recoveryLimiter.hit(key) > attempts) {
-      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(recoveryLimiter.retryAfterSeconds(key)) });
+    if (config.rateLimit.enabled && (await recoveryLimiter.hit(key)) > attempts) {
+      throw new AppError(429, 'too_many_requests', undefined, { 'Retry-After': String(await recoveryLimiter.retryAfterSeconds(key)) });
     }
 
     const account = await findAccount(business.id, input.phone);
@@ -298,7 +330,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const business = await publishedBusiness(slug);
     const input = parse(clientRecoverVerifySchema, request.body);
     const key = `client-otp-verify:${business.id}:${input.phone}`;
-    guardAccount(key);
+    await guardAccount(key);
 
     const account = await findAccount(business.id, input.phone);
     const now = new Date();
@@ -306,7 +338,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       ? await db.select().from(clientRecoveryCodes).where(and(eq(clientRecoveryCodes.accountId, account.id), isNull(clientRecoveryCodes.usedAt), gt(clientRecoveryCodes.expiresAt, now))).orderBy(desc(clientRecoveryCodes.createdAt)).limit(1)
       : [];
     if (!account || !code) {
-      failAccount(key);
+      await failAccount(key);
       throw new AppError(400, 'otp_invalid');
     }
 
@@ -316,7 +348,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       .where(and(eq(clientRecoveryCodes.id, code.id), isNull(clientRecoveryCodes.usedAt), lt(clientRecoveryCodes.attempts, MAX_RECOVERY_ATTEMPTS)))
       .returning({ attempts: clientRecoveryCodes.attempts });
     if (!counted || !safeEqualHex(code.codeHash, codeHash(account.id, input.code))) {
-      failAccount(key);
+      await failAccount(key);
       throw new AppError(400, 'otp_invalid');
     }
 
@@ -330,7 +362,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
       await tx.insert(clientResetTokens).values({ tokenHash: tokenHash(resetToken), accountId: account.id, expiresAt: new Date(Date.now() + RESET_TTL_MS) });
       await tx.update(clientAccounts).set({ phoneVerifiedAt: now }).where(eq(clientAccounts.id, account.id));
     });
-    recoveryLimiter.reset(key);
+    await recoveryLimiter.reset(key);
     return { resetToken };
   });
 
@@ -367,6 +399,40 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
   });
 
   /**
+   * Calificar UNA de las propias citas COMPLETADAS desde la página del negocio o "Mi cuenta" (la sesión es la autorización,
+   * igual que al cancelar). Mismo `submitReview` que el enlace de gestión: una reseña por cita, queda "por revisar" hasta que el
+   * negocio la apruebe (solo las aprobadas cuentan en el promedio), y otro negocio o cita ajena → 404.
+   */
+  const reviewLimiter = ctx.rates.limiter('account-review', 3_600_000);
+  app.post('/:slug/account/appointments/:id/review', async (request): Promise<ClientAppointmentDto> => {
+    const { slug, id } = parse(slugParams.extend({ id: z.string().uuid() }), request.params);
+    const input = parse(publicReviewInputSchema, request.body);
+    const business = await publishedBusiness(slug);
+    const account = await requireAccount(request, business);
+    if (config.rateLimit.enabled && (await reviewLimiter.hit(account.id)) > 20) throw new AppError(429, 'too_many_requests');
+    const [owned] = await db.select({ id: appointments.id, professionalId: appointments.professionalId }).from(appointments).where(and(eq(appointments.id, id), eq(appointments.businessId, business.id), eq(appointments.clientAccountId, account.id))).limit(1);
+    if (!owned) throw notFound();
+    let created: { authorName: string; rating: number } | undefined;
+    const dto = await withBusiness(db, business.id, async (tx: Tx) => {
+      const review = await submitReview(tx, business.id, id, input);
+      created = { authorName: review.authorName, rating: review.rating };
+      const bookingContext = await loadContext(tx, business.id);
+      const [row] = await tx.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.businessId, business.id))).limit(1);
+      return { id, ...(await toPublicAppointment(tx, bookingContext, business.id, row!, new Date(), await loadProfileRow(tx, business.id))) };
+    });
+    if (created) {
+      void notifyAppointment(ctx, business.id, owned.professionalId, null, 'reviews', {
+        titleKey: 'push_review_new_title',
+        bodyKey: 'push_review_new_body',
+        params: { author: created.authorName, rating: created.rating },
+        dedupeKey: `review:${id}`,
+        href: '/booking?tab=reviews',
+      });
+    }
+    return dto;
+  });
+
+  /**
    * Cancelar UNA de las propias citas desde "Mi cuenta" (sin enlace de gestión: la sesión ya autenticada es la
    * autorización). Mismas reglas que el flujo del enlace (`assertClientMayChange`: plazo mínimo, límite de cambios) —
    * ninguna lógica de negocio se duplica, el mismo `transitionAppointment` central.
@@ -397,6 +463,7 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
         href: '/agenda',
       });
       void cancelReminder(ctx.boss, id);
+      void onSlotReleased(ctx, business.id, cancelled.startsAt, business.timezone);
     }
     return dto;
   });
@@ -410,5 +477,16 @@ export function clientAccountRoutes(app: FastifyInstance, ctx: Ctx): void {
     const [progress] = await db.select().from(loyaltyProgress).where(and(eq(loyaltyProgress.businessId, business.id), eq(loyaltyProgress.clientId, account.clientId))).limit(1);
     const count = progress?.count ?? 0;
     return { active: true as const, count, goal: program.goal, rewardAvailable: count >= program.goal, rewardMessage: program.rewardMessage };
+  });
+
+  /** Programa de cumpleaños del negocio para ESTA cuenta: estado de su recompensa (si el negocio lo activó). */
+  app.get('/:slug/account/birthday', async (request): Promise<ClientBirthdayDto> => {
+    const { slug } = parse(slugParams, request.params);
+    const business = await publishedBusiness(slug);
+    const account = await requireAccount(request, business);
+    const program = await getBirthdayProgram(db, business.id);
+    if (!program.enabled) return { active: false };
+    const status = await birthdayStatus(db, business.id, account.clientId);
+    return { active: true, hasBirthDate: status.hasBirthDate, validDays: program.validDays, message: program.message, currency: business.currency, reward: status.reward };
   });
 }

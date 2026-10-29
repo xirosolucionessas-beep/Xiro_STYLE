@@ -25,8 +25,10 @@
         "backgroundImage": "./assets/images/android-icon-background.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
+      "permissions": [],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "web": {
@@ -38,7 +40,14 @@
       "expo-router",
       "expo-secure-store",
       "expo-localization",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/sounds/xiro_notification.wav"
+          ]
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -57,10 +66,21 @@
         "expo-image-picker",
         {
           "photosPermission": "Xiro Style accede a tus fotos para el logo y el catálogo.",
-          "cameraPermission": "Xiro Style usa la cámara para fotografiar tus productos y servicios."
+          "cameraPermission": "Xiro Style usa la cámara para fotografiar tus productos y servicios.",
+          "microphonePermission": false
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
+      "./plugins/withAndroidReleaseSigning.js"
     ],
     "extra": {
       "router": {},

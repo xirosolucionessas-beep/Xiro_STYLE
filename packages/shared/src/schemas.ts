@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { birthDateSchema, optionalBirthDateField } from './birthday';
+import type { AccentTokens } from './brand';
 import { CURRENCIES } from './money';
 import { normalizePhone } from './phone';
 import { EMPLOYEE_PERMISSIONS, type EmployeePermission, type Role } from './roles';
@@ -105,6 +107,8 @@ export const clientRegisterSchema = z.object({
   phone: phoneSchema,
   password: passwordSchema,
   email: emailSchema.optional(),
+  /** Opcional: solo se usa para el programa de cumpleaños del negocio (si lo tiene activo). */
+  birthDate: birthDateSchema().optional(),
   acceptTerms: z.literal(true, { error: 'terms_required' }),
   /** "Mantener sesión iniciada" en este dispositivo; por defecto activa. */
   remember: z.boolean().default(true),
@@ -130,7 +134,7 @@ export type ClientRecoverResetInput = z.input<typeof clientRecoverResetSchema>;
 export const clientChangePasswordSchema = z.object({ currentPassword: z.string().min(1, 'required').max(128), newPassword: passwordSchema });
 export type ClientChangePasswordInput = z.input<typeof clientChangePasswordSchema>;
 
-export const clientUpdateProfileSchema = z.object({ name: required(80).optional(), email: emailSchema.nullable().optional() });
+export const clientUpdateProfileSchema = z.object({ name: required(80).optional(), email: emailSchema.nullable().optional(), birthDate: optionalBirthDateField });
 export type ClientUpdateProfileInput = z.input<typeof clientUpdateProfileSchema>;
 
 export const clientDeleteAccountSchema = z.object({ password: z.string().min(1, 'required').max(128) });
@@ -145,6 +149,8 @@ export interface ClientAccountDto {
   photoUrl: string | null;
   /** true justo después de que el negocio restableció la contraseña: debe elegir una propia antes de seguir. */
   mustChangePassword: boolean;
+  /** Fecha de nacimiento que dio el propio cliente (opcional; solo para el programa de cumpleaños). */
+  birthDate: string | null;
 }
 
 export interface ClientSessionDeviceDto {
@@ -167,6 +173,14 @@ export const profileUpdateSchema = z
 /** Cambio de celular: el número nuevo se verifica con un código de un solo uso antes de aplicarse. */
 export const phoneChangeRequestSchema = z.object({ phone: phoneSchema });
 export const phoneChangeConfirmSchema = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'code_invalid') });
+
+/** Cambio de la propia contraseña (dueño o empleado), desde una sesión ya iniciada — ver POST /me/password. */
+export const changeMyPasswordSchema = z.object({ currentPassword: z.string().min(1, 'required').max(128), newPassword: passwordSchema });
+export type ChangeMyPasswordInput = z.input<typeof changeMyPasswordSchema>;
+
+/** Eliminación definitiva del negocio (solo el dueño) — ver DELETE /business. */
+export const deleteBusinessSchema = z.object({ password: z.string().min(1, 'required').max(128) });
+export type DeleteBusinessInput = z.input<typeof deleteBusinessSchema>;
 
 /* ---------- Business ---------- */
 
@@ -224,7 +238,7 @@ export type ItemKind = (typeof ITEM_KINDS)[number];
 
 export const itemInputSchema = z.object({
   name: required(80),
-  categoryId: z.string().min(1, 'required'),
+  categoryId: z.string().min(1, 'required').max(64),
   shortDescription: trimmed(120).default(''),
   description: trimmed(1500).default(''),
   detail: trimmed(60).default(''),
@@ -249,6 +263,8 @@ export const clientInputSchema = z.object({
   phone: phoneSchema.or(z.literal('').transform(() => undefined)).optional(),
   address: trimmed(160).default(''),
   notes: trimmed(1000).default(''),
+  /** Opcional. Omitido = no se cambia (un formulario viejo nunca la borra); null o '' = se quita. */
+  birthDate: optionalBirthDateField,
 });
 export type ClientInput = z.input<typeof clientInputSchema>;
 
@@ -256,8 +272,8 @@ export type ClientInput = z.input<typeof clientInputSchema>;
 
 /** `amount` es opcional: si se omite, el servidor usa el precio actual del item elegido. */
 export const serviceRecordInputSchema = z.object({
-  clientId: z.string().min(1, 'required'),
-  itemId: z.string().min(1, 'required'),
+  clientId: z.string().min(1, 'required').max(64),
+  itemId: z.string().min(1, 'required').max(64),
   amount: z.number().int().min(0).max(1_000_000_000).optional(),
   note: trimmed(300).default(''),
 });
@@ -268,7 +284,7 @@ export const loyaltyProgramUpdateSchema = z.object({
   goal: z.number().int().min(1).max(1000).default(10),
   resetOnRedeem: z.boolean().default(true),
   rewardMessage: trimmed(200).default(''),
-  itemIds: z.array(z.string().min(1)).max(300).default([]),
+  itemIds: z.array(z.string().min(1).max(64)).max(300).default([]),
 });
 export type LoyaltyProgramUpdateInput = z.input<typeof loyaltyProgramUpdateSchema>;
 
@@ -288,10 +304,27 @@ export const notificationSettingsUpdateSchema = z.object({
 });
 export type NotificationSettingsUpdateInput = z.input<typeof notificationSettingsUpdateSchema>;
 
-const expoPushRegisterSchema = z.object({ platform: z.literal('expo'), token: z.string().min(10).max(400) });
+/**
+ * Servicios de Web Push reales (Chrome/Android, Firefox, Safari, Edge). El servidor hace un POST a este `endpoint`, así
+ * que aceptar cualquier URL dejaba usarlo para llamar a direcciones internas (SSRF: 169.254.169.254, localhost…).
+ */
+const PUSH_HOSTS = new Set(['fcm.googleapis.com', 'android.googleapis.com', 'updates.push.services.mozilla.com', 'web.push.apple.com']);
+const PUSH_HOST_SUFFIXES = ['.push.apple.com', '.notify.windows.com'];
+/** https, host sin usuario/contraseña ni puerto, y luego ruta/consulta (sin `URL`: este paquete no depende del DOM). */
+const PUSH_URL = /^https:\/\/([a-z0-9.-]+)(?:[/?][^\s]*)?$/i;
+export function isAllowedPushEndpoint(endpoint: string): boolean {
+  const host = PUSH_URL.exec(endpoint)?.[1]?.toLowerCase();
+  return !!host && (PUSH_HOSTS.has(host) || PUSH_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix)));
+}
+
+/**
+ * `customSound`: el build nativo incluye el sonido de Xiro y su canal de Android. Solo a esos dispositivos se les pide en
+ * el push; las instalaciones anteriores (que no lo envían) siguen recibiendo los avisos exactamente como antes.
+ */
+const expoPushRegisterSchema = z.object({ platform: z.literal('expo'), token: z.string().min(10).max(400), customSound: z.boolean().optional() });
 const webPushRegisterSchema = z.object({
   platform: z.literal('web'),
-  endpoint: z.string().url().max(600),
+  endpoint: z.string().url().max(600).refine(isAllowedPushEndpoint, 'push_endpoint_invalid'),
   keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) }),
 });
 export const pushRegisterSchema = z.discriminatedUnion('platform', [expoPushRegisterSchema, webPushRegisterSchema]);
@@ -324,6 +357,26 @@ export const employeeUpdateSchema = z
   })
   .partial();
 export type EmployeeUpdateInput = z.input<typeof employeeUpdateSchema>;
+
+/**
+ * Máximo de cuentas de EMPLEADO activas por negocio (el dueño no cuenta). Las desactivadas conservan datos e historial y no
+ * ocupan cupo. Un negocio que ya tenía más se conserva tal cual (nadie pierde acceso), pero no puede agregar ni reactivar
+ * hasta bajar del límite. Lo aplica el servidor (POST /employees y reactivar con PATCH), con un candado por negocio.
+ */
+export const EMPLOYEE_ACTIVE_LIMIT = 5;
+
+export interface EmployeeQuotaDto {
+  active: number;
+  limit: number;
+  /** Cupos libres (0 si está en el límite o por encima). */
+  remaining: number;
+  /** true si ya había más activos que el límite (transición: se conservan, no se agregan más). */
+  overLimit: boolean;
+}
+
+export function employeeQuota(active: number, limit = EMPLOYEE_ACTIVE_LIMIT): EmployeeQuotaDto {
+  return { active, limit, remaining: Math.max(0, limit - active), overLimit: active > limit };
+}
 
 /* ---------- Response shapes ---------- */
 
@@ -433,6 +486,8 @@ export interface Client {
   createdAt: string;
   /** Solo en el detalle (no en la lista): si tiene cuenta en la página pública. `null` = no tiene cuenta. */
   onlineAccount?: { lastLoginAt: string | null } | null;
+  /** Solo en el detalle (nunca en listados): fecha de nacimiento opcional (AAAA-MM-DD). */
+  birthDate?: string | null;
 }
 
 export const resetClientPasswordSchema = z.object({ password: passwordSchema.optional() });
@@ -549,7 +604,17 @@ export interface PublicItem {
 }
 
 export interface PublicCatalog {
-  business: { name: string; slug: string; whatsapp: string | null; currency: (typeof CURRENCIES)[number]; logoUrl: string | null };
+  business: {
+    name: string;
+    slug: string;
+    whatsapp: string | null;
+    currency: (typeof CURRENCIES)[number];
+    logoUrl: string | null;
+    /** Tonos de la marca del negocio (Fase 3), ya con contraste garantizado: el catálogo los aplica tal cual. */
+    brand: { light: AccentTokens; dark: AccentTokens };
+    /** Página de reservas moderna, si el negocio la publicó (botón "Reservar en línea"); null si no. */
+    bookingPath: string | null;
+  };
   items: PublicItem[];
 }
 

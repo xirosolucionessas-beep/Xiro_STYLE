@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { discountCodeSchema, type AppliedDiscountDto } from './discounts';
 import { emailSchema, phoneSchema } from './schemas';
 
 /**
@@ -52,7 +53,6 @@ export const slugSchema = z
   .max(40, 'slug_invalid')
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slug_invalid')
   .refine((slug) => !(RESERVED_SLUGS as readonly string[]).includes(slug), 'slug_reserved');
-export const slugInputSchema = z.object({ slug: slugSchema });
 
 /* ---------- Horarios ---------- */
 
@@ -97,6 +97,9 @@ export const customFieldSchema = z.object({
 });
 export type CustomField = z.infer<typeof customFieldSchema>;
 
+/** Opciones de recordatorio (horas antes de la cita) que el negocio puede combinar. */
+export const REMINDER_HOUR_OPTIONS = [1, 2, 3, 6, 12, 24, 48] as const;
+
 export const bookingSettingsInputSchema = z.object({
   slotIntervalMinutes: z.union([z.literal(15), z.literal(30), z.literal(60)]).default(30),
   minNoticeMinutes: z.number().int().min(0).max(10_080).default(60),
@@ -111,6 +114,27 @@ export const bookingSettingsInputSchema = z.object({
   customFields: z.array(customFieldSchema).max(5).default([]),
   /** Un producto publicado que llega a 0 existencias: true = se oculta del catálogo público; false (por defecto) = sigue visible, marcado "Agotado". */
   hideOutOfStockInCatalog: z.boolean().default(false),
+  /** Pedidos de solo productos desde la página pública (recoger y pagar en el local). Apagado por defecto. */
+  productOrdersEnabled: z.boolean().default(false),
+  /* ---- Fase 4: funciones por negocio (apagadas por defecto, salvo el recordatorio de siempre) ---- */
+  /** Horas antes de la cita en que se recuerda (hasta 3 distintas, p. ej. [24, 2]); [] = sin recordatorios. */
+  reminderHours: z
+    .array(z.number().int().refine((h) => (REMINDER_HOUR_OPTIONS as readonly number[]).includes(h), { message: 'validation_error' }))
+    .max(3)
+    .refine((hours) => new Set(hours).size === hours.length, { message: 'validation_error' })
+    .default([3]),
+  /** Lista de espera cuando un día está lleno: avisa al liberarse un horario. */
+  waitlistEnabled: z.boolean().default(false),
+  /** Códigos de descuento en la página pública (validados en el servidor). */
+  discountCodesEnabled: z.boolean().default(false),
+  /** Pedir reseña automáticamente después de una cita completada. */
+  reviewRequestsEnabled: z.boolean().default(false),
+  /** Ofrecer al cliente recordar sus datos en SU dispositivo (con su consentimiento) para reservar más rápido. */
+  rememberCustomerEnabled: z.boolean().default(false),
+  /** Distintivo "Reserva fácil · Sin pago anticipado" en la cabecera pública (el negocio afirma que no cobra por adelantado). */
+  noPrepayBadgeEnabled: z.boolean().default(false),
+  /** Mostrar el campo de comentarios al reservar (encendido por defecto). */
+  customerNotesEnabled: z.boolean().default(true),
 });
 export type BookingSettingsInput = z.input<typeof bookingSettingsInputSchema>;
 export type BookingSettings = z.infer<typeof bookingSettingsInputSchema>;
@@ -139,6 +163,17 @@ export const publicProfileInputSchema = z
     placeId: z.string().trim().min(1).max(300).nullable(),
     sections: z.object(Object.fromEntries(PUBLIC_SECTIONS.map((s) => [s, z.boolean()])) as Record<PublicSection, z.ZodBoolean>).partial(),
     published: z.boolean(),
+    /** Marca del negocio (Fase 3): color de acento #rrggbb (null = dorado por defecto). El contraste lo garantiza `brandAccent`. */
+    accentColor: z
+      .string()
+      .trim()
+      .regex(/^#[0-9a-fA-F]{6}$/, 'validation_error')
+      .transform((value) => value.toLowerCase())
+      .nullable(),
+    /** Título de la página de reservas ('' = "Reserva tu experiencia"). */
+    bookingTitle: trimmed(60),
+    /** Hasta 3 avisos de confianza propios (p. ej. "Sin pago anticipado"). Vacío = ninguno. */
+    trustBadges: z.array(trimmed(60).min(1, 'required')).max(3),
   })
   .partial();
 export type PublicProfileInput = z.input<typeof publicProfileInputSchema>;
@@ -184,6 +219,8 @@ export const professionalInputSchema = z
     bookable: z.boolean(),
     publicName: trimmed(60),
     bio: trimmed(400),
+    /** Especialidad visible en la página pública (p. ej. "Colorista"). */
+    specialty: trimmed(60),
     visible: z.boolean(),
     sortOrder: z.number().int().min(0).max(10_000),
   })
@@ -253,6 +290,8 @@ const customerSchema = z.object({
   notes: trimmed(500).default(''),
   custom: z.record(z.string().max(40), z.string().trim().max(200)).default({}),
 });
+/** Los datos de quien reserva o pide en la página pública (mismas reglas en citas y pedidos de productos). */
+export const publicCustomerSchema = customerSchema;
 
 export const publicBookingInputSchema = z.object({
   selection: bookingSelectionSchema,
@@ -270,6 +309,10 @@ export const publicBookingInputSchema = z.object({
    * por mala señal— devuelve la cita ya creada en vez de fallar o duplicarla. Opcional: sin él, cada envío cuenta como nuevo.
    */
   idempotencyKey: uuidString.optional(),
+  /** Código de descuento (Fase 4, si el negocio los activó). El servidor lo valida y calcula el descuento. */
+  discountCode: discountCodeSchema.optional(),
+  /** Usar la recompensa de cumpleaños de la cuenta con sesión iniciada; el servidor la valida y calcula el descuento. */
+  useBirthdayReward: z.boolean().optional(),
 });
 export type PublicBookingInput = z.input<typeof publicBookingInputSchema>;
 
@@ -353,6 +396,8 @@ export interface AppointmentDto {
   endsAt: string;
   durationMinutes: number;
   totalPrice: number;
+  /** Código de descuento usado (Fase 4): se cobra totalPrice − amount. null = sin descuento. */
+  discount: AppliedDiscountDto | null;
   customerNotes: string;
   internalNotes: string;
   modificationCount: number;
@@ -367,6 +412,7 @@ export interface ProfessionalDto {
   name: string;
   publicName: string;
   bio: string;
+  specialty: string;
   photoUrl: string | null;
   bookable: boolean;
   visible: boolean;
@@ -396,6 +442,8 @@ export interface PublicAppointmentDto {
   endsAt: string;
   durationMinutes: number;
   totalPrice: number;
+  /** Código de descuento usado (Fase 4): total a pagar = totalPrice − amount. */
+  discount: AppliedDiscountDto | null;
   professionalName: string;
   items: AppointmentItemDto[];
   business: {
@@ -455,7 +503,11 @@ export interface PublicServiceDto {
   id: string;
   name: string;
   category: string;
+  /** Texto corto para la lista (la descripción breve, o la completa si no hay breve). */
   description: string;
+  /** Para la ficha de detalle: la descripción completa y el detalle ("Lo que ve tu cliente" en el panel). */
+  fullDescription?: string;
+  detail?: string;
   price: number;
   durationMinutes: number;
   /** La primera (o única) foto, para la miniatura de la lista — igual a `images[0]`. */
@@ -481,6 +533,9 @@ export interface PublicProductDto {
   id: string;
   name: string;
   description: string;
+  /** Para la ficha de detalle: la descripción completa y el detalle. */
+  fullDescription?: string;
+  detail?: string;
   price: number;
   /** La primera (o única) foto, para la miniatura de la lista — igual a `images[0]`. */
   image: string | null;
@@ -493,6 +548,10 @@ export interface PublicTeamMemberDto {
   id: string;
   name: string;
   bio: string;
+  /** Especialidad ('' = no se muestra). */
+  specialty: string;
+  /** Calificación de las reseñas APROBADAS de las citas que atendió; null si el negocio oculta sus reseñas. */
+  rating: { average: number | null; count: number } | null;
   photoUrl: string | null;
   /** Servicios que hace; vacío = todos los reservables. */
   serviceIds: string[];
@@ -547,10 +606,20 @@ export interface PublicBookingProfile {
   openStatus: { open: boolean; changesAt: string | null };
   /** ¿Se puede reservar en línea AHORA? Hay al menos un servicio reservable y alguien que atienda. Si no, la página no ofrece "Reservar". */
   acceptsBookings: boolean;
+  /** ¿Se pueden pedir productos sin cita (recoger y pagar en el local)? El negocio lo activó y tiene al menos un producto disponible. */
+  acceptsProductOrders: boolean;
   rating: { average: number | null; count: number };
   rules: { slotIntervalMinutes: number; maxDaysAhead: number; cancelUntilHours: number; maxModifications: number; requireEmail: boolean; customFields: CustomField[] };
   /** Clave pública de Cloudflare Turnstile para dibujar el widget; null = sin verificación anti-bots configurada (pendiente de credenciales). */
   captchaSiteKey: string | null;
+  /** Marca del negocio (Fase 3): acento (#rrggbb, null = dorado por defecto), título propio ('' = por defecto) y avisos de confianza. */
+  accentColor: string | null;
+  bookingTitle: string;
+  trustBadges: string[];
+  /** Funciones de la Fase 4 que este negocio activó (la página solo muestra las suyas). */
+  features: { waitlist: boolean; discountCodes: boolean; rememberCustomer: boolean; noPrepayBadge: boolean; customerNotes: boolean };
+  /** Tipo de establecimiento (barbería, spa…), para la cabecera. */
+  businessType: string;
 }
 
 /** Los cuatro requisitos para reservar en línea; `ready` = todos cumplidos. Es la única fuente de esta regla (servidor). */
@@ -591,6 +660,9 @@ export interface BookingAdminSettings {
     coverUrl: string | null;
     gallery: Array<{ file: string; url: string }>;
     sections: Record<PublicSection, boolean>;
+    accentColor: string | null;
+    bookingTitle: string;
+    trustBadges: string[];
   };
 }
 

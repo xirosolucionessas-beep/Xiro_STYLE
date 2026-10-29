@@ -1,7 +1,7 @@
 import { formatMoney } from '@xiro/shared';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, Linking } from 'react-native';
-import { publicBaseUrl } from '@/lib/api';
+import { publicItemUrl } from '@/lib/api';
 import { useItem } from '@/lib/queries';
 import { useAuthed } from '@/lib/session';
 import { useSettings } from '@/lib/settings';
@@ -22,7 +22,7 @@ export default function CatalogItemDetail() {
   if (isPending) return <Screen header={<Header title={t('catalog')} />}><ActivityIndicator style={{ marginTop: 40 }} /></Screen>;
   if (!item) return <Screen header={<Header title={t('catalog')} />}><EmptyState icon="book-outline" message={t('not_found')} /></Screen>;
 
-  const publicUrl = `${publicBaseUrl()}/catalog/${business.slug}/item/${item.id}`;
+  const publicUrl = publicItemUrl(business.slug, item.id);
 
   return (
     <Screen header={<Header title={t('catalog')} />}>

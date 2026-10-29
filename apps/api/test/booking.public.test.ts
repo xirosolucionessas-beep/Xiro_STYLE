@@ -6,7 +6,7 @@ import { buildApp } from '../src/app';
 import { hashToken } from '../src/booking/appointments';
 import { verifyCaptcha } from '../src/booking/captcha';
 import { withBusiness } from '../src/booking/scope';
-import { appointments, clients } from '../src/db/schema';
+import { appointments, clients, reviews } from '../src/db/schema';
 import { at, auth, availability, book, createService, nextPhone, publicPayload, setupBiz, stateAt, workday, type Biz } from './helpers/booking';
 import { createTestDatabase, testAppConfig, type TestDatabase } from './helpers/db';
 
@@ -51,7 +51,7 @@ describe('página pública: contenido y lista blanca', () => {
     const everything = profile.body + catalog.body + team.body;
     for (const secret of ['NOTA-SECRETA', 'internalUnitCost', 'internalNotes', 'stock"', 'passwordHash', biz.session.user.email ?? 'no-email', 'owner']) expect(everything).not.toContain(secret);
     expect(team.json()).toEqual([expect.objectContaining({ id: biz.ownerId, name: 'La Dueña' })]);
-    expect(Object.keys(team.json()[0])).toEqual(['id', 'name', 'bio', 'photoUrl', 'serviceIds']);
+    expect(Object.keys(team.json()[0])).toEqual(['id', 'name', 'bio', 'specialty', 'rating', 'photoUrl', 'serviceIds']);
     const products = catalog.json<{ products: Array<Record<string, unknown>> }>().products;
     expect(products[0]).toMatchObject({ name: 'Producto raro', inStock: true });
     expect(products[0]).not.toHaveProperty('stock');
@@ -85,6 +85,37 @@ describe('página pública: contenido y lista blanca', () => {
     expect(body.slots.every((s) => s.state !== 'available')).toBe(true);
     await staffPatch(biz, `/api/professionals/${biz.ownerId}`, { bookable: true }, 'PATCH');
     expect(stateAt((await availability(app, biz, workday(3))).body.slots, '10:00')).toBe('available');
+  });
+});
+
+describe('equipo: especialidad y calificación por profesional', () => {
+  it('muestra la especialidad y el promedio de reseñas APROBADAS de SUS citas; sin reseñas visibles, sin calificación', async () => {
+    const biz = await setupBiz(app, 'Equipo calificado');
+    expect((await staffPatch(biz, `/api/professionals/${biz.ownerId}`, { specialty: 'Colorista' }, 'PATCH')).statusCode).toBe(200);
+    // Tres citas de la dueña con reseñas 5, 4 (aprobadas) y 1 (oculta: no cuenta).
+    const ids: string[] = [];
+    for (const time of ['09:00', '11:00', '14:00']) {
+      expect((await book(app, biz, workday(6), time)).statusCode).toBe(201);
+    }
+    for (const row of await testDb.db.select({ id: appointments.id }).from(appointments).where(eq(appointments.businessId, biz.session.business.id))) ids.push(row.id);
+    await testDb.db.insert(reviews).values([
+      { businessId: biz.session.business.id, appointmentId: ids[0]!, rating: 5, authorName: 'Ana P.', status: 'approved' },
+      { businessId: biz.session.business.id, appointmentId: ids[1]!, rating: 4, authorName: 'Luis G.', status: 'approved' },
+      { businessId: biz.session.business.id, appointmentId: ids[2]!, rating: 1, authorName: 'X Y.', status: 'hidden' },
+    ]);
+    const team = (await app.inject({ method: 'GET', url: `${biz.base}/team` })).json<Array<{ specialty: string; rating: { average: number | null; count: number } | null }>>();
+    expect(team[0]).toMatchObject({ specialty: 'Colorista', rating: { average: 4.5, count: 2 } });
+    expect(JSON.stringify(team)).not.toMatch(/Ana P|Luis G|authorName/);
+
+    // El negocio oculta su sección de reseñas: la calificación por profesional tampoco se muestra.
+    await staffPatch(biz, '/api/booking/profile', { sections: { reviews: false } });
+    const hidden = (await app.inject({ method: 'GET', url: `${biz.base}/team` })).json<Array<{ rating: unknown }>>();
+    expect(hidden[0]!.rating).toBeNull();
+  });
+
+  it('la especialidad tiene tope de 60 caracteres', async () => {
+    const biz = await setupBiz(app, 'Especialidad larga');
+    expect((await staffPatch(biz, `/api/professionals/${biz.ownerId}`, { specialty: 'x'.repeat(61) }, 'PATCH')).statusCode).toBe(400);
   });
 });
 
@@ -136,8 +167,15 @@ describe('disponibilidad', () => {
     const near = workday(3);
     expect(stateAt((await availability(app, biz, near)).body.slots, '10:00')).toBe('available');
     expect((await availability(app, biz, '2020-01-06')).body.slots.every((s) => s.state === 'unavailable')).toBe(true);
+    // Cada día del resumen coincide con su disponibilidad real. No se exige que todo día abierto tenga horarios: según el día
+    // de la semana en que corra la prueba, alguno de estos 3 cae fuera de maxDaysAhead y debe salir sin disponibilidad.
     const summary = await app.inject({ method: 'GET', url: `${biz.base}/days?from=${near}&days=3&services=${biz.serviceId}` });
-    expect(summary.json<Array<{ open: boolean; hasAvailability: boolean }>>().every((d) => d.open === false || d.hasAvailability)).toBe(true);
+    const days = summary.json<Array<{ date: string; open: boolean; hasAvailability: boolean }>>();
+    expect(days).toHaveLength(3);
+    for (const day of days) {
+      const { slots } = (await availability(app, biz, day.date)).body;
+      expect({ date: day.date, hasAvailability: day.hasAvailability }).toEqual({ date: day.date, hasAvailability: slots.some((s) => s.state === 'available') });
+    }
   });
 
   it('rechaza fechas y selecciones inválidas sin llegar a la base de datos', async () => {
@@ -270,7 +308,7 @@ describe('reservar', () => {
     const viaWeb = await book(app, biz, date, '13:00', { customer: { ...customer, phone: existingPhone, firstName: 'Otro', lastName: 'Nombre' } });
     expect(viaWeb.statusCode).toBe(201);
     expect(Object.keys(viaWeb.json())).toEqual(Object.keys(first.json()));
-    const clientsList = (await app.inject({ method: 'GET', url: '/api/clients', headers: auth(biz.session) })).json<Array<{ name: string; phone: string | null }>>();
+    const clientsList = (await app.inject({ method: 'GET', url: '/api/clients', headers: auth(biz.session) })).json<{ data: Array<{ name: string; phone: string | null }> }>().data;
     expect(clientsList.filter((c) => c.phone === existingPhone)).toEqual([expect.objectContaining({ name: 'Nombre Original' })]);
   });
 
@@ -468,6 +506,20 @@ describe('aislamiento entre negocios (A no puede ver ni tocar a B)', () => {
   it('el rol de la aplicación no puede alterar tablas ajenas al módulo (mínimo privilegio)', async () => {
     await expect(testDb.db.transaction(async (tx) => { await tx.execute(sql`set local role xiro_app`); await tx.execute(sql`delete from users`); })).rejects.toBeTruthy();
     await expect(testDb.db.transaction(async (tx) => { await tx.execute(sql`set local role xiro_app`); await tx.execute(sql`update items set price = 1`); })).rejects.toBeTruthy();
+    // Lo mismo DENTRO de withBusiness (que fija rol y negocio en una sola sentencia).
+    await expect(withBusiness(testDb.db, a.session.business.id, (tx) => tx.execute(sql`delete from users`))).rejects.toMatchObject({ cause: { code: '42501' } });
+  });
+
+  it('withBusiness: el rol restringido y el negocio rigen solo dentro de la transacción', async () => {
+    const before = await testDb.db.execute<{ user: string }>(sql`select current_user as "user"`);
+    const inside = await withBusiness(testDb.db, a.session.business.id, (tx) => tx.execute<{ user: string; business: string }>(sql`select current_user as "user", current_setting('app.business_id', true) as business`));
+    expect(inside.rows[0]).toEqual({ user: 'xiro_app', business: a.session.business.id.toLowerCase() });
+    // Al terminar (también si falla), la conexión vuelve al pool con su rol y sin negocio activo.
+    await expect(withBusiness(testDb.db, a.session.business.id, async () => { throw new Error('falla a propósito'); })).rejects.toThrow('falla a propósito');
+    for (let i = 0; i < 12; i += 1) {
+      const after = await testDb.db.execute<{ user: string; business: string | null }>(sql`select current_user as "user", nullif(current_setting('app.business_id', true), '') as business`);
+      expect(after.rows[0]).toEqual({ user: before.rows[0]!.user, business: null });
+    }
   });
 });
 
@@ -559,12 +611,12 @@ describe('reseñas: el cliente reseña su propia cita ya completada', () => {
     expect(again.json()).toMatchObject({ code: 'invalid_transition' });
 
     const staffList = await app.inject({ method: 'GET', url: '/api/booking/reviews?status=pending', headers: auth(biz.session) });
-    expect(staffList.json()).toMatchObject([{ rating: 5, comment: 'Muy buen corte', status: 'pending' }]);
+    expect(staffList.json()).toMatchObject({ data: [{ rating: 5, comment: 'Muy buen corte', status: 'pending' }], nextCursor: null });
     expect(JSON.stringify(staffList.json())).not.toMatch(/laura|correo|573/i); // sin datos de contacto del cliente
 
     // No la muestra la página pública hasta que el negocio la apruebe.
     expect(await (await app.inject({ method: 'GET', url: `${biz.base}/reviews` })).json()).toEqual([]);
-    const reviewId = staffList.json<Array<{ id: string }>>()[0]!.id;
+    const reviewId = staffList.json<{ data: Array<{ id: string }> }>().data[0]!.id;
     await app.inject({ method: 'PATCH', url: `/api/booking/reviews/${reviewId}`, headers: auth(biz.session), payload: { status: 'approved' } });
     expect((await (await app.inject({ method: 'GET', url: `${biz.base}/reviews` })).json()).length).toBe(1);
   });
@@ -574,7 +626,7 @@ describe('reseñas: el cliente reseña su propia cita ya completada', () => {
     const token = await completed(biz);
     await app.inject({ method: 'POST', url: `${biz.base}/appointments/${token}/review`, payload: { rating: 4, comment: '' } });
     const staffList = await app.inject({ method: 'GET', url: '/api/booking/reviews', headers: auth(biz.session) });
-    expect(staffList.json<Array<{ authorName: string }>>()[0]!.authorName).toBe('Ana P.'); // "Ana Pérez" del helper publicPayload
+    expect(staffList.json<{ data: Array<{ authorName: string }> }>().data[0]!.authorName).toBe('Ana P.'); // "Ana Pérez" del helper publicPayload
   });
 
   it('un token de otro negocio no puede reseñar, y valida la calificación', async () => {

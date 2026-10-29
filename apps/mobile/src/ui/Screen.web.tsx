@@ -13,13 +13,13 @@ import type * as Native from './Screen';
 type ScreenProps = ComponentProps<typeof Native.Screen>;
 type HeaderProps = ComponentProps<typeof Native.Header>;
 
-export function Screen({ children, footer, header }: ScreenProps) {
+export function Screen({ children, footer, header, center }: ScreenProps) {
   useWebStyles();
   return (
     <div className="xw-screen">
       {header}
       <div className="xw-scroll">
-        <div className="xw-page">{children}</div>
+        <div className={center ? 'xw-page xw-page--center' : 'xw-page'}>{children}</div>
       </div>
       {footer ? <div className="xw-foot">{footer}</div> : null}
     </div>
@@ -27,7 +27,7 @@ export function Screen({ children, footer, header }: ScreenProps) {
 }
 
 /** Icono de la sección a la que pertenece la pantalla (las sub-pantallas heredan el de su sección). */
-const SECTION_ICON: Record<SectionId, IconName> = { home: 'house', notifications: 'bell', messages: 'message-square', agenda: 'calendar-days', booking: 'globe', reports: 'bar-chart', clients: 'users', services: 'book-open', inventory: 'package', loyalty: 'gift', employees: 'briefcase', settings: 'sliders' };
+const SECTION_ICON: Record<SectionId, IconName> = { home: 'house', notifications: 'bell', messages: 'message-square', agenda: 'calendar-days', orders: 'shopping-bag', expenses: 'wallet', booking: 'globe', reports: 'bar-chart', clients: 'users', services: 'book-open', inventory: 'package', loyalty: 'gift', employees: 'briefcase', settings: 'sliders' };
 
 export function Header({ title, subtitle, onBack, right, root }: HeaderProps) {
   useWebStyles();
